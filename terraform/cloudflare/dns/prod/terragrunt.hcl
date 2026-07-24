@@ -173,20 +173,14 @@ inputs = {
       value   = "7694eb38-c35e-4905-bd2b-16ab7053080a.cfargotunnel.com"
       proxied = true
     },
-    {
-      name    = "dependency-track.sargeant.co"
-      type    = "CNAME"
-      value   = "7694eb38-c35e-4905-bd2b-16ab7053080a.cfargotunnel.com"
-      proxied = true
-    },
-    # The DT frontend SPA calls the API host directly from the browser, so the
-    # apiserver needs its own public hostname (frontend.apiBaseUrl points here).
-    {
-      name    = "dependency-track-api.sargeant.co"
-      type    = "CNAME"
-      value   = "7694eb38-c35e-4905-bd2b-16ab7053080a.cfargotunnel.com"
-      proxied = true
-    },
+    # dependency-track.sargeant.co and dependency-track-api.sargeant.co were
+    # REMOVED: they resolved to the same tunnel and the same two Services as the
+    # magmamoose.com hostnames, so they bypassed the Cloudflare Access apps added
+    # in terraform/cloudflare/zero-trust/prod/access_apps.tf. Paired with the
+    # ingress_rule removal in that leaf's tunnels.tf.
+    # (The old comment here claimed the SPA calls the API host directly from the
+    # browser — that is false: the frontend's /static/config.json API_BASE_URL is
+    # the same-origin dependencytrack.magmamoose.com apex.)
     {
       name    = "pr-dashboard.sargeant.co"
       type    = "CNAME"
