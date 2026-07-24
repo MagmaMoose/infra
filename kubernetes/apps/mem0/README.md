@@ -15,15 +15,27 @@ See ADR `.claude/decisions/2026-07-23-fleet-shared-memory-mem0.md`.
 - `base/mem0/extension-job.yaml` — one-shot Job that `CREATE EXTENSION vector` (needs superuser), ns `database`
 - `base/mem0/externalsecret.yaml`— DATABASE_URL + POSTGRES_PASSWORD + LiteLLM key (OCI Vault), ns `automation`
 - `base/mem0/{deployment,service,ingress}.yaml` — the mem0 REST server, ns `automation`
-- `base/mem0/Dockerfile`         — the image (mem0 server + pgvector deps)
+- `../../../dockerfiles/mem0-server/Dockerfile` — the image (mem0 server + pgvector deps),
+  built by `.github/workflows/docker-publish.yml` like every other image in this repo
 
 ## PREREQUISITES / VALIDATE-ON-FIRST-DEPLOY (read before merging)
 
-1. **Container image must be built + pushed.** The upstream `mem0/mem0-api-server`
-   image does not ship the pgvector client deps (see `Dockerfile`). Build and push
-   `ghcr.io/magmamoose/mem0-server` (ideally from its own repo + CI, matching the
-   github-contributions/nievah convention) before this reconciles, or the Deployment
-   ImagePullBackOffs. Pin a real tag over `:latest`.
+1. **Container image must be built, pushed, AND made public.** The upstream
+   `mem0/mem0-api-server` image does not ship the pgvector client deps, so we layer them
+   on in `dockerfiles/mem0-server/Dockerfile`. `.github/workflows/docker-publish.yml`
+   builds it to `ghcr.io/calebsargeant/mem0-server` on any push to `main` touching that
+   directory (`:latest`), or on a `mem0-server-v*` tag (pinned version). Two gotchas:
+   - **New GHCR packages default to PRIVATE**, and there are no `imagePullSecrets`
+     anywhere in `kubernetes/` — every other image is pulled anonymously. So after the
+     first successful build, flip the package to public or the Deployment
+     ImagePullBackOffs. This is a one-time manual step in the GHCR package settings.
+   - **arm64 only.** The upstream base publishes a manifest index containing
+     `linux/arm64` and nothing else, so the matrix entry overrides `platforms` and the
+     Deployment carries the `node-selectors/native-cloud` component (ff-oci1/ff-oci2).
+     Do not remove that nodeSelector — ff-vm1 is amd64 and simply cannot run this image.
+
+   Do not hand-build and push this from a laptop: it needs a `write:packages` token and
+   yields an artifact nobody can reproduce. The workflow's `GHCR_TOKEN` already has it.
 2. **LiteLLM rollout required.** The LiteLLM ConfigMap in this change adds
    `text-embedding-3-small` and `gpt-4o-mini`. LiteLLM reads its YAML config at startup
    only — after this PR merges and Flux reconciles the ConfigMap, trigger a rollout so
