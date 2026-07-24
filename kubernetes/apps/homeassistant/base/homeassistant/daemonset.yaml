@@ -27,7 +27,8 @@ spec:
             # kustomization.yaml because its `op: add` on containers/0/resources was
             # silently overriding them with 250m/512Mi.
             requests:
-              memory: "694Mi"
+              # ff-vm1 fit (infra#501): request = steady state, obs ~446Mi; 1Gi limit
+              memory: "560Mi"
               cpu: "10m"
             limits:
               # Headroom above the request: HA pulls integrations in at runtime.

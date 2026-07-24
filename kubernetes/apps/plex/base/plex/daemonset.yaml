@@ -19,8 +19,11 @@ spec:
           image: lscr.io/linuxserver/plex:1.43.3 # {"$imagepolicy": "flux-system:plex"}
           resources:
             requests:
-              # Memory is KRR-sized (2026-07): 1178Mi.
-              memory: "1178Mi"
+              # Memory 704Mi, not KRR's 1178Mi — same reasoning as the CPU note
+              # below: 1178Mi is a transcode peak, observed steady state is ~557Mi,
+              # and ff-vm1 cannot reserve every pod's peak (see infra#501).
+              # Transcodes burst into the 1536Mi limit.
+              memory: "704Mi"
               # CPU is a DELIBERATE DEVIATION from KRR, which recommended 1.474.
               # That figure is the P99 of transcode bursts, and as a *request* it
               # would permanently reserve ~18% of ff-vm1 (type=mini, the only node

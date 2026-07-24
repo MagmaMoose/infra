@@ -50,7 +50,8 @@ spec:
             # above is what absorbs the bursts.
             requests:
               cpu: 11m
-              memory: 125Mi
+              # ff-vm1 fit (infra#501): request = steady state, obs ~54Mi; 2Gi limit
+              memory: 104Mi
             limits:
               memory: 2Gi
           livenessProbe:

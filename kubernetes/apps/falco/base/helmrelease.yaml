@@ -39,7 +39,8 @@ spec:
     resources:
       requests:
         cpu: 200m
-        memory: 254Mi
+        # ff-vm1 fit (infra#501): request = steady state, obs ~162Mi; 1Gi limit
+        memory: 208Mi
       limits:
         memory: 1Gi
     # falcoctl sidecars had no requests at all; KRR-sized (2026-07) to 10m/100Mi.

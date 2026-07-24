@@ -33,7 +33,10 @@ spec:
             # kustomization.yaml because its `op: add` on containers/0/resources was
             # silently overriding them with 250m/256Mi.
             requests:
-              memory: "838Mi"
+              # Memory held at 128Mi, not KRR's 838Mi: that is a mid-backup figure
+              # and observed idle is ~75Mi. ff-vm1 cannot reserve every pod's peak
+              # (see infra#501); a running backup bursts into the 1157Mi limit.
+              memory: "128Mi"
               cpu: "130m"
             limits:
               # Headroom above the request: smbd buffers hard during a backup run.

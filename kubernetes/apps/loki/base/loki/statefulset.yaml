@@ -37,7 +37,7 @@ spec:
           resources:
             requests:
               cpu: 25m
-              memory: 454Mi
+              memory: 360Mi
             limits:
               memory: 8Gi
           # Loki's /ready can take >1s during WAL replay / compactions —

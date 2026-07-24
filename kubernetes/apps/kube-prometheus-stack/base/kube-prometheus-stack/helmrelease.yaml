@@ -70,11 +70,13 @@ spec:
         # ~1.7Gi / ~150m here, was over-provisioned at 8Gi/2 cores). No CPU limit
         # (KRR rec: cpu limit -> unset) to avoid CFS throttling on the 16-core
         # ff-vm1 node; memory limit keeps headroom above observed usage.
-        # KRR-sized (2026-07): cpu 158m, memory 2125Mi.
+        # KRR: cpu 158m, memory 2125Mi. Memory request 1700Mi instead — observed
+        # ~1464Mi; the TSDB grows with series count so this keeps ~16% headroom
+        # while the 3Gi limit covers compaction/query spikes. ff-vm1 fit, infra#501.
         resources:
           requests:
             cpu: 158m
-            memory: 2125Mi
+            memory: 1700Mi
           limits:
             memory: 3Gi
         
@@ -89,11 +91,12 @@ spec:
             existingSecret:
               name: thanos-objstore-config
               key: objstore.yml
-          # KRR-sized (2026-07): cpu 10m, memory 187Mi.
+          # KRR: cpu 10m, memory 187Mi. Request 104Mi — observed only ~28Mi; the
+          # 256Mi limit covers upload bursts. ff-vm1 fit, infra#501.
           resources:
             requests:
               cpu: 10m
-              memory: 187Mi
+              memory: 104Mi
             limits:
               memory: 256Mi
         

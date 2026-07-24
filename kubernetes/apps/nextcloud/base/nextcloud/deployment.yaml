@@ -27,7 +27,8 @@ spec:
             # headroom over real usage. CPU request only, no CPU limit (avoid CFS throttling).
             # KRR-sized (2026-07): cpu 10m, memory 293Mi.
             requests:
-              memory: "293Mi"
+              # ff-vm1 fit (infra#501): request = steady state, obs ~200Mi; 384Mi limit
+              memory: "256Mi"
               cpu: "10m"
             limits:
               memory: "384Mi"

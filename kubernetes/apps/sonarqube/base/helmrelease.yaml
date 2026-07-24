@@ -72,6 +72,7 @@ spec:
       # ff-vm1 and only mattered during a scan, which the absent CPU limit covers.
       requests:
         cpu: 11m
-        memory: 2174Mi
+        # ff-vm1 fit (infra#501): request = steady state, obs ~1695Mi; 6Gi limit
+        memory: 1900Mi
       limits:
         memory: 6Gi

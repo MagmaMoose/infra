@@ -43,7 +43,8 @@ spec:
             # No CPU limit (CFS-throttle false alarms); 1536Mi limit for page spikes.
             requests:
               cpu: 10m
-              memory: 327Mi
+              # ff-vm1 fit (infra#501): request = steady state, obs ~178Mi; 1536Mi limit
+              memory: 224Mi
             limits:
               memory: 1536Mi
           readinessProbe:

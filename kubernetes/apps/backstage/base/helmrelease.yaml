@@ -55,7 +55,8 @@ spec:
         resources:
           requests:
             cpu: 10m
-            memory: 393Mi
+            # ff-vm1 fit (infra#501): request = steady state, obs ~260Mi; 1Gi limit
+            memory: 328Mi
           limits:
             memory: 1Gi
         appConfig:

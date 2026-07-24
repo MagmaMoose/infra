@@ -50,7 +50,8 @@ spec:
           resources:
             requests:
               cpu: 126m
-              memory: 589Mi
+              # ff-vm1 fit (infra#501): request = steady state, obs ~306Mi; 768Mi limit
+              memory: 384Mi
             limits:
               memory: 768Mi
           livenessProbe:

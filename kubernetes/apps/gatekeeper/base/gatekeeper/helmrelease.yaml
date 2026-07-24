@@ -46,7 +46,8 @@ spec:
         # No CPU limit (avoid CFS throttling).
         requests:
           cpu: 21m
-          memory: 238Mi
+          # ff-vm1 fit (infra#501): request = steady state, obs ~79Mi; 384Mi limit
+          memory: 104Mi
         limits:
           memory: 384Mi
 

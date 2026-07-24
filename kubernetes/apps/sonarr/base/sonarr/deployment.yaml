@@ -19,7 +19,8 @@ spec:
           # KRR-sized (2026-07): cpu 42m, memory 564Mi. Limit stays generous to avoid OOM.
           resources:
             requests:
-              memory: "564Mi"
+              # ff-vm1 fit (infra#501): request = steady state, obs ~224Mi; 768Mi limit
+              memory: "280Mi"
               cpu: "42m"
             limits:
               memory: "768Mi"

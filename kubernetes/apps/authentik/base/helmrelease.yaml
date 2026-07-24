@@ -64,7 +64,8 @@ spec:
       resources:
         requests:
           cpu: 18m
-          memory: 647Mi
+          # ff-vm1 fit (infra#501): request = steady state, obs ~410Mi; 896Mi limit
+          memory: 520Mi
         limits:
           memory: 896Mi
     worker:
@@ -75,6 +76,7 @@ spec:
       resources:
         requests:
           cpu: 66m
-          memory: 425Mi
+          # ff-vm1 fit (infra#501): request = steady state, obs ~271Mi; 640Mi limit
+          memory: 344Mi
         limits:
           memory: 640Mi

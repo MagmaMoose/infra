@@ -20,7 +20,8 @@ spec:
             # KRR-sized (2026-07): cpu 11m, memory 329Mi. No CPU limit so indexing
             # bursts aren't throttled; memory limit keeps headroom over the request.
             requests:
-              memory: "329Mi"
+              # ff-vm1 fit (infra#501): request = steady state, obs ~237Mi; 512Mi limit
+              memory: "304Mi"
               cpu: "11m"
             limits:
               memory: "512Mi"

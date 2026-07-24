@@ -87,7 +87,12 @@ spec:
             # No CPU limit (avoids CFS throttling on request fan-out).
             requests:
               cpu: 406m
-              memory: 1713Mi
+              # Memory 1360Mi, not KRR's 1713Mi: observed steady state ~1084Mi.
+              # ff-vm1 cannot reserve every pod's peak (see infra#501). NB this is
+              # also the surge budget for a rolling restart — replicas:1 with
+              # maxUnavailable 0 means a restart must fit a SECOND pod of this size
+              # alongside the first, so keeping it modest is what makes restarts work.
+              memory: 1360Mi
             limits:
               memory: 2Gi
           # /health/liveliness is LiteLLM's unauthenticated liveness endpoint.

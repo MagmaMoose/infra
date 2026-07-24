@@ -44,10 +44,12 @@ spec:
           # request 512Mi (frees scheduling headroom) with a generous 1Gi limit
           # to never OOM (limits don't affect scheduling).
           resources:
-            # KRR-sized (2026-07): cpu 10m, memory 455Mi.
+            # KRR: cpu 10m, memory 455Mi. Memory request 120Mi instead — observed
+            # steady state is ~94Mi; 455Mi is a store-gateway fan-out peak which the
+            # 1Gi limit still covers. ff-vm1 fit, see infra#501.
             requests:
               cpu: 10m
-              memory: 455Mi
+              memory: 120Mi
             limits:
               memory: 1Gi
           livenessProbe:

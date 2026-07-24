@@ -32,10 +32,12 @@ spec:
             - name: CAPTCHA_SOLVER
               value: "none"
           resources:
-            # KRR-sized (2026-07): cpu 10m, memory 552Mi (headless Chrome grew past
-            # the old 384Mi request). Limit stays generous to avoid OOM.
+            # KRR: cpu 10m, memory 552Mi. Memory request 160Mi instead — 552Mi is a
+            # solve-in-progress peak and observed steady state is ~127Mi; ff-vm1
+            # cannot reserve every pod's peak (see infra#501). Headless Chrome still
+            # bursts into the 768Mi limit.
             requests:
-              memory: "552Mi"
+              memory: "160Mi"
               cpu: "10m"
             limits:
               memory: "768Mi"

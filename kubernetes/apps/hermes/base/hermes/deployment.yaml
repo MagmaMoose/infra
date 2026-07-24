@@ -153,7 +153,8 @@ spec:
             # KRR-sized (2026-07) confirms and goes further: cpu 10m, memory 373Mi.
             requests:
               cpu: 10m
-              memory: 373Mi
+              # ff-vm1 fit (infra#501): request = steady state, obs ~273Mi; 2Gi limit
+              memory: 344Mi
             limits:
               memory: 2Gi
           readinessProbe:

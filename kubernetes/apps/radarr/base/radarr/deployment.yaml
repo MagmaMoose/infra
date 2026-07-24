@@ -19,7 +19,8 @@ spec:
           resources:
             requests:
               # KRR-sized (2026-07): cpu 15m, memory 573Mi.
-              memory: "573Mi"
+              # ff-vm1 fit (infra#501): request = steady state, obs ~268Mi; 768Mi limit
+              memory: "336Mi"
               cpu: "15m"
             limits:
               # Generous on purpose so we never OOM (limits don't affect scheduling).
