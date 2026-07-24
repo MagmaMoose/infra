@@ -703,3 +703,192 @@ resource "cloudflare_zero_trust_access_policy" "grafana_caleb" {
     group = [cloudflare_zero_trust_access_group.caleb.id]
   }
 }
+
+# ---------------------------------------------------------------------------
+# AppSec / dev tooling — SonarQube, Backstage, Dependency-Track.
+#
+# All four hostnames were publicly tunnelled with NO edge gate and no
+# oauth2-proxy. Verified unauthenticated from the internet on 2026-07-24:
+# sonarqube 200 (and /api/system/status 200 — a version banner), dependencytrack
+# 200, dependencytrack-api 401, backstage 502 (only because its pod is
+# unhealthy — Backstage community with no auth provider defaults to GUEST).
+# SonarQube force-auth and Dependency-Track both 401 their data APIs, so nothing
+# sensitive was anonymously readable; this is defence in depth plus keeping login
+# pages and version banners away from drive-by scanning.
+# ---------------------------------------------------------------------------
+
+# --- SonarQube --------------------------------------------------------------
+# Whole host, no path carve-out. NOTHING pushes to SonarQube over the public
+# hostname: the DefectDojo importer (sonarqube-defectdojo-sync in
+# kubernetes/apps/security-integrations) uses the in-cluster Service
+# http://sonarqube-sonarqube.security.svc.cluster.local:9000, and that same URL
+# is what the CronJob writes into DefectDojo's Tool Configuration.
+# If CI analysis is ever added, run sonar-scanner on the in-cluster `firefly`
+# self-hosted runner against that cluster Service. Do NOT add a bypass here —
+# sonar-scanner cannot send CF-Access-Client-Id/-Secret headers, and a bypass on
+# /api/ would re-expose the entire SonarQube API.
+resource "cloudflare_zero_trust_access_application" "sonarqube" {
+  account_id                = var.account_id
+  name                      = "SonarQube"
+  type                      = "self_hosted"
+  domain                    = "sonarqube.magmamoose.com"
+  logo_url                  = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/sonarqube.svg"
+  tags                      = ["Magma Moose"]
+  app_launcher_visible      = true
+  auto_redirect_to_identity = false
+  session_duration          = "24h"
+
+  allowed_idps = [
+    cloudflare_zero_trust_access_identity_provider.google_workspace.id,
+    cloudflare_zero_trust_access_identity_provider.one_time_pin.id,
+    cloudflare_zero_trust_access_identity_provider.google.id,
+  ]
+}
+
+resource "cloudflare_zero_trust_access_policy" "sonarqube_caleb" {
+  account_id       = var.account_id
+  application_id   = cloudflare_zero_trust_access_application.sonarqube.id
+  name             = "Caleb"
+  decision         = "allow"
+  precedence       = 1
+  session_duration = "24h"
+
+  include {
+    group = [cloudflare_zero_trust_access_group.caleb.id]
+  }
+}
+
+# --- Backstage --------------------------------------------------------------
+# Access is Backstage's ONLY gate: the community chart is deployed with no auth
+# provider configured, which means the backend falls back to guest access.
+resource "cloudflare_zero_trust_access_application" "backstage" {
+  account_id                = var.account_id
+  name                      = "Backstage"
+  type                      = "self_hosted"
+  domain                    = "backstage.magmamoose.com"
+  logo_url                  = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/backstage.svg"
+  tags                      = ["Magma Moose"]
+  app_launcher_visible      = true
+  auto_redirect_to_identity = false
+  session_duration          = "24h"
+
+  allowed_idps = [
+    cloudflare_zero_trust_access_identity_provider.google_workspace.id,
+    cloudflare_zero_trust_access_identity_provider.one_time_pin.id,
+    cloudflare_zero_trust_access_identity_provider.google.id,
+  ]
+}
+
+resource "cloudflare_zero_trust_access_policy" "backstage_caleb" {
+  account_id       = var.account_id
+  application_id   = cloudflare_zero_trust_access_application.backstage.id
+  name             = "Caleb"
+  decision         = "allow"
+  precedence       = 1
+  session_duration = "24h"
+
+  include {
+    group = [cloudflare_zero_trust_access_group.caleb.id]
+  }
+}
+
+# --- Dependency-Track UI ----------------------------------------------------
+# The tunnel splits this ONE hostname: `^/api(/|$)` goes to the apiserver and
+# everything else to the frontend SPA (which is same-origin — its
+# /static/config.json API_BASE_URL is this apex, not the -api host).
+# The `/api` prefix is deliberately carved out below for CI, so this app gates
+# the UI only. Precedence matters: Cloudflare evaluates the most specific
+# domain first, so the /api bypass wins for API paths.
+resource "cloudflare_zero_trust_access_application" "dependency_track" {
+  account_id                = var.account_id
+  name                      = "Dependency-Track"
+  type                      = "self_hosted"
+  domain                    = "dependencytrack.magmamoose.com"
+  logo_url                  = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/dependency-track.svg"
+  tags                      = ["Magma Moose"]
+  app_launcher_visible      = true
+  auto_redirect_to_identity = false
+  session_duration          = "24h"
+
+  allowed_idps = [
+    cloudflare_zero_trust_access_identity_provider.google_workspace.id,
+    cloudflare_zero_trust_access_identity_provider.one_time_pin.id,
+    cloudflare_zero_trust_access_identity_provider.google.id,
+  ]
+}
+
+resource "cloudflare_zero_trust_access_policy" "dependency_track_caleb" {
+  account_id       = var.account_id
+  application_id   = cloudflare_zero_trust_access_application.dependency_track.id
+  name             = "Caleb"
+  decision         = "allow"
+  precedence       = 1
+  session_duration = "24h"
+
+  include {
+    group = [cloudflare_zero_trust_access_group.caleb.id]
+  }
+}
+
+# --- Dependency-Track /api — DELIBERATE BYPASS (load-bearing for CI) --------
+# The chargate reusable action uploads SBOMs to
+# https://dependencytrack.magmamoose.com/api/v1/bom on every merge to main, and
+# READS /api/* on pull_request events. It has no CF-Access-header input, so it
+# cannot authenticate to Access — an identity policy here breaks release CI for
+# every repo using the action.
+#
+# This is NOT an open door: Dependency-Track enforces its own X-Api-Key on every
+# /api call (verified: /api/v1/project returns 401 unauthenticated). The bypass
+# only means "let Cloudflare pass this through and let the app authenticate it".
+#
+# `/api` with NO trailing slash on purpose — the tunnel routes bare `GET /api`
+# to the apiserver too, and `/api/` would not match it.
+resource "cloudflare_zero_trust_access_application" "dependency_track_api_path" {
+  account_id           = var.account_id
+  name                 = "Dependency-Track API (CI bypass)"
+  type                 = "self_hosted"
+  domain               = "dependencytrack.magmamoose.com/api"
+  tags                 = ["Magma Moose"]
+  app_launcher_visible = false
+  session_duration     = "0s"
+}
+
+resource "cloudflare_zero_trust_access_policy" "dependency_track_api_path_bypass" {
+  account_id     = var.account_id
+  application_id = cloudflare_zero_trust_access_application.dependency_track_api_path.id
+  name           = "Bypass — app enforces X-Api-Key"
+  decision       = "bypass"
+  precedence     = 1
+
+  include {
+    everyone = true
+  }
+}
+
+# --- Dependency-Track API host (legacy) -------------------------------------
+# dependencytrack-api.magmamoose.com is a leftover from when the SPA was thought
+# to need a separate API origin. It is same-origin now and this hostname has no
+# known caller, so it is gated by service token ONLY — no browser SSO policy, so
+# it cannot become a UI back door. Slated for removal; until then it is closed.
+resource "cloudflare_zero_trust_access_application" "dependency_track_api_host" {
+  account_id                = var.account_id
+  name                      = "Dependency-Track API (host)"
+  type                      = "self_hosted"
+  domain                    = "dependencytrack-api.magmamoose.com"
+  tags                      = ["Magma Moose"]
+  app_launcher_visible      = false
+  session_duration          = "24h"
+  service_auth_401_redirect = true
+}
+
+resource "cloudflare_zero_trust_access_policy" "dependency_track_api_host_token" {
+  account_id     = var.account_id
+  application_id = cloudflare_zero_trust_access_application.dependency_track_api_host.id
+  name           = "Service token only"
+  decision       = "non_identity"
+  precedence     = 1
+
+  include {
+    service_token = [cloudflare_zero_trust_access_service_token.dependency_track_api.id]
+  }
+}

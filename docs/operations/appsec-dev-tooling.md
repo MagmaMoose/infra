@@ -4,13 +4,14 @@ The public AppSec/dev-tooling endpoints hosted on firefly use `magmamoose.com`
 hostnames. Public traffic enters through the Cloudflare `firefly` tunnel and is
 routed to in-cluster services.
 
-| Tool | Public URL | In-cluster target |
-|---|---|---|
-| Pull request dashboard | `https://pullrequests.magmamoose.com` | `oauth2-proxy.automation.svc.cluster.local:4180` |
-| DefectDojo | `https://defectdojo.magmamoose.com` | `oauth2-proxy.security.svc.cluster.local:4180` |
-| Dependency-Track frontend | `https://dependencytrack.magmamoose.com` | `dependency-track-frontend.security.svc.cluster.local:8080` |
-| Dependency-Track API | `https://dependencytrack-api.magmamoose.com` | `dependency-track-api-server.security.svc.cluster.local:8080` |
-| safe-settings | `https://safesettings.magmamoose.com` | `safe-settings.security.svc.cluster.local:3000` |
+| Tool | Public URL | In-cluster target | Edge gate |
+|---|---|---|---|
+| Pull request dashboard | `https://pullrequests.magmamoose.com` | `oauth2-proxy.automation.svc.cluster.local:4180` | oauth2-proxy (Google, @magmamoose.com) |
+| DefectDojo | `https://defectdojo.magmamoose.com` | `oauth2-proxy.security.svc.cluster.local:4180` | oauth2-proxy; `^/api/v2` + `^/webhook` skipped for CI |
+| SonarQube | `https://sonarqube.magmamoose.com` | `sonarqube-sonarqube.security.svc.cluster.local:9000` | Cloudflare Access (Caleb) |
+| Backstage | `https://backstage.magmamoose.com` | `backstage-developer-hub.core.svc.cluster.local:7007` | Cloudflare Access (Caleb) — its ONLY gate |
+| Dependency-Track frontend | `https://dependencytrack.magmamoose.com` | `dependency-track-frontend.security.svc.cluster.local:8080` | Cloudflare Access (Caleb); `/api` bypassed for CI |
+| Dependency-Track API | `https://dependencytrack-api.magmamoose.com` | `dependency-track-api-server.security.svc.cluster.local:8080` | Cloudflare Access service token only |
 
 Keep these three layers aligned when changing a hostname:
 
@@ -20,8 +21,13 @@ Keep these three layers aligned when changing a hostname:
   - Terraform owns tunnel CNAMEs in `terraform/cloudflare/dns-magmamoose/prod/terragrunt.hcl` for hosts without Kubernetes Ingresses (`pullrequests`, `defectdojo`).
   - external-dns owns Ingress-backed hosts (`dependencytrack`, `dependencytrack-api`, `safesettings`) from their Ingress annotations.
 
-Dependency-Track needs both frontend and API public hostnames because the SPA
-calls the API host directly from the browser. safe-settings must remain public
+Dependency-Track is single-hostname and same-origin: the tunnel splits `^/api(/|$)`
+to the apiserver ahead of the frontend catch-all, and the frontend's
+`/static/config.json` `API_BASE_URL` is the apex itself. `dependencytrack-api.magmamoose.com`
+is a legacy fallback with no known caller, gated by a Cloudflare Access service
+token and slated for removal. The `dependency-track{,-api}.sargeant.co` aliases were
+deleted — a duplicate hostname on the same tunnel silently bypasses any Access app
+scoped to the magmamoose.com name. safe-settings must remain public
 without a Cloudflare Access gate for `/api/github/webhooks`; GitHub authenticates
 payloads with the webhook secret instead. For Ingress-backed public tunnel
 hosts, set `external-dns.alpha.kubernetes.io/target` to the firefly
@@ -85,4 +91,6 @@ Cloudflare-Tunnel Ingress on `magmamoose.com`).
 
 ### Follow-ups (documented, not yet wired)
 - SonarQube Prometheus metrics: enable `prometheusExporter` + `prometheusMonitoring.podMonitor` (the cluster scrapes all monitors via `…SelectorNilUsesHelmValues: false`).
-- Google SSO for both (cluster oauth2-proxy / OIDC pattern); Backstage Kubernetes plugin (in-cluster SA) and GitHub org catalog discovery.
+- ~~Google SSO for both~~ — delivered instead by **Cloudflare Access** (Caleb group), see `terraform/cloudflare/zero-trust/prod/access_apps.tf`. SonarQube and Dependency-Track keep their own logins behind Access; Backstage has none (community chart with no auth provider defaults to guest), so Access is its only gate.
+- Remaining: Backstage Kubernetes plugin (in-cluster SA) and GitHub org catalog discovery.
+- Never point a CI code scanner at `sonarqube.magmamoose.com` — `sonar-scanner` cannot send `CF-Access-Client-Id`/`-Secret`. Run it on the in-cluster `firefly` self-hosted runner against `sonarqube-sonarqube.security.svc.cluster.local:9000`.
