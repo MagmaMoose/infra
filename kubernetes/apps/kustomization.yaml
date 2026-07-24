@@ -13,7 +13,7 @@ resources:
   # PARKED — fleet-shared memory (mem0 on shared CNPG pgvector, via LiteLLM). The Database
   # CR + pgvector bootstrap Job are safe to reconcile early; the mem0 pod ImagePullBackOffs
   # until the image exists AND is public. Uncomment ONLY after ALL of:
-  #   1. docker-publish.yml has built ghcr.io/calebsargeant/mem0-server at least once
+  #   1. docker-publish.yml has built ghcr.io/magmamoose/mem0-server at least once
   #      (it triggers on pushes to main touching dockerfiles/mem0-server/**)
   #   2. that GHCR package has been flipped to PUBLIC — new packages are private by
   #      default and nothing in kubernetes/ uses imagePullSecrets

@@ -84,7 +84,7 @@ spec:
           # private and the cluster pulls with no imagePullSecrets anywhere, so a private
           # package is an ImagePullBackOff. Pin a released `mem0-server-v*` tag here once
           # one is cut; `:latest` + Always is the bootstrap state.
-          image: ghcr.io/calebsargeant/mem0-server:latest
+          image: ghcr.io/magmamoose/mem0-server:latest
           imagePullPolicy: Always
           ports:
             - name: http

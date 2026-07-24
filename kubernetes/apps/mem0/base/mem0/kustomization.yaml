@@ -14,7 +14,7 @@ resources:
   - ingress.yaml
 components:
   # REQUIRED, not a preference: the upstream mem0/mem0-api-server image (digest-pinned in
-  # dockerfiles/mem0-server/Dockerfile, and therefore ghcr.io/calebsargeant/mem0-server
+  # dockerfiles/mem0-server/Dockerfile, and therefore ghcr.io/magmamoose/mem0-server
   # too) publishes a manifest index containing linux/arm64 ONLY — no amd64. ff-vm1 is the
   # single amd64 node, so an unpinned mem0 that lands there fails the pull outright ("no
   # matching manifest for linux/amd64"). native-cloud = ff-oci1/ff-oci2, both arm64, and
