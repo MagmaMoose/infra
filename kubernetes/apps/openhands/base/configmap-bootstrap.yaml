@@ -1,3 +1,7 @@
+# kics-scan disable=baee238e-1921-4801-9c3f-79ae1d7b2cbc
+# The scanner flags `${BOOTSTRAP_GITHUB_TOKEN:-}` as a hardcoded secret; it is a bash
+# parameter expansion that expands at runtime to whatever the env var holds (injected
+# via secretKeyRef in the Deployment). No credential is stored in this file.
 apiVersion: v1
 kind: ConfigMap
 metadata:

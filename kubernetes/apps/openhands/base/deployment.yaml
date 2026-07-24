@@ -124,6 +124,7 @@ spec:
             - name: state
               mountPath: /workspace
               subPath: workspace
+              readOnly: false
             # Settings store, session API key and the seed log.
             - name: state
               mountPath: /home/openhands/.openhands
