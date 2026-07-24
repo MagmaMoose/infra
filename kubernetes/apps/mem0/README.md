@@ -25,10 +25,14 @@ See ADR `.claude/decisions/2026-07-23-fleet-shared-memory-mem0.md`.
    on in `dockerfiles/mem0-server/Dockerfile`. `.github/workflows/docker-publish.yml`
    builds it to `ghcr.io/magmamoose/mem0-server` on any push to `main` touching that
    directory (`:latest`), or on a `mem0-server-v*` tag (pinned version). Two gotchas:
-   - **New GHCR packages default to PRIVATE**, and there are no `imagePullSecrets`
-     anywhere in `kubernetes/` — every other image is pulled anonymously. So after the
-     first successful build, flip the package to public or the Deployment
-     ImagePullBackOffs. This is a one-time manual step in the GHCR package settings.
+   - **Visibility: already public, and not by accident.** There are no `imagePullSecrets`
+     anywhere in `kubernetes/` — every image here is pulled anonymously — so a private
+     package would ImagePullBackOff. GHCR packages normally default to private, BUT a
+     package created by `GITHUB_TOKEN` under the org inherits the visibility of the repo
+     that pushed it, and `MagmaMoose/infra` is public. Verified anonymously:
+     `GET ghcr.io/v2/magmamoose/mem0-server/manifests/latest` -> `200`.
+     Do not assume this for a package pushed by a PAT or from a private repo — check
+     first, since the failure looks like a mysterious pull error rather than a 403.
    - **arm64 only.** The upstream base publishes a manifest index containing
      `linux/arm64` and nothing else, so the matrix entry overrides `platforms` and the
      Deployment carries the `node-selectors/native-cloud` component (ff-oci1/ff-oci2).
