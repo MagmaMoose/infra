@@ -15,8 +15,9 @@ patches:
         path: /spec/template/spec/containers/0/resources
         value:
           requests:
-            cpu: 50m
-            memory: 128Mi
+            # KRR-sized (2026-07): cpu 14m, memory 100Mi.
+            cpu: 14m
+            memory: 100Mi
           limits:
             memory: 256Mi
     target:

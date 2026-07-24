@@ -59,7 +59,22 @@ spec:
         topology.sargeant.co/tier: on-prem
       ingress:
         enabled: false
+      # The chart ships NO requests, so both pods were BestEffort QoS — first to be
+      # evicted under node memory pressure. KRR-sized (2026-07): cpu 18m, mem 647Mi.
+      resources:
+        requests:
+          cpu: 18m
+          memory: 647Mi
+        limits:
+          memory: 896Mi
     worker:
       nodeSelector:
         node-role.kubernetes.io/worker: ""
         topology.sargeant.co/tier: on-prem
+      # KRR-sized (2026-07): cpu 66m, memory 425Mi.
+      resources:
+        requests:
+          cpu: 66m
+          memory: 425Mi
+        limits:
+          memory: 640Mi

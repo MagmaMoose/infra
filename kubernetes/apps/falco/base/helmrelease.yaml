@@ -24,6 +24,41 @@ spec:
     # eBPF runtime threat detection. modern_ebpf needs no kernel headers.
     driver:
       kind: modern_ebpf
+    # Falco DaemonSet itself (3 pods: ff-vm1 + both OCI workers).
+    # Memory is KRR-sized (2026-07): 254Mi.
+    # CPU is a DELIBERATE DEVIATION from KRR, which recommended 821m/pod.
+    # KRR reports ONE figure per DaemonSet — effectively the busiest pod (ff-vm1,
+    # ~84 pods' worth of syscalls) — but that value is then requested on EVERY
+    # node. The OCI workers are 2-core and, even after this right-sizing pass,
+    # sit near ~1.4 cores requested; an 821m request does not fit there and the
+    # DaemonSet pod would sit Pending, i.e. no runtime threat detection on that
+    # node. 200m is a realistic floor for the quiet nodes and, with no CPU limit,
+    # the busy ff-vm1 pod still bursts to whatever it needs.
+    # Proper fix if the full 821m floor is wanted on ff-vm1: split into a second,
+    # node-specific DaemonSet release rather than raising it fleet-wide.
+    resources:
+      requests:
+        cpu: 200m
+        memory: 254Mi
+      limits:
+        memory: 1Gi
+    # falcoctl sidecars had no requests at all; KRR-sized (2026-07) to 10m/100Mi.
+    falcoctl:
+      artifact:
+        follow:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 100Mi
+            limits:
+              memory: 192Mi
+        install:
+          resources:
+            requests:
+              cpu: 10m
+              memory: 100Mi
+            limits:
+              memory: 192Mi
     # WORKER ONLY. The control-plane Pi runs a 16KB-page arm64 kernel where the
     # eBPF probe is unreliable — keep Falco off it (covers where apps run anyway).
     nodeSelector:
@@ -42,9 +77,11 @@ spec:
       nodeSelector:
         node-role.kubernetes.io/worker: ""
       resources:
+        # KRR-sized (2026-07): cpu 10m, memory 434Mi — the event rate keeps this
+        # well above the old 128Mi request (which is what drove the OOM story above).
         requests:
           cpu: 10m
-          memory: 128Mi
+          memory: 434Mi
         limits:
           memory: 1Gi
       config:

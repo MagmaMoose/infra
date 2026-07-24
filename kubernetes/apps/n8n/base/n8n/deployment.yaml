@@ -39,9 +39,11 @@ spec:
             # Fix = 1Gi limit + NODE_OPTIONS=--max-old-space-size=768 (see env)
             # so V8 actually uses the headroom. ff-vm1 has ample free RAM. No CPU
             # limit (avoids false CFS-throttle alerts); request set to real usage.
+            # KRR-sized (2026-07): cpu 10m, memory 661Mi — keep the 1Gi limit, the
+            # V8 heap headroom above is the whole point.
             requests:
-              memory: "512Mi"
-              cpu: "50m"
+              memory: "661Mi"
+              cpu: "10m"
             limits:
               memory: "1Gi"
           env:

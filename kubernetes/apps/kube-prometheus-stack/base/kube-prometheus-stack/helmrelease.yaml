@@ -70,10 +70,11 @@ spec:
         # ~1.7Gi / ~150m here, was over-provisioned at 8Gi/2 cores). No CPU limit
         # (KRR rec: cpu limit -> unset) to avoid CFS throttling on the 16-core
         # ff-vm1 node; memory limit keeps headroom above observed usage.
+        # KRR-sized (2026-07): cpu 158m, memory 2125Mi.
         resources:
           requests:
-            cpu: 250m
-            memory: 2Gi
+            cpu: 158m
+            memory: 2125Mi
           limits:
             memory: 3Gi
         
@@ -88,10 +89,11 @@ spec:
             existingSecret:
               name: thanos-objstore-config
               key: objstore.yml
+          # KRR-sized (2026-07): cpu 10m, memory 187Mi.
           resources:
             requests:
               cpu: 10m
-              memory: 100Mi
+              memory: 187Mi
             limits:
               memory: 256Mi
         
@@ -163,10 +165,11 @@ spec:
         storageClassName: longhorn
       
       # Resources — no CPU limit (avoid CFS throttling); modest memory footprint.
+      # KRR-sized (2026-07): cpu 20m, memory 163Mi.
       resources:
         requests:
-          cpu: 100m
-          memory: 256Mi
+          cpu: 20m
+          memory: 163Mi
         limits:
           memory: 512Mi
       
@@ -231,10 +234,11 @@ spec:
         dashboards:
           enabled: true
           searchNamespace: ALL
+          # KRR-sized (2026-07): cpu 26m, memory 108Mi.
           resources:
             requests:
-              cpu: 10m
-              memory: 124Mi
+              cpu: 26m
+              memory: 108Mi
             limits:
               memory: 192Mi
         datasources:
@@ -245,10 +249,11 @@ spec:
           # Grafana: "Only one datasource per organization can be marked as default".
           defaultDatasourceEnabled: false
           searchNamespace: ALL
+          # KRR-sized (2026-07): cpu 32m, memory 101Mi.
           resources:
             requests:
-              cpu: 10m
-              memory: 121Mi
+              cpu: 32m
+              memory: 101Mi
             limits:
               memory: 192Mi
 
@@ -332,12 +337,23 @@ spec:
       nodeSelector:
         node-role.kubernetes.io/worker: ""
         topology.sargeant.co/tier: on-prem
+      # KRR-sized (2026-07): cpu 10m, memory 100Mi (unchanged — already right).
       resources:
         requests:
           cpu: 10m
           memory: 100Mi
         limits:
-          memory: 100Mi
+          memory: 192Mi
+      # The prometheus- and alertmanager-config-reloader sidecars ship with NO
+      # requests at all (BestEffort). This one knob sizes both of them.
+      # KRR-sized (2026-07): cpu 10m, memory 100Mi each.
+      prometheusConfigReloader:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 100Mi
+          limits:
+            memory: 192Mi
 
     # Node Exporter
     nodeExporter:
@@ -352,12 +368,13 @@ spec:
     
     # Node Exporter resources
     prometheus-node-exporter:
+      # KRR-sized (2026-07): cpu 10m, memory 106Mi.
       resources:
         requests:
           cpu: 10m
-          memory: 100Mi
+          memory: 106Mi
         limits:
-          memory: 100Mi
+          memory: 192Mi
 
     # Kube State Metrics
     kubeStateMetrics:
@@ -369,12 +386,13 @@ spec:
       nodeSelector:
         node-role.kubernetes.io/worker: ""
         topology.sargeant.co/tier: on-prem
+      # KRR-sized (2026-07): cpu 10m, memory 114Mi.
       resources:
         requests:
           cpu: 10m
-          memory: 100Mi
+          memory: 114Mi
         limits:
-          memory: 100Mi
+          memory: 192Mi
 
     # Default rules and alerts
     defaultRules:

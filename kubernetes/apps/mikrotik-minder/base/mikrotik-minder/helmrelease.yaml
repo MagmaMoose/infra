@@ -102,11 +102,12 @@ spec:
       enabled: true
       size: 5Gi
     resources:
+      # KRR-sized (2026-07): cpu 10m, memory 100Mi. CPU limit dropped
+      # (repo convention: CPU limits only buy false CFS-throttle alerts).
       requests:
-        cpu: 50m
-        memory: 128Mi
+        cpu: 10m
+        memory: 100Mi
       limits:
-        cpu: 500m
         memory: 512Mi
     # Pre-pinned github.com SSH host keys (public; sourced from gh api meta). The
     # chart renders this into the git-ssh Secret as known_hosts so the /export

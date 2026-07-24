@@ -44,9 +44,10 @@ spec:
           # request 512Mi (frees scheduling headroom) with a generous 1Gi limit
           # to never OOM (limits don't affect scheduling).
           resources:
+            # KRR-sized (2026-07): cpu 10m, memory 455Mi.
             requests:
-              cpu: 100m
-              memory: 512Mi
+              cpu: 10m
+              memory: 455Mi
             limits:
               memory: 1Gi
           livenessProbe:

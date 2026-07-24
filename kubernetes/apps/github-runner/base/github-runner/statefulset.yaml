@@ -244,9 +244,10 @@ spec:
           securityContext:
             privileged: true
           resources:
+            # KRR-sized (2026-07): cpu 49m, memory 932Mi.
             requests:
-              cpu: 100m
-              memory: 512Mi
+              cpu: 49m
+              memory: 932Mi
             limits:
               # docker-dind hosts the chargate/MegaLinter container, so this cap
               # governs the whole scan. MegaLinter needs several GB; 512Mi OOM-kills
@@ -290,9 +291,11 @@ spec:
           image: ghcr.io/actions/actions-runner:latest
           imagePullPolicy: Always
           resources:
+            # KRR-sized (2026-07): cpu 181m, memory 570Mi — the runner does real
+            # sustained work during a job, so this is a genuine increase.
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 181m
+              memory: 570Mi
             limits:
               # No CPU limit (repo convention). Memory headroom for the runner agent
               # + the gh install + the checked-out job.

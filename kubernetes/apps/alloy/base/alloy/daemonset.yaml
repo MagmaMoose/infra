@@ -55,11 +55,12 @@ spec:
             # moving non-system workloads to the worker, so Alloy now carries a
             # real memory reservation (Burstable QoS, request < limit) instead of
             # the BestEffort `memory: "0"` it needed to schedule under pressure.
+            # KRR-sized (2026-07): cpu 10m, memory 164Mi.
             requests:
-              cpu: 20m
-              memory: 128Mi
+              cpu: 10m
+              memory: 164Mi
             limits:
-              memory: 192Mi
+              memory: 256Mi
           livenessProbe:
             httpGet:
               path: /-/healthy

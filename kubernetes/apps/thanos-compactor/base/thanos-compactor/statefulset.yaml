@@ -45,9 +45,12 @@ spec:
           # headroom. Compaction is memory-bursty, so keep a generous 2Gi limit
           # (limits don't affect scheduling) to avoid OOM. No CPU limit.
           resources:
+            # KRR-sized (2026-07): cpu 11m, memory 125Mi. Compaction runs in short
+            # bursts, so the steady-state request is genuinely tiny — the 2Gi limit
+            # above is what absorbs the bursts.
             requests:
-              cpu: 50m
-              memory: 768Mi
+              cpu: 11m
+              memory: 125Mi
             limits:
               memory: 2Gi
           livenessProbe:

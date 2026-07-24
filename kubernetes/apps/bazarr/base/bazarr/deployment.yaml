@@ -17,11 +17,13 @@ spec:
         - name: bazarr
           image: linuxserver/bazarr:1.6.0 # {"$imagepolicy": "flux-system:bazarr"}
           resources:
+            # KRR-sized (2026-07): cpu 11m, memory 329Mi. No CPU limit so indexing
+            # bursts aren't throttled; memory limit keeps headroom over the request.
             requests:
-              memory: "238Mi"
-              cpu: "10m"
+              memory: "329Mi"
+              cpu: "11m"
             limits:
-              memory: "238Mi"
+              memory: "512Mi"
           ports:
             - containerPort: 6767 # Bazarr web interface
           env:

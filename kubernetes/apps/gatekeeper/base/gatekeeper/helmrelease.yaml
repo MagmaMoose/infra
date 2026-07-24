@@ -29,25 +29,26 @@ spec:
       nodeSelector:
         node-role.kubernetes.io/worker: ""
       resources:
-        # KRR ~146Mi working set. No CPU limit (avoid CFS throttling).
+        # KRR-sized (2026-07): cpu 10m, memory 103Mi. No CPU limit (avoid CFS throttling).
         requests:
-          cpu: 50m
-          memory: 150Mi
+          cpu: 10m
+          memory: 103Mi
         limits:
-          memory: 150Mi
+          memory: 192Mi
 
     controllerManager:
       replicas: 1
       nodeSelector:
         node-role.kubernetes.io/worker: ""
       resources:
-        # KRR ~198Mi working set; trimmed from 256Mi. 256Mi limit kept as
-        # admission burst headroom. No CPU limit (avoid CFS throttling).
+        # KRR-sized (2026-07): cpu 21m, memory 238Mi (3 replicas). Limit raised to
+        # 384Mi so there is still admission burst headroom above the new request.
+        # No CPU limit (avoid CFS throttling).
         requests:
-          cpu: 100m
-          memory: 200Mi
+          cpu: 21m
+          memory: 238Mi
         limits:
-          memory: 256Mi
+          memory: 384Mi
 
     # Enable violations logging
     auditInterval: 60

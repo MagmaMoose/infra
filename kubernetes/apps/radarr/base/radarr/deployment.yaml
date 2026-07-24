@@ -18,13 +18,13 @@ spec:
           image: linuxserver/radarr:5.28.0 # {"$imagepolicy": "flux-system:radarr"}
           resources:
             requests:
-              # Right-sized: observed usage ~349Mi, request frees scheduling headroom.
-              memory: "384Mi"
-              cpu: "200m"
+              # KRR-sized (2026-07): cpu 15m, memory 573Mi.
+              memory: "573Mi"
+              cpu: "15m"
             limits:
               # Generous on purpose so we never OOM (limits don't affect scheduling).
-              memory: "512Mi"
-              cpu: "750m"
+              # CPU limit dropped: it only bought CFS throttling on import scans.
+              memory: "768Mi"
           ports:
             - containerPort: 7878 # Radarr web interface
           env:

@@ -9,7 +9,8 @@ resources:
   - middleware.yaml
   - pvc.yaml
 components:
-  - ../../../../components/resource-profiles/c.small
+  # No resource-profile component: KRR-derived values live inline in daemonset.yaml.
+  # c.small used to `op: add` over containers/0/resources, silently discarding them.
   # Migrated off ff-pi1: static hostPath pv.yaml dropped, pvc.yaml now Longhorn,
   # pinned to the worker node. (DaemonSet + worker selector => runs only on ff-vm1.)
   # hostNetwork stays — the worker (.13) is on the same /24 as the Pi (.10) so

@@ -5,5 +5,7 @@ resources:
   - ingress.yaml
 components:
   - ../../../../components/pod-gateway-client
-  - ../../../../components/resource-profiles/c.micro
+  # No resource-profile component: KRR-derived values live inline in deployment.yaml.
+  # (A profile component would `op: add` over containers/0/resources and silently
+  # override them.)
   - ../../../../components/node-selectors/native-cloud

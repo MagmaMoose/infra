@@ -19,12 +19,19 @@ spec:
           image: lscr.io/linuxserver/plex:1.43.3 # {"$imagepolicy": "flux-system:plex"}
           resources:
             requests:
-              # Right-sized from observed ~266Mi usage; 448Mi gives scheduling headroom.
-              memory: "448Mi"
-              cpu: "20m"
+              # Memory is KRR-sized (2026-07): 1178Mi.
+              memory: "1178Mi"
+              # CPU is a DELIBERATE DEVIATION from KRR, which recommended 1.474.
+              # That figure is the P99 of transcode bursts, and as a *request* it
+              # would permanently reserve ~18% of ff-vm1 (type=mini, the only node
+              # this DaemonSet lands on) which already sits at ~98% CPU-requested.
+              # A DaemonSet pod that can't be admitted means Plex is simply down.
+              # 200m is a realistic steady-state floor; with no CPU limit set,
+              # transcodes still burst to whatever the node has spare.
+              cpu: "200m"
             limits:
               # Generous limit so transcoding spikes never OOM (limits don't affect scheduling).
-              memory: "1Gi"
+              memory: "1536Mi"
           ports:
             - containerPort: 32400 # Plex web interface
               #            - containerPort: 1900  # Plex DLNA server

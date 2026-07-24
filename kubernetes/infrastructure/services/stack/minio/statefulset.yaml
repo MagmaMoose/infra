@@ -43,14 +43,16 @@ spec:
             - name: data
               mountPath: /data
           # 157Mi was OOM-killing MinIO (exit 137), which cascaded into the Loki
-          # crashloop (chunk flushes failing with IncompleteBody/400). KRR rec ~181Mi;
-          # give generous headroom for the critical object store. No CPU limit.
+          # crashloop (chunk flushes failing with IncompleteBody/400). Give generous
+          # headroom for the critical object store. No CPU limit.
+          # KRR-sized (2026-07): cpu 126m, memory 589Mi — real usage grew well past
+          # the old 256Mi request now that Thanos/Loki both back onto it.
           resources:
             requests:
-              cpu: 50m
-              memory: 256Mi
+              cpu: 126m
+              memory: 589Mi
             limits:
-              memory: 512Mi
+              memory: 768Mi
           livenessProbe:
             httpGet:
               path: /minio/health/live

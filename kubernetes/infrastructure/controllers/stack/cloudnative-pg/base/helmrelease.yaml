@@ -28,3 +28,13 @@ spec:
   values:
     crds:
       create: true
+    # The chart ships `resources: {}`, leaving the operator BestEffort — first to be
+    # evicted under node memory pressure, which for a DB operator means no failover
+    # handling exactly when the node is unhealthy.
+    # KRR-sized (2026-07): cpu 10m, memory 107Mi.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 107Mi
+      limits:
+        memory: 192Mi

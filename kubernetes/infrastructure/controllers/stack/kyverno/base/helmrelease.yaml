@@ -39,11 +39,21 @@ spec:
     # both the admission and cleanup controllers so a slow start no longer kills them.
     #
     # background & reports controllers have no :9443 probes (kyverno chart 3.8+ defaults) and
-    # are not affected; keep them at one replica. Steady-state usage (admission ~63Mi vs 384Mi
-    # limit) shows the slow start is node-level, not pod-resource-driven, so resources are
-    # left at kyverno chart defaults (3.8+).
+    # are not affected; keep them at one replica. The slow start is node-level, not
+    # pod-resource-driven, so the PROBES above are the fix — but the chart's default 100m
+    # CPU request on all four controllers is still pure over-reservation (KRR: ~10m each),
+    # and on a 2-core OCI worker that mattered. Requests are KRR-sized (2026-07) below;
+    # memory limits keep headroom for policy-load spikes.
     admissionController:
       replicas: 2
+      container:
+        # KRR: cpu 10m, memory 120Mi (2 replicas).
+        resources:
+          requests:
+            cpu: 10m
+            memory: 120Mi
+          limits:
+            memory: 384Mi
       startupProbe:
         httpGet:
           path: /health/liveness
@@ -75,6 +85,13 @@ spec:
         successThreshold: 1
     backgroundController:
       replicas: 1
+      # KRR: cpu 10m, memory 104Mi.
+      resources:
+        requests:
+          cpu: 10m
+          memory: 104Mi
+        limits:
+          memory: 192Mi
     # cleanup-controller exposes the same :9443 webhook server and crashloops identically;
     # loosen its probes too. Keep one replica — its webhook only gates CleanupPolicy, not
     # cluster-wide admission, so a single-pod flap is not cluster-impacting.
@@ -109,8 +126,22 @@ spec:
         timeoutSeconds: 10
         failureThreshold: 6
         successThreshold: 1
+      # KRR: cpu 10m, memory 100Mi.
+      resources:
+        requests:
+          cpu: 10m
+          memory: 100Mi
+        limits:
+          memory: 192Mi
     reportsController:
       replicas: 1
+      # KRR: cpu 10m, memory 134Mi.
+      resources:
+        requests:
+          cpu: 10m
+          memory: 134Mi
+        limits:
+          memory: 256Mi
     # Disable PolicyReports cleanup — not needed for our use case.
     policyReportsCleanup:
       enabled: false

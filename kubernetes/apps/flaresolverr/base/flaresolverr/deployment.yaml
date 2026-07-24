@@ -32,12 +32,13 @@ spec:
             - name: CAPTCHA_SOLVER
               value: "none"
           resources:
-            # Right-sized: observed ~321Mi; request gives scheduling headroom, limit stays generous to avoid OOM
+            # KRR-sized (2026-07): cpu 10m, memory 552Mi (headless Chrome grew past
+            # the old 384Mi request). Limit stays generous to avoid OOM.
             requests:
-              memory: "384Mi"
+              memory: "552Mi"
               cpu: "10m"
             limits:
-              memory: "512Mi"
+              memory: "768Mi"
           readinessProbe:
             httpGet:
               path: /

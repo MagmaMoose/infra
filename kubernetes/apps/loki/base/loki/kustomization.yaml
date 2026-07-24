@@ -20,8 +20,11 @@ patches:
         path: /spec/template/spec/containers/0/resources
         value:
           requests:
-            cpu: 350m
-            memory: 768Mi
+            # KRR-sized (2026-07): cpu 25m, memory 454Mi. The 8Gi LIMIT is kept
+            # deliberately (KRR suggested 454Mi) — see the WAL-replay note above;
+            # capping at the steady-state request is what caused the OOM loop.
+            cpu: 25m
+            memory: 454Mi
           limits:
             memory: 8Gi
     target:

@@ -49,6 +49,15 @@ spec:
         # Pin to the amd64 worker (ff-vm1).
         nodeSelector:
           node-role.kubernetes.io/worker: ""
+        # KRR-sized (2026-07): cpu 10m, memory 393Mi. The RHDH chart defaults to a
+        # 250m/1Gi request + 1-core CPU limit, which on ff-vm1 was the third-largest
+        # reservation in the fleet for a service that idles almost completely.
+        resources:
+          requests:
+            cpu: 10m
+            memory: 393Mi
+          limits:
+            memory: 1Gi
         appConfig:
           app:
             baseUrl: https://backstage.magmamoose.com

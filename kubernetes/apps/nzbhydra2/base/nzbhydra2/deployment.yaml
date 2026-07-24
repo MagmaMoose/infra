@@ -20,11 +20,14 @@ spec:
         image: linuxserver/nzbhydra2:8.9.0 # {"$imagepolicy": "flux-system:nzbhydra2"}
         imagePullPolicy: IfNotPresent
         resources:
+          # KRR-sized (2026-07): cpu 10m, memory 583Mi. Was 200m/512Mi via the
+          # c.micro profile component; the 200m CPU request was pure waste on the
+          # 2-core OCI workers.
           requests:
             cpu: 10m
-            memory: 710Mi
+            memory: 583Mi
           limits:
-            memory: 710Mi
+            memory: 768Mi
         ports:
         - containerPort: 5076
           name: http

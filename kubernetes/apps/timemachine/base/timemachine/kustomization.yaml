@@ -6,5 +6,6 @@ resources:
   - daemonset.yaml
 # Inlined from the former clusters/firefly/backup/timemachine overlay.
 components:
-  - ../../../../components/resource-profiles/t.small
+  # No resource-profile component: KRR-derived values live inline in daemonset.yaml.
+  # t.small used to `op: add` over containers/0/resources, silently discarding them.
   - ../../../../components/node-selectors/mini
