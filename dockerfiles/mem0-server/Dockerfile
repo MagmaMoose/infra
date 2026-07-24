@@ -5,10 +5,15 @@
 # zoey/k8s-mem0 build).
 #
 # Built + pushed by .github/workflows/docker-publish.yml to
-# ghcr.io/calebsargeant/mem0-server, like every other image in this directory — NOT by
-# hand. A laptop `docker push` needs a write:packages token and produces an artifact no
-# one can reproduce; the workflow's GHCR_TOKEN already has that scope. Cut a release with
+# ghcr.io/magmamoose/mem0-server — NOT by hand. A laptop `docker push` needs a
+# write:packages token and produces an artifact no one can reproduce. Cut a release with
 # the `mem0-server-v*` tag prefix; a push to main rebuilds `:latest`.
+#
+# NOTE the namespace: this is the ORG namespace (matching nievah and the rest of the
+# agent fleet), NOT the personal ghcr.io/calebsargeant/* one the other images in this
+# directory use. That difference is load-bearing — the workflow authenticates the two
+# with DIFFERENT credentials (built-in GITHUB_TOKEN for the org, the GHCR_TOKEN PAT for
+# the personal namespace), so changing `registry_owner` alone is not sufficient.
 #
 # ARM64 ONLY — this is a hard constraint, not a default. The upstream base publishes a
 # manifest index containing linux/arm64 and nothing else, so the matrix entry for this

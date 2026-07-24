@@ -56,19 +56,32 @@ jobs:
   build:
     needs: determine-changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Lets the built-in GITHUB_TOKEN push to ghcr.io/magmamoose/* (this repo's own
+      # org). It canNOT push to the personal ghcr.io/calebsargeant/* namespace — see the
+      # login step, which picks a credential per image.
+      packages: write
     strategy:
       matrix:
-        # `platforms` is per-image because not every base is multi-arch. Default to
-        # linux/amd64,linux/arm64; override ONLY where upstream forces it.
+        # Two per-image fields, both because one size does not fit all:
+        #   platforms      — not every upstream base is multi-arch. Default to
+        #                    linux/amd64,linux/arm64; override ONLY where forced.
+        #   registry_owner — which GHCR namespace to publish under. `calebsargeant` is
+        #                    the personal namespace these images have always used;
+        #                    `magmamoose` is the org namespace (same as the nievah and
+        #                    github-contributions app images). They are NOT
+        #                    interchangeable — each needs a different credential.
         image:
-          - { name: "n8n", path: "dockerfiles/n8n", tag_prefix: "n8n-v", registry_name: "n8n", platforms: "linux/amd64,linux/arm64" }
-          - { name: "openfortivpn", path: "dockerfiles/openfortivpn", tag_prefix: "openfortivpn-v", registry_name: "openfortivpn", platforms: "linux/amd64,linux/arm64" }
-          - { name: "atlantis_firefly", path: "dockerfiles/atlantis-firefly", tag_prefix: "atlantis-firefly-v", registry_name: "atlantis-firefly", platforms: "linux/amd64,linux/arm64" }
-          - { name: "github_runner_firefly", path: "dockerfiles/github-runner-firefly", tag_prefix: "github-runner-firefly-v", registry_name: "github-runner-firefly", platforms: "linux/amd64,linux/arm64" }
+          - { name: "n8n", path: "dockerfiles/n8n", tag_prefix: "n8n-v", registry_name: "n8n", registry_owner: "calebsargeant", platforms: "linux/amd64,linux/arm64" }
+          - { name: "openfortivpn", path: "dockerfiles/openfortivpn", tag_prefix: "openfortivpn-v", registry_name: "openfortivpn", registry_owner: "calebsargeant", platforms: "linux/amd64,linux/arm64" }
+          - { name: "atlantis_firefly", path: "dockerfiles/atlantis-firefly", tag_prefix: "atlantis-firefly-v", registry_name: "atlantis-firefly", registry_owner: "calebsargeant", platforms: "linux/amd64,linux/arm64" }
+          - { name: "github_runner_firefly", path: "dockerfiles/github-runner-firefly", tag_prefix: "github-runner-firefly-v", registry_name: "github-runner-firefly", registry_owner: "calebsargeant", platforms: "linux/amd64,linux/arm64" }
           # arm64 ONLY: the mem0/mem0-api-server base publishes a manifest index with
           # linux/arm64 and nothing else, so an amd64 leg fails the build outright. The
           # Deployment is correspondingly pinned to the native-cloud (arm64) node tier.
-          - { name: "mem0_server", path: "dockerfiles/mem0-server", tag_prefix: "mem0-server-v", registry_name: "mem0-server", platforms: "linux/arm64" }
+          # Published under the ORG namespace to match the rest of the agent fleet.
+          - { name: "mem0_server", path: "dockerfiles/mem0-server", tag_prefix: "mem0-server-v", registry_name: "mem0-server", registry_owner: "magmamoose", platforms: "linux/arm64" }
 
     steps:
       - name: Determine if Build is Needed
@@ -102,11 +115,26 @@ jobs:
         if: env.BUILD_NEEDED == 'true'
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
+      # Credential depends on the namespace, so this cannot be a single static login:
+      #   ghcr.io/magmamoose/*    -> built-in GITHUB_TOKEN. This repo belongs to the
+      #                              MagmaMoose org, so the token can push there (needs
+      #                              `packages: write`, declared on the job above). This
+      #                              is the same pattern the nievah repo uses.
+      #   ghcr.io/calebsargeant/* -> GHCR_TOKEN PAT. GITHUB_TOKEN is scoped to THIS
+      #                              repository's owner and cannot touch a personal
+      #                              namespace, so the PAT is still required here.
       - name: Log in to GHCR
         if: env.BUILD_NEEDED == 'true'
         env:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "CalebSargeant" --password-stdin
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY_OWNER: ${{ matrix.image.registry_owner }}
+        run: |
+          if [[ "$REGISTRY_OWNER" == "magmamoose" ]]; then
+            echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          else
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "CalebSargeant" --password-stdin
+          fi
 
       - name: Determine Image Tag
         if: env.BUILD_NEEDED == 'true'
@@ -119,17 +147,19 @@ jobs:
           else
             VERSION="latest"
           fi
+          IMAGE="ghcr.io/${{ matrix.image.registry_owner }}/${{ matrix.image.registry_name }}"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "IMAGE_TAG=ghcr.io/calebsargeant/${{ matrix.image.registry_name }}:$VERSION" >> $GITHUB_ENV
-          echo "IMAGE_TAG_LATEST=ghcr.io/calebsargeant/${{ matrix.image.registry_name }}:latest" >> $GITHUB_ENV
+          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+          echo "IMAGE_TAG=$IMAGE:$VERSION" >> $GITHUB_ENV
+          echo "IMAGE_TAG_LATEST=$IMAGE:latest" >> $GITHUB_ENV
 
       - name: Build and Push Image with Caching
         if: env.BUILD_NEEDED == 'true'
         run: |
           docker buildx create --use
           docker buildx build --platform ${{ matrix.image.platforms }} \
-            --cache-from=type=registry,ref=ghcr.io/calebsargeant/${{ matrix.image.registry_name }}:buildcache \
-            --cache-to=type=registry,ref=ghcr.io/calebsargeant/${{ matrix.image.registry_name }}:buildcache,mode=max \
+            --cache-from=type=registry,ref=$IMAGE:buildcache \
+            --cache-to=type=registry,ref=$IMAGE:buildcache,mode=max \
             -t $IMAGE_TAG \
             -t $IMAGE_TAG_LATEST \
             --push ${{ matrix.image.path }}

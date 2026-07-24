@@ -23,19 +23,31 @@ See ADR `.claude/decisions/2026-07-23-fleet-shared-memory-mem0.md`.
 1. **Container image must be built, pushed, AND made public.** The upstream
    `mem0/mem0-api-server` image does not ship the pgvector client deps, so we layer them
    on in `dockerfiles/mem0-server/Dockerfile`. `.github/workflows/docker-publish.yml`
-   builds it to `ghcr.io/calebsargeant/mem0-server` on any push to `main` touching that
+   builds it to `ghcr.io/magmamoose/mem0-server` on any push to `main` touching that
    directory (`:latest`), or on a `mem0-server-v*` tag (pinned version). Two gotchas:
-   - **New GHCR packages default to PRIVATE**, and there are no `imagePullSecrets`
-     anywhere in `kubernetes/` — every other image is pulled anonymously. So after the
-     first successful build, flip the package to public or the Deployment
-     ImagePullBackOffs. This is a one-time manual step in the GHCR package settings.
+   - **Visibility: already public, and not by accident.** There are no `imagePullSecrets`
+     anywhere in `kubernetes/` — every image here is pulled anonymously — so a private
+     package would ImagePullBackOff. GHCR packages normally default to private, BUT a
+     package created by `GITHUB_TOKEN` under the org inherits the visibility of the repo
+     that pushed it, and `MagmaMoose/infra` is public. Verified anonymously:
+     `GET ghcr.io/v2/magmamoose/mem0-server/manifests/latest` -> `200`.
+     Do not assume this for a package pushed by a PAT or from a private repo — check
+     first, since the failure looks like a mysterious pull error rather than a 403.
    - **arm64 only.** The upstream base publishes a manifest index containing
      `linux/arm64` and nothing else, so the matrix entry overrides `platforms` and the
      Deployment carries the `node-selectors/native-cloud` component (ff-oci1/ff-oci2).
      Do not remove that nodeSelector — ff-vm1 is amd64 and simply cannot run this image.
 
-   Do not hand-build and push this from a laptop: it needs a `write:packages` token and
-   yields an artifact nobody can reproduce. The workflow's `GHCR_TOKEN` already has it.
+   - **Org namespace, not the personal one.** mem0 publishes under
+     `ghcr.io/magmamoose/*` (like nievah and the rest of the fleet), whereas the other
+     images in `dockerfiles/` use `ghcr.io/calebsargeant/*`. The workflow authenticates
+     these with *different* credentials — the built-in `GITHUB_TOKEN` (which can push to
+     this repo's own org, given `packages: write`) versus the `GHCR_TOKEN` PAT (required
+     for the personal namespace, which `GITHUB_TOKEN` cannot reach). Setting
+     `registry_owner` without the matching login would 403.
+
+   Do not hand-build and push this from a laptop: it needs a `write:packages` token that
+   no local credential here carries, and yields an artifact nobody can reproduce.
 2. **LiteLLM rollout required.** The LiteLLM ConfigMap in this change adds
    `text-embedding-3-small` and `gpt-4o-mini`. LiteLLM reads its YAML config at startup
    only — after this PR merges and Flux reconciles the ConfigMap, trigger a rollout so
