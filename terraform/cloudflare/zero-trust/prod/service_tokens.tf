@@ -58,6 +58,9 @@ resource "cloudflare_zero_trust_access_service_token" "dependency_track_api" {
   account_id = var.account_id
   name       = "dependency-track-api"
   # v4 accepts only: 8760h (1y) | 17520h | 43800h | 87600h | forever
+  # Expires approximately 2027-07 (one year after first apply ~2026-07).
+  # Alert: check before then, especially if dependencytrack-api.magmamoose.com
+  # is still alive — silently expired tokens leave the host unprotected.
   duration = "8760h"
 }
 
