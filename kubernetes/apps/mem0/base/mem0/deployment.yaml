@@ -77,9 +77,14 @@ spec:
               type: RuntimeDefault
       containers:
         - name: mem0
-          # PREREQUISITE: build + push this image (see ./Dockerfile). The upstream
-          # mem0/mem0-api-server image lacks the pgvector client deps. Pin a real tag.
-          image: ghcr.io/magmamoose/mem0-server:latest
+          # Built from dockerfiles/mem0-server by .github/workflows/docker-publish.yml
+          # (the upstream mem0/mem0-api-server image lacks the pgvector client deps).
+          # PREREQUISITE before un-parking: the workflow must have run at least once AND
+          # the resulting GHCR package must be made PUBLIC — new packages default to
+          # private and the cluster pulls with no imagePullSecrets anywhere, so a private
+          # package is an ImagePullBackOff. Pin a released `mem0-server-v*` tag here once
+          # one is cut; `:latest` + Always is the bootstrap state.
+          image: ghcr.io/calebsargeant/mem0-server:latest
           imagePullPolicy: Always
           ports:
             - name: http

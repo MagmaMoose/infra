@@ -10,11 +10,16 @@ resources:
   - ./homebridge
   - ./git-pull-request-dashboard
   - ./litellm
-  # PARKED — fleet-shared memory (mem0 on shared CNPG pgvector, via LiteLLM). Uncomment
-  # to deploy ONLY after building + pushing ghcr.io/magmamoose/mem0-server (the upstream
-  # image lacks pgvector deps) and validating the mem0 config env surface. The Database CR
-  # + pgvector bootstrap Job are safe to reconcile early, but the mem0 pod ImagePullBackOffs
-  # until the image exists. See kubernetes/apps/mem0/README.md.
+  # PARKED — fleet-shared memory (mem0 on shared CNPG pgvector, via LiteLLM). The Database
+  # CR + pgvector bootstrap Job are safe to reconcile early; the mem0 pod ImagePullBackOffs
+  # until the image exists AND is public. Uncomment ONLY after ALL of:
+  #   1. docker-publish.yml has built ghcr.io/calebsargeant/mem0-server at least once
+  #      (it triggers on pushes to main touching dockerfiles/mem0-server/**)
+  #   2. that GHCR package has been flipped to PUBLIC — new packages are private by
+  #      default and nothing in kubernetes/ uses imagePullSecrets
+  #   3. `kubectl rollout restart deployment/litellm -n automation` so the new
+  #      text-embedding-3-small / gpt-4o-mini entries load
+  # See kubernetes/apps/mem0/README.md.
   # - ./mem0
   - ./mikrotik-minder
   - ./n8n

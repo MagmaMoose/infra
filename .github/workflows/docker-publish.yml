@@ -9,12 +9,14 @@ on:
       - "openfortivpn-v*"
       - "atlantis-firefly-v*"
       - "github-runner-firefly-v*"
+      - "mem0-server-v*"
   pull_request:
     paths:
       - "dockerfiles/n8n/**"
       - "dockerfiles/openfortivpn/**"
       - "dockerfiles/atlantis-firefly/**"
       - "dockerfiles/github-runner-firefly/**"
+      - "dockerfiles/mem0-server/**"
 
 jobs:
   determine-changes:
@@ -30,6 +32,7 @@ jobs:
       build_openfortivpn: ${{ steps.filter.outputs.openfortivpn }}
       build_atlantis_firefly: ${{ steps.filter.outputs.atlantis_firefly }}
       build_github_runner_firefly: ${{ steps.filter.outputs.github_runner_firefly }}
+      build_mem0_server: ${{ steps.filter.outputs.mem0_server }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -47,17 +50,25 @@ jobs:
               - 'dockerfiles/atlantis-firefly/**'
             github_runner_firefly:
               - 'dockerfiles/github-runner-firefly/**'
+            mem0_server:
+              - 'dockerfiles/mem0-server/**'
 
   build:
     needs: determine-changes
     runs-on: ubuntu-latest
     strategy:
       matrix:
+        # `platforms` is per-image because not every base is multi-arch. Default to
+        # linux/amd64,linux/arm64; override ONLY where upstream forces it.
         image:
-          - { name: "n8n", path: "dockerfiles/n8n", tag_prefix: "n8n-v", registry_name: "n8n" }
-          - { name: "openfortivpn", path: "dockerfiles/openfortivpn", tag_prefix: "openfortivpn-v", registry_name: "openfortivpn" }
-          - { name: "atlantis_firefly", path: "dockerfiles/atlantis-firefly", tag_prefix: "atlantis-firefly-v", registry_name: "atlantis-firefly" }
-          - { name: "github_runner_firefly", path: "dockerfiles/github-runner-firefly", tag_prefix: "github-runner-firefly-v", registry_name: "github-runner-firefly" }
+          - { name: "n8n", path: "dockerfiles/n8n", tag_prefix: "n8n-v", registry_name: "n8n", platforms: "linux/amd64,linux/arm64" }
+          - { name: "openfortivpn", path: "dockerfiles/openfortivpn", tag_prefix: "openfortivpn-v", registry_name: "openfortivpn", platforms: "linux/amd64,linux/arm64" }
+          - { name: "atlantis_firefly", path: "dockerfiles/atlantis-firefly", tag_prefix: "atlantis-firefly-v", registry_name: "atlantis-firefly", platforms: "linux/amd64,linux/arm64" }
+          - { name: "github_runner_firefly", path: "dockerfiles/github-runner-firefly", tag_prefix: "github-runner-firefly-v", registry_name: "github-runner-firefly", platforms: "linux/amd64,linux/arm64" }
+          # arm64 ONLY: the mem0/mem0-api-server base publishes a manifest index with
+          # linux/arm64 and nothing else, so an amd64 leg fails the build outright. The
+          # Deployment is correspondingly pinned to the native-cloud (arm64) node tier.
+          - { name: "mem0_server", path: "dockerfiles/mem0-server", tag_prefix: "mem0-server-v", registry_name: "mem0-server", platforms: "linux/arm64" }
 
     steps:
       - name: Determine if Build is Needed
@@ -116,7 +127,7 @@ jobs:
         if: env.BUILD_NEEDED == 'true'
         run: |
           docker buildx create --use
-          docker buildx build --platform linux/amd64,linux/arm64 \
+          docker buildx build --platform ${{ matrix.image.platforms }} \
             --cache-from=type=registry,ref=ghcr.io/calebsargeant/${{ matrix.image.registry_name }}:buildcache \
             --cache-to=type=registry,ref=ghcr.io/calebsargeant/${{ matrix.image.registry_name }}:buildcache,mode=max \
             -t $IMAGE_TAG \

@@ -2,13 +2,23 @@
 #
 # The upstream mem0/mem0-api-server image does not include the pgvector client deps,
 # so we layer them on. Vector memory only (no Neo4j/graph, unlike the retired
-# zoey/k8s-mem0 build). Build + push to the org registry, then pin the tag in
-# deployment.yaml:
-#   docker build -t ghcr.io/magmamoose/mem0-server:<tag> kubernetes/apps/mem0/base/mem0
-#   docker push ghcr.io/magmamoose/mem0-server:<tag>
+# zoey/k8s-mem0 build).
+#
+# Built + pushed by .github/workflows/docker-publish.yml to
+# ghcr.io/calebsargeant/mem0-server, like every other image in this directory — NOT by
+# hand. A laptop `docker push` needs a write:packages token and produces an artifact no
+# one can reproduce; the workflow's GHCR_TOKEN already has that scope. Cut a release with
+# the `mem0-server-v*` tag prefix; a push to main rebuilds `:latest`.
+#
+# ARM64 ONLY — this is a hard constraint, not a default. The upstream base publishes a
+# manifest index containing linux/arm64 and nothing else, so the matrix entry for this
+# image overrides `platforms` to `linux/arm64`. Building it amd64 fails outright, and an
+# amd64 NODE cannot run it: hence the native-cloud (ff-oci1/ff-oci2) nodeSelector on the
+# Deployment. Re-check with:
+#   docker buildx imagetools inspect mem0/mem0-api-server:latest
 #
 # Longer term this belongs in its own MagmaMoose/mem0-server repo with CI + Flux image
-# automation (matching github-contributions/nievah), not built by hand from infra.
+# automation (matching github-contributions/nievah), not built from infra at all.
 #
 # Chargate/KICS suppression (accepted risk, reviewed):
 #   b03a748a no HEALTHCHECK – Kubernetes ignores Docker HEALTHCHECK entirely; the
