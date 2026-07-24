@@ -55,15 +55,6 @@ spec:
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
-  name: fairwinds-stable
-  namespace: flux-system
-spec:
-  interval: 1h
-  url: https://charts.fairwinds.com/stable
----
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
-metadata:
   name: 1password
   namespace: flux-system
 spec:
@@ -96,15 +87,6 @@ metadata:
 spec:
   interval: 1h
   url: https://cloudnative-pg.github.io/charts
----
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
-metadata:
-  name: kubescape
-  namespace: flux-system
-spec:
-  interval: 1h
-  url: https://kubescape.github.io/helm-charts/
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository

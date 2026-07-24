@@ -25,7 +25,7 @@ Deferred from this PR because it needs cluster-read RBAC + a DefectDojo API toke
 ## Falco — runtime threat detection
 
 `kubernetes/apps/falco` (ns `falco`) runs the Falco eBPF runtime-detection DaemonSet,
-catching the syscall-level activity that posture/scan tools (Kubescape, Trivy) can't —
+catching the syscall-level activity that posture/scan tools (Trivy) can't —
 shells in containers, unexpected outbound connections, package installs at runtime, etc.
 
 - **Worker-only.** The control-plane Pi runs a **16KB-page arm64 kernel** where Falco's

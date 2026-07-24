@@ -2,9 +2,7 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: github-runner
-  labels:
-    goldilocks.fairwinds.com/enabled: "true"
-    # A dedicated namespace (mirroring platform1-infra) keeps the privileged
-    # docker-in-docker runner's RBAC and any Falco rule exceptions scoped away
-    # from the shared `automation` namespace. Falco WILL emit "Launch Privileged
-    # Container" alerts for the dind sidecar — that is expected, not a failure.
+  # A dedicated namespace (mirroring platform1-infra) keeps the privileged
+  # docker-in-docker runner's RBAC and any Falco rule exceptions scoped away
+  # from the shared `automation` namespace. Falco WILL emit "Launch Privileged
+  # Container" alerts for the dind sidecar — that is expected, not a failure.

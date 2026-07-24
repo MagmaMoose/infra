@@ -7,7 +7,6 @@ Kubernetes dashboard with path-based authentication for multiple clusters.
 Headlamp is configured with the following plugins via init containers:
 
 - **Flux** - Visualize Flux resources and GitOps workflows
-- **Kubescape** - Security and compliance scanning with vulnerability reports
 - **AI Assistant** - AI-powered assistant for Kubernetes troubleshooting and operations
 - **Gatekeeper** - OPA Gatekeeper policy management and violations monitoring
 - **cert-manager** - Certificate management UI for cert-manager resources

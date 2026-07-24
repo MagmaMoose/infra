@@ -6,8 +6,8 @@ Prometheus-based resource recommendations for CPU and memory requests/limits.
 
 KRR analyzes your Prometheus metrics to provide data-driven recommendations for resource requests and limits, helping reduce costs and improve performance.
 
-**Advantages over Goldilocks:**
-- Uses existing Prometheus data (no VPA objects needed)
+**Why KRR:**
+- Uses existing Prometheus data — no extra controller or CRDs
 - Immediate results without waiting for data collection
 - Better explainability with graphs and detailed analysis
 - Multiple output formats (table, JSON, CSV, Slack)
@@ -100,14 +100,3 @@ Add these arguments to the CronJob spec as needed:
 
 See the [KRR documentation](https://github.com/robusta-dev/krr) for more options.
 
-## Removing Goldilocks
-
-After validating KRR works for you, remove Goldilocks:
-```bash
-cd ../goldilocks
-flux suspend helmrelease goldilocks -n observability
-# Test for a while, then delete:
-# rm -rf ../goldilocks
-```
-
-Also remove the `goldilocks.fairwinds.com/enabled=true` labels from namespaces.

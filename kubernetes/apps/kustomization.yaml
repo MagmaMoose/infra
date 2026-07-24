@@ -37,7 +37,6 @@ resources:
   # media
   - ./bazarr
   - ./flaresolverr
-  - ./jackett
   - ./nzbhydra2
   - ./overseerr
   - ./plex
@@ -78,7 +77,6 @@ resources:
   - ./dependency-track
   - ./falco
   - ./gatekeeper
-  - ./kubescape
   - ./kyverno-policies
   - ./security-integrations
   - ./sonarqube

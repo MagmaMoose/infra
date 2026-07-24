@@ -40,21 +40,6 @@ data:
           - /bin/sh
           - -c
           - mkdir -p /build/plugins && cp -r /plugins/* /build/plugins/ && chown -R 100:101 /build
-        image: quay.io/kubescape/headlamp-plugin:latest
-        imagePullPolicy: Always
-        name: headlamp-plugin-kubescape
-        securityContext:
-          runAsNonRoot: false
-          privileged: false
-          runAsUser: 0
-          runAsGroup: 0
-        volumeMounts:
-          - mountPath: /build/plugins
-            name: headlamp-plugins
-      - command:
-          - /bin/sh
-          - -c
-          - mkdir -p /build/plugins && cp -r /plugins/* /build/plugins/ && chown -R 100:101 /build
         image: ghcr.io/headlamp-k8s/headlamp-plugin-ai-assistant:latest
         imagePullPolicy: Always
         name: headlamp-plugin-ai-assistant
