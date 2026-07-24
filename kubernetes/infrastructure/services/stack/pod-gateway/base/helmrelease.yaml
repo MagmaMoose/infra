@@ -58,12 +58,25 @@ spec:
       namespaceSelector:
         type: label
         label: "routed-gateway"
+    # None of the pod-gateway containers shipped requests, so the gateway that ALL
+    # routed media pods egress through ran BestEffort — first evicted under node
+    # memory pressure, which would break connectivity for every routed pod at once.
+    # KRR-sized (2026-07) below.
     controllers:
       webhook:
         pod:
           nodeSelector:
             node-role.kubernetes.io/worker: ""
             topology.sargeant.co/tier: on-prem
+        containers:
+          main:
+            # KRR: cpu 10m, memory 100Mi.
+            resources:
+              requests:
+                cpu: 10m
+                memory: 100Mi
+              limits:
+                memory: 192Mi
       main:
         # The chart does NOT apply defaultPodOptions to the main controller (only the
         # webhook picked it up via its explicit override), so the gateway kept landing
@@ -73,8 +86,24 @@ spec:
             node-role.kubernetes.io/worker: ""
             topology.sargeant.co/tier: on-prem
         containers:
+          main:
+            # KRR: cpu 10m, memory 100Mi.
+            resources:
+              requests:
+                cpu: 10m
+                memory: 100Mi
+              limits:
+                memory: 192Mi
           gluetun:
             enabled: true
+            # KRR: cpu 106m, memory 105Mi — the OpenVPN tunnel does real, steady
+            # per-packet work for every routed pod, so this CPU floor is genuine.
+            resources:
+              requests:
+                cpu: 106m
+                memory: 105Mi
+              limits:
+                memory: 192Mi
             env:
               VPN_SERVICE_PROVIDER: privado
               VPN_TYPE: openvpn

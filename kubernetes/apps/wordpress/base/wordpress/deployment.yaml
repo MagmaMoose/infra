@@ -27,11 +27,12 @@ spec:
         - name: wordpress
           image: wordpress:6.7-apache
           resources:
-            # 100Mi req==limit OOMKilled (exit 137) WordPress 6.7 + PHP 8.2 during
-            # the DB upgrade + block-theme (theme.json) processing. 128Mi request
-            # with a 512Mi limit gives headroom for upgrade/admin spikes; idles ~60Mi.
+            # KRR-sized (2026-07): cpu 10m, memory 100Mi. NB it was 100Mi *req==limit*
+            # that OOMKilled (exit 137) WordPress 6.7 + PHP 8.2 during the DB upgrade
+            # + block-theme (theme.json) processing — the killer was the LIMIT, not the
+            # request, so the 512Mi limit stays for upgrade/admin spikes.
             requests:
-              memory: "128Mi"
+              memory: "100Mi"
               cpu: "10m"
             limits:
               memory: "512Mi"

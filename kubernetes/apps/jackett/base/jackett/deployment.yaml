@@ -17,9 +17,9 @@ spec:
         - name: jackett
           image: linuxserver/jackett:0.24.2237 # {"$imagepolicy": "flux-system:jackett"}
           resources:
-            # right-sized: observed ~93Mi; request leaves scheduling headroom, generous limit avoids OOM
+            # KRR-sized (2026-07): cpu 10m, memory 109Mi. Generous limit avoids OOM.
             requests:
-              memory: "192Mi"
+              memory: "109Mi"
               cpu: "10m"
             limits:
               memory: "320Mi"

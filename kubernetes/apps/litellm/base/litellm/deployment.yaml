@@ -1,3 +1,7 @@
+# kics-scan disable=4ac0e2b7-d2d2-4af7-8799-e8de6721ccda
+# No CPU limit is intentional repo-wide convention (avoids CFS throttling).
+# LiteLLM fronts every agent call so latency spikes from CPU throttling are
+# particularly harmful here.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -79,6 +83,22 @@ spec:
             - name: config
               mountPath: /etc/litellm
               readOnly: true
+          resources:
+            # KRR-sized (2026-07): cpu 406m, memory 1713Mi. Previously supplied by
+            # the m.nano profile component (150m/768Mi), which materially
+            # under-requested the fleet's busiest service — it fronts every agent
+            # call, so it is genuinely CPU- and heap-hungry rather than bursty.
+            # No CPU limit (avoids CFS throttling on request fan-out).
+            requests:
+              cpu: 406m
+              # Memory 1360Mi, not KRR's 1713Mi: observed steady state ~1084Mi.
+              # ff-vm1 cannot reserve every pod's peak (see infra#501). NB this is
+              # also the surge budget for a rolling restart — replicas:1 with
+              # maxUnavailable 0 means a restart must fit a SECOND pod of this size
+              # alongside the first, so keeping it modest is what makes restarts work.
+              memory: 1360Mi
+            limits:
+              memory: 2Gi
           # /health/liveliness is LiteLLM's unauthenticated liveness endpoint.
           readinessProbe:
             httpGet:
@@ -103,12 +123,12 @@ spec:
               subPath: nginx.conf
               readOnly: true
           resources:
+            # KRR-sized (2026-07): cpu 10m, memory 100Mi. CPU limit dropped.
             requests:
-              cpu: 50m
-              memory: 32Mi
+              cpu: 10m
+              memory: 100Mi
             limits:
-              cpu: 100m
-              memory: 64Mi
+              memory: 192Mi
       volumes:
         - name: config
           configMap:

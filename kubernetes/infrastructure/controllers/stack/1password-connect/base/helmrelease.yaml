@@ -32,13 +32,13 @@ spec:
         nodeSelector:
           type: pi
         resources:
-          # KRR ~100Mi working set; trimmed from 256Mi to relieve ff-pi1
-          # memory-request pressure. No CPU limit (avoid CFS throttling).
+          # KRR-sized (2026-07): cpu 10m, memory 100Mi. Keeps ff-pi1 memory-request
+          # pressure low. No CPU limit (avoid CFS throttling).
           requests:
-            cpu: 50m
-            memory: 128Mi
+            cpu: 10m
+            memory: 100Mi
           limits:
-            memory: 128Mi
+            memory: 192Mi
         
         # HTTP port configuration
         httpPort: 8080
@@ -50,13 +50,13 @@ spec:
         nodeSelector:
           type: pi
         resources:
-          # KRR ~100Mi working set; trimmed from 256Mi to relieve ff-pi1
-          # memory-request pressure. No CPU limit (avoid CFS throttling).
+          # KRR-sized (2026-07): cpu 10m, memory 100Mi. Keeps ff-pi1 memory-request
+          # pressure low. No CPU limit (avoid CFS throttling).
           requests:
-            cpu: 50m
-            memory: 128Mi
+            cpu: 10m
+            memory: 100Mi
           limits:
-            memory: 128Mi
+            memory: 192Mi
         
         # HTTP port configuration
         httpPort: 8081
@@ -83,11 +83,12 @@ spec:
       # Operator pod configuration
       replicas: 1
       resources:
+        # KRR-sized (2026-07): cpu 10m, memory 110Mi.
         requests:
           cpu: 10m
-          memory: 100Mi
+          memory: 110Mi
         limits:
-          memory: 100Mi
+          memory: 192Mi
 
       # Polling interval for checking 1Password items
       pollingInterval: 600

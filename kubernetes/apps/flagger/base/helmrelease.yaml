@@ -35,3 +35,12 @@ spec:
     # Controller on the amd64 worker.
     nodeSelector:
       node-role.kubernetes.io/worker: ""
+    # KRR-sized (2026-07): cpu 10m, memory 100Mi. The chart's default 1-core CPU
+    # LIMIT is dropped (repo convention: CPU limits only buy false CFS-throttle
+    # alerts) and the 32Mi request was too tight for the controller's caches.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 100Mi
+      limits:
+        memory: 192Mi

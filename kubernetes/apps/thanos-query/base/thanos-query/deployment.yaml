@@ -34,9 +34,10 @@ spec:
           # Headroom for store-gateway fan-out once long-term data is served
           # (req==limit==100Mi was too tight). No CPU limit.
           resources:
+            # KRR-sized (2026-07): cpu 10m, memory 100Mi (per replica; 2 replicas).
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 10m
+              memory: 100Mi
             limits:
               memory: 512Mi
           livenessProbe:

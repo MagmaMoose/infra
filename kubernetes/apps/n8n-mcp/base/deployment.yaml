@@ -69,9 +69,11 @@ spec:
           resources:
             # Small Node service with a bundled (read-only) node-docs DB. No CPU
             # limit (avoids false CFS-throttle alerts); request set to real usage.
+            # KRR-sized (2026-07): cpu 10m, memory 178Mi.
             requests:
-              cpu: 25m
-              memory: 192Mi
+              cpu: 10m
+              # ff-vm1 fit (infra#501): request = steady state, obs ~75Mi; 512Mi limit
+              memory: 104Mi
             limits:
               memory: 512Mi
           readinessProbe:

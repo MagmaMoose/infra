@@ -16,13 +16,14 @@ spec:
       containers:
         - name: sonarr
           image: linuxserver/sonarr:4.0.19 # {"$imagepolicy": "flux-system:sonarr"}
-          # right-sized: observed ~213Mi usage; request frees scheduling headroom, limit stays generous to avoid OOM
+          # KRR-sized (2026-07): cpu 42m, memory 564Mi. Limit stays generous to avoid OOM.
           resources:
             requests:
-              memory: "320Mi"
-              cpu: "10m"
+              # ff-vm1 fit (infra#501): request = steady state, obs ~224Mi; 768Mi limit
+              memory: "280Mi"
+              cpu: "42m"
             limits:
-              memory: "512Mi"
+              memory: "768Mi"
           ports:
             - containerPort: 8989 # sonarr web interface
           env:

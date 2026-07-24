@@ -5,5 +5,21 @@ metadata:
 resources:
   - ./base
 components:
-  - ../../../../components/resource-profiles/t.nano
+  # t.nano (50m/64Mi req, 200m CPU limit) replaced with explicit KRR values: all
+  # three cert-manager Deployments want the same 10m/100Mi, which no profile in the
+  # grid expresses, and the 200m CPU limit is against repo convention.
   - ../../../../components/node-selectors/pi
+
+# cert-manager controller + cainjector + webhook — KRR-sized (2026-07): cpu 10m,
+# memory 100Mi each. One unnamed Deployment target covers all three.
+patches:
+  - target:
+      kind: Deployment
+    patch: |
+      # `add`, not `replace`: the upstream static manifest may ship no resources
+      # block at all, and `replace` errors on a missing path.
+      - op: add
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: { cpu: 10m, memory: 100Mi }
+          limits: { memory: 192Mi }

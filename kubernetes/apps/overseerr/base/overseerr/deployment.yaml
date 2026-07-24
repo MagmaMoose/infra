@@ -31,8 +31,8 @@ spec:
               name: overseerr-config
           resources:
             requests:
-              # Right-sized: observed ~218Mi memory usage; request frees scheduling headroom, limit kept generous to avoid OOM
-              memory: "288Mi"
+              # KRR-sized (2026-07): cpu 10m, memory 174Mi. Limit kept generous to avoid OOM.
+              memory: "174Mi"
               cpu: "10m"
               ephemeral-storage: "1Gi"
             limits:

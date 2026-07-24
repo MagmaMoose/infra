@@ -31,12 +31,15 @@ spec:
               mountPath: /etc/loki
             - name: data
               mountPath: /loki
+          # NOTE: kustomization.yaml `op: replace`s this whole block — these values
+          # are placeholders that keep the JSON-patch path valid. Change resources
+          # THERE, not here; they are kept in sync only to avoid confusion.
           resources:
             requests:
-              cpu: 10m
-              memory: 165Mi
+              cpu: 25m
+              memory: 360Mi
             limits:
-              memory: 165Mi
+              memory: 8Gi
           # Loki's /ready can take >1s during WAL replay / compactions —
           # default timeoutSeconds: 1 was killing the pod (368 restarts in 25h).
           livenessProbe:

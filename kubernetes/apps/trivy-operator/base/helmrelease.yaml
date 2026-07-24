@@ -44,3 +44,13 @@ spec:
     # The cluster's kube-prometheus-stack scrapes all monitors.
     serviceMonitor:
       enabled: true
+    # Operator Deployment container. The chart ships `resources: {}`, so this pod was
+    # BestEffort QoS despite holding every VulnerabilityReport/ConfigAuditReport in
+    # its informer cache — which is why the measured working set is this large.
+    # KRR-sized (2026-07): cpu 13m, memory 1298Mi.
+    resources:
+      requests:
+        cpu: 13m
+        memory: 1298Mi
+      limits:
+        memory: 1536Mi

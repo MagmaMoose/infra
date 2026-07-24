@@ -4,10 +4,13 @@ resources:
   - namespace.yaml
   - externalsecret.yaml
   - pvc.yaml
+  - configmap-bootstrap.yaml
   - deployment.yaml
   - service.yaml
   - ingress.yaml
 components:
-  # Pin to the ON-PREM worker (ff-vm1, amd64). OpenHands runtime/tooling images have been
-  # amd64-only in places; pin until arm64 is confirmed. State is on Longhorn (not Pi-local).
-  - ../../../components/node-selectors/worker-on-prem
+  # native-cloud (ff-oci1/ff-oci2), NOT worker-on-prem. The old comment here claimed
+  # OpenHands was "amd64-only in places" — that is now false: agent-canvas is
+  # linux/amd64 + linux/arm64 and was verified running on the arm64 OCI tier. That tier
+  # also has the CPU headroom; ff-vm1 does not.
+  - ../../../components/node-selectors/native-cloud

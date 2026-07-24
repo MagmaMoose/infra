@@ -244,9 +244,13 @@ spec:
           securityContext:
             privileged: true
           resources:
+            # KRR: cpu 49m, memory 932Mi. Memory request held at 256Mi instead —
+            # KRR's 932Mi is a mid-job figure and this runner is idle most of the
+            # week, while ff-vm1 cannot reserve every pod's peak (see infra#501).
+            # Observed idle ~60Mi; a real build still bursts into the 6Gi limit.
             requests:
-              cpu: 100m
-              memory: 512Mi
+              cpu: 49m
+              memory: 256Mi
             limits:
               # docker-dind hosts the chargate/MegaLinter container, so this cap
               # governs the whole scan. MegaLinter needs several GB; 512Mi OOM-kills
@@ -290,8 +294,11 @@ spec:
           image: ghcr.io/actions/actions-runner:latest
           imagePullPolicy: Always
           resources:
+            # KRR: cpu 181m (kept — the runner does real sustained work during a
+            # job), memory 570Mi held at 256Mi for the same idle-most-of-the-week
+            # reason as docker-dind above. Observed idle ~174Mi; limit is 2Gi.
             requests:
-              cpu: 100m
+              cpu: 181m
               memory: 256Mi
             limits:
               # No CPU limit (repo convention). Memory headroom for the runner agent
