@@ -26,9 +26,7 @@ to the apiserver ahead of the frontend catch-all, and the frontend's
 is a legacy fallback with no known caller, gated by a Cloudflare Access service
 token and slated for removal. The `dependency-track{,-api}.sargeant.co` aliases were
 deleted — a duplicate hostname on the same tunnel silently bypasses any Access app
-scoped to the magmamoose.com name. safe-settings must remain public
-without a Cloudflare Access gate for `/api/github/webhooks`; GitHub authenticates
-payloads with the webhook secret instead. For Ingress-backed public tunnel
+scoped to the magmamoose.com name. For Ingress-backed public tunnel
 hosts, set `external-dns.alpha.kubernetes.io/target` to the firefly
 `*.cfargotunnel.com` hostname and `external-dns.alpha.kubernetes.io/cloudflare-proxied`
 to `"true"`; otherwise external-dns publishes the private Traefik load-balancer
