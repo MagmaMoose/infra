@@ -130,6 +130,7 @@ spec:
               subPath: openhands-state
             - name: bootstrap
               mountPath: /bootstrap
+              readOnly: true
       volumes:
         - name: state
           persistentVolumeClaim:

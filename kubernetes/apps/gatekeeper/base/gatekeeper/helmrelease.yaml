@@ -41,7 +41,7 @@ spec:
       nodeSelector:
         node-role.kubernetes.io/worker: ""
       resources:
-        # KRR-sized (2026-07): cpu 21m, memory 238Mi (3 replicas). Limit raised to
+        # KRR-sized (2026-07): cpu 21m, memory 238Mi total (3-replica aggregate); 104Mi per pod. Limit raised to
         # 384Mi so there is still admission burst headroom above the new request.
         # No CPU limit (avoid CFS throttling).
         requests:
