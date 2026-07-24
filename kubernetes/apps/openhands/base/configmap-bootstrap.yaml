@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openhands-bootstrap
+  namespace: openhands
+data:
+  # Seeds the LLM config + GitHub PAT into agent-canvas' settings store.
+  #
+  # WHY A SCRIPT AND NOT ENV VARS: OpenHands V1 has no env-var path for the agent's
+  # LLM. LLM_MODEL / LLM_API_KEY are V0 leftovers; the only LLM_* var V1 still reads
+  # is LLM_BASE_URL, and only as a fallback for OPENHANDS_PROVIDER_BASE_URL (which
+  # applies to `openhands/`-prefixed models). The real config lives in
+  # ~/.openhands/settings.json with api_key Fernet-encrypted under OH_SECRET_KEY, so
+  # the file cannot be hand-written — it has to go through PATCH /api/settings.
+  #
+  # Runs on every container start and is idempotent, so rotating the LiteLLM master
+  # key just needs a pod restart. Always exits 0: a failing postStart hook would make
+  # the kubelet kill the container.
+  seed.sh: |
+    #!/bin/bash
+    set -uo pipefail
+
+    LOG="${HOME}/.openhands/seed.log"
+    # Mirror to the container's stdout so `kubectl logs` shows it; fall back to a file
+    # on the volume if PID 1's stdout is not writable.
+    if [ -w /proc/1/fd/1 ]; then exec >>/proc/1/fd/1 2>&1; else exec >>"$LOG" 2>&1; fi
+
+    BASE="http://127.0.0.1:${PORT:-8000}"
+    # The entrypoint generates and persists the session API key here (and bakes it into
+    # the served frontend), so read it rather than minting another vault entry.
+    KEY_FILE="${HOME}/.openhands/agent-canvas/api-key.txt"
+
+    log() { printf '[openhands-seed] %s\n' "$*"; }
+
+    for _ in $(seq 1 60); do
+      if [ -s "$KEY_FILE" ] && curl -fsS -o /dev/null "${BASE}/alive"; then break; fi
+      sleep 3
+    done
+    if [ ! -s "$KEY_FILE" ]; then log "no api-key.txt after 180s; skipping seed"; exit 0; fi
+    if ! curl -fsS -o /dev/null "${BASE}/alive"; then log "agent-server not alive after 180s; skipping seed"; exit 0; fi
+    SESSION_KEY="$(cat "$KEY_FILE")"
+
+    # DeepSeek via the in-cluster LiteLLM gateway.
+    #   * the `litellm_proxy/` prefix is what makes the SDK treat base_url as a LiteLLM
+    #     proxy (it also pulls pricing/context from ${base_url}/v1/model/info, which is
+    #     why base_url must NOT already end in /v1)
+    #   * `deepseek-v4-pro` is the LiteLLM model_name alias
+    #   * :8080 is LiteLLM's nginx auth-proxy sidecar, which copies
+    #     `Authorization: Bearer` into `x-litellm-api-key`. Port 4000 401s on
+    #     Authorization and the SDK only ever sends Authorization, so :8080 is
+    #     mandatory, not a preference.
+    jq -n --arg k "${BOOTSTRAP_LLM_API_KEY:-}" '{
+      agent_settings_diff: {
+        llm: {
+          model: "litellm_proxy/deepseek-v4-pro",
+          base_url: "http://litellm.automation.svc.cluster.local:8080",
+          api_key: $k
+        }
+      }
+    }' | curl -fsS -o /dev/null -X PATCH "${BASE}/api/settings" \
+        -H 'Content-Type: application/json' \
+        -H "X-Session-API-Key: ${SESSION_KEY}" \
+        --data @- \
+      && log "LLM settings applied (litellm_proxy/deepseek-v4-pro)" \
+      || log "WARNING: PATCH /api/settings failed — set the model in the UI"
+
+    if [ -n "${BOOTSTRAP_GITHUB_TOKEN:-}" ]; then
+      jq -n --arg t "$BOOTSTRAP_GITHUB_TOKEN" '{custom_secrets: {GITHUB_TOKEN: {value: $t}}}' \
+        | curl -fsS -o /dev/null -X PUT "${BASE}/api/settings/secrets" \
+            -H 'Content-Type: application/json' \
+            -H "X-Session-API-Key: ${SESSION_KEY}" \
+            --data @- \
+        && log "GITHUB_TOKEN secret stored" \
+        || log "WARNING: storing GITHUB_TOKEN failed — add it in the UI"
+    fi
+
+    exit 0

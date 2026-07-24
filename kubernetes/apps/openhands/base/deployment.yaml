@@ -5,7 +5,7 @@ metadata:
   namespace: openhands
 spec:
   replicas: 1
-  # Single stateful instance on an RWO Longhorn volume — never run two at once.
+  # Single stateful instance on an RWO volume — never run two at once.
   strategy:
     type: Recreate
   selector:
@@ -16,56 +16,125 @@ spec:
       labels:
         app: openhands
     spec:
+      # agent-canvas runs as the image's baked-in `openhands` user (UID 10001).
+      # fsGroup makes the kubelet chown the volume so it can write.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
       containers:
         - name: openhands
-          # PIN + VERIFY before enabling. OpenHands is mid-V1 transition: the V0 server
-          # line is `docker.all-hands.dev/all-hands-ai/openhands:<ver>` (port 3000); V1 is
-          # `ghcr.io/openhands/agent-canvas` (port 8000, currently a release candidate).
-          # This scaffold pins the stable V0 server; confirm the tag/arch in-cluster first.
-          image: docker.all-hands.dev/all-hands-ai/openhands:0.50
+          # OpenHands V1 "agent-canvas": frontend + agent-server + automation in ONE
+          # container. The agent executes code IN THIS POD (real tmux panes, git, gh,
+          # node, chromium) — no Docker socket, no DinD, no separate runtime image.
+          # Multi-arch, verified running on the arm64 OCI tier.
+          #
+          # Do NOT go back to `openhands/openhands` (the GUI app image). V0 is EOL at
+          # 0.62.0 and its bash tool needs a tmux binary that image lacks; V1's three
+          # sandboxes are all unusable here — `docker` needs a privileged DinD sidecar,
+          # `process` is broken upstream (it gates on psutil STATUS_RUNNING, but an idle
+          # uvicorn sits in S/sleeping so the sandbox never leaves STARTING), and
+          # `remote` needs the All Hands hosted runtime API.
+          #
+          # SECURITY POSTURE: the pod IS the sandbox. There is no isolation between the
+          # agent and this container — it runs with the workspace volume, the GitHub PAT
+          # and cluster DNS. Same trust posture as the rest of the agent fleet, but a
+          # deliberate choice, not an accident.
+          image: ghcr.io/openhands/agent-canvas:1.5.2
           ports:
             - name: http
-              containerPort: 3000
+              containerPort: 8000
           env:
-            # RUNTIME=local runs the action server IN THIS container — no Docker-in-Docker,
-            # no privileged sandbox, no separate (amd64-only) runtime image. The pod itself
-            # is the sandbox boundary (ephemeral, scrubbed). Stronger isolation (Kubernetes
-            # runtime / DinD) is a deliberate follow-up if you need it.
-            - name: RUNTIME
-              value: local
-            # All inference through the in-cluster LiteLLM gateway. The litellm_proxy/ prefix
-            # is REQUIRED for OpenHands' custom-endpoint path (headless bugs #11608/#11632 hit
-            # plain custom URLs); the model must match a LiteLLM model_name.
-            - name: LLM_BASE_URL
-              value: http://litellm.automation.svc.cluster.local:4000
-            - name: LLM_MODEL
-              value: litellm_proxy/claude-opus-4-8
-            - name: LLM_API_KEY
+            # Unified entry point: serves the UI and proxies /api/* to the in-container
+            # agent-server and /api/automation/* to the automation service.
+            - name: PORT
+              value: "8000"
+            - name: OPENHANDS_SUPPRESS_BANNER
+              value: "1"
+            - name: TZ
+              value: Europe/Amsterdam
+            # NB do NOT set TMUX_TMPDIR. tmux's make_label() does a bare mkdir() with no
+            # -p, so pointing it at a path whose parent does not exist fails ENOENT — and
+            # the SDK's _is_tmux_available() only shells `tmux -V` (which succeeds), so it
+            # picks TmuxTerminal and dies at pool init instead of falling back to
+            # SubprocessTerminal. The image's default socket path already works.
+            #
+            # These two are consumed ONLY by /bootstrap/seed.sh, never by the app.
+            # V1 does NOT read LLM_MODEL / LLM_API_KEY — the agent's LLM lives in
+            # ~/.openhands/settings.json with api_key Fernet-encrypted under
+            # OH_SECRET_KEY, so it can only be set through PATCH /api/settings.
+            - name: BOOTSTRAP_LLM_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: openhands
                   key: llm-api-key
-            # Acts AS YOU on GitHub (clone/push/PR). Same trust posture as Nievah's write path.
-            - name: GITHUB_TOKEN
+            - name: BOOTSTRAP_GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: openhands
                   key: github-token
-            # Persistent state (sessions, settings) on the PVC.
-            - name: OH_PERSISTENCE_DIR
-              value: /.openhands-state
-            - name: TZ
-              value: Europe/Amsterdam
+          # Backgrounded (`&`) so the hook returns instantly — a postStart hook that
+          # blocks also blocks the container reaching Running/Ready.
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/bash
+                  - -c
+                  - /bootstrap/seed.sh & exit 0
+          startupProbe:
+            httpGet:
+              path: /alive
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            # Cold boot measured ~60s (agent-server + tool preload); 300s of headroom
+            # covers a first-time image pull on a slow node.
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /alive
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /alive
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
           resources:
+            # Measured 16m CPU / 892Mi RSS after completing a real task. No CPU limit
+            # (repo convention); memory limit above the request as burst headroom.
             requests:
-              cpu: 200m
+              cpu: 50m
               memory: 1Gi
             limits:
               memory: 2Gi
           volumeMounts:
+            # The agent's working directory. agent_server/config.py defaults
+            # workspace_path to the RELATIVE path `workspace/project` and the image's
+            # WorkingDir is `/`, so conversations run in /workspace/project.
+            # OH_PERSISTENCE_DIR does NOT reroute this — there is no persistence_dir
+            # field in Config. Mounting /workspace is what actually persists cloned
+            # repos and bounds their growth to the volume instead of the container fs.
             - name: state
-              mountPath: /.openhands-state
+              mountPath: /workspace
+              subPath: workspace
+            # Settings store, session API key and the seed log.
+            - name: state
+              mountPath: /home/openhands/.openhands
+              subPath: openhands-state
+            - name: bootstrap
+              mountPath: /bootstrap
       volumes:
         - name: state
           persistentVolumeClaim:
             claimName: openhands
+        - name: bootstrap
+          configMap:
+            name: openhands-bootstrap
+            defaultMode: 0755

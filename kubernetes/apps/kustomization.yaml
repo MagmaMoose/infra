@@ -29,7 +29,7 @@ resources:
   # DORMANT — autonomous-coding engine (acts as you on GitHub). Reviewed scaffold parked
   # in ./openhands; uncomment to deploy ONLY after validating image/runtime in-cluster.
   # See kubernetes/apps/openhands/README.md.
-  # - ./openhands
+  - ./openhands
   # backup
   - ./timemachine
   # miscellaneous (dashboard)

@@ -8,6 +8,13 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 5Gi
-  # Longhorn (replicated, node-independent). Holds OpenHands sessions/settings state.
-  storageClassName: longhorn
+      storage: 10Gi
+  # local-path, NOT longhorn. Longhorn here runs numberOfReplicas=2 with HARD replica
+  # anti-affinity (replica-soft-anti-affinity=false) and only ff-pi1 has more than a few
+  # GiB of schedulable disk left (ff-oci1 ~1.9Gi, ff-oci2 ~0.9Gi, ff-vm1 ~3.4Gi), so a
+  # multi-GiB Longhorn claim cannot place its second replica and sits
+  # ReplicaSchedulingFailure — exactly what the 10Gi Grafana volume is doing today.
+  # This holds a scratch agent workspace and a settings file; node-local is the right
+  # trade, and it is what 13 other PVCs in this cluster already use. Consequence: the
+  # pod is pinned to whichever node first binds the volume.
+  storageClassName: local-path
