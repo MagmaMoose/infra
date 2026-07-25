@@ -1,32 +1,38 @@
-# openhands — DORMANT scaffold (not deployed)
+# OpenHands V1
 
-OpenHands is the **dev-lane** engine in the agent architecture (autonomous coding:
-implement/fix an issue or PR and open a PR — driven on demand, and later dispatched by
-Nievah *as you*).
+OpenHands is the in-cluster autonomous-coding lane used by Nievah when a repository or
+operator selects `harness: openhands`. The deployment uses the multi-arch
+`ghcr.io/openhands/agent-canvas:1.5.2` image, runs the agent-server on port 8000, and routes
+inference through the in-cluster LiteLLM gateway using the `litellm_proxy/deepseek-v4-pro`
+model alias.
 
-**This app is intentionally NOT wired into [`../kustomization.yaml`](../kustomization.yaml),
-so Flux does not deploy it.** It is a reviewed starting point, parked because OpenHands is
-not yet safe to auto-deploy here:
+The pod is deliberately a single stateful instance. Its 10Gi `local-path` volume stores the
+OpenHands settings and per-conversation workspaces. The pod itself is the sandbox boundary:
+it has GitHub write credentials and cluster DNS, but it has no Docker socket or Kubernetes API
+access. The ingress is LAN-only.
 
-1. **V1 transition.** Upstream is moving to a new `agent-server` + `agent-canvas` stack
-   (`ghcr.io/openhands/agent-canvas`, currently a **release candidate**, port 8000). This
-   scaffold pins the **stable V0 server** (`docker.all-hands.dev/all-hands-ai/openhands`,
-   port 3000) — confirm the right line/tag/arch before enabling.
-2. **Runtime sandbox.** It uses `RUNTIME=local` (runs in-container, no privileged DinD, no
-   separate amd64-only runtime image). The pod is the sandbox boundary. If you need stronger
-   isolation, the Kubernetes runtime (sandbox pods + RBAC) is a follow-up.
-3. **Headless + custom LiteLLM** has open upstream bugs (#11608/#11632); the `litellm_proxy/`
-   model prefix is the documented workaround and is set here.
-4. **It acts as you** (holds your GitHub PAT + writes code). Same trust posture as Nievah's
-   write path — enable it deliberately, not via a silent merge.
+## Authentication and secrets
 
-## Enable (after validating in-cluster)
+The OpenHands `ExternalSecret` reads the LiteLLM key, the bootstrap GitHub token, and the stable
+`openhands-session-api-key` from OCI Vault. The latter is also mirrored into Nievah as
+`OPENHANDS_SESSION_API_KEY`; Nievah sends it as `X-Session-API-Key` for headless conversations.
+The bootstrap script prefers that stable key and falls back to the image-generated key only for
+manual operation when the Vault key is absent.
 
-1. Confirm the image line/tag and that it boots with `RUNTIME=local` (test the pod first).
-2. Add `- ./openhands` to [`../kustomization.yaml`](../kustomization.yaml) (it's there now as
-   a commented line).
-3. (Optional) mint a dedicated `openhands-github-pat` vault entry and point the ExternalSecret
-   at it instead of the reused `comment-commander-github-pat`.
+Do not put any of these values in Git. If the Vault entry is missing, create it before enabling
+an OpenHands harness entry in the Nievah admin allowlist. Flux will then reconcile the
+ExternalSecrets and deployment from this directory.
 
-Inference is the in-cluster LiteLLM (`…:4000`, `litellm_proxy/claude-opus-4-8`); secrets come
-from OCI Vault via the ExternalSecret; LAN-only ingress at `openhands.sargeant.co`.
+## Operations
+
+OpenHands is enabled in `kubernetes/apps/kustomization.yaml`, and `openhands` is published in
+the LAN DNS role. Nievah remains on `claude-code` by default; select OpenHands per repository
+with `harness: openhands` or for one authorized command with
+`/pr-review --harness openhands` / `/pr-triage --harness openhands`.
+Nievah passes the per-run GitHub token through OpenHands' secret registry; the pod does not
+receive Nievah's SSH signing private key, so OpenHands commits use its configured Git identity
+without SSH verification.
+
+The workspace is node-local scratch state, so a node loss discards active conversations and
+requires a new run. Keep the PVC bounded and monitor its usage; completed agent workspaces are
+not automatically garbage-collected by the V1 API.

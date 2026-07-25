@@ -1,0 +1,73 @@
+# Chargate/KICS suppression: the scanner flagged shell variable references like
+# ${BOOTSTRAP_LLM_API_KEY:-} inside the seed script as "hardcoded secrets". These are
+# environment variable lookups; the actual values are injected from the `openhands` Secret
+# (OCI Vault via ExternalSecrets) at pod runtime. No secret value is hardcoded here.
+# Reviewed and accepted as a false positive.
+# kics-scan disable=baee238e-1921-4801-9c3f-79ae1d7b2cbc
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openhands-bootstrap
+  namespace: openhands
+data:
+  # OpenHands V1 stores its LLM settings encrypted in the state volume, so configure it
+  # through the authenticated settings API during startup. The script is idempotent and
+  # always exits successfully so a transient bootstrap failure does not restart the pod.
+  seed.sh: |
+    #!/bin/bash
+    set -uo pipefail
+
+    LOG="${HOME}/.openhands/seed.log"
+    if [ -w /proc/1/fd/1 ]; then exec >>/proc/1/fd/1 2>&1; else exec >>"$LOG" 2>&1; fi
+
+    BASE="http://127.0.0.1:${PORT:-8000}"
+    KEY_FILE="${HOME}/.openhands/agent-canvas/api-key.txt"
+
+    log() { printf '[openhands-seed] %s\n' "$*"; }
+
+    for _ in $(seq 1 60); do
+      if curl -fsS -o /dev/null "${BASE}/alive" \
+        && { [ -n "${SESSION_API_KEY:-}" ] || [ -s "$KEY_FILE" ]; }; then break; fi
+      sleep 3
+    done
+    if ! curl -fsS -o /dev/null "${BASE}/alive"; then
+      log "agent-server not alive after 180s; skipping seed"
+      exit 0
+    fi
+
+    # A Vault-provided key gives Nievah stable headless authentication. For a fresh or
+    # manually operated instance, retain the image-generated key as the fallback.
+    SESSION_KEY="${SESSION_API_KEY:-}"
+    if [ -z "$SESSION_KEY" ] && [ -s "$KEY_FILE" ]; then SESSION_KEY="$(cat "$KEY_FILE")"; fi
+    if [ -z "$SESSION_KEY" ]; then
+      log "no session API key available; skipping seed"
+      exit 0
+    fi
+
+    jq -n --arg k "${BOOTSTRAP_LLM_API_KEY:-}" '{
+      agent_settings_diff: {
+        llm: {
+          model: "litellm_proxy/deepseek-v4-pro",
+          base_url: "http://litellm.automation.svc.cluster.local:8080",
+          api_key: $k
+        }
+      }
+    }' | curl -fsS -o /dev/null -X PATCH "${BASE}/api/settings" \
+        -H 'Content-Type: application/json' \
+        -H "X-Session-API-Key: ${SESSION_KEY}" \
+        --data @- \
+      && log "LLM settings applied (litellm_proxy/deepseek-v4-pro)" \
+      || log "WARNING: PATCH /api/settings failed"
+
+    if [ -n "${BOOTSTRAP_GITHUB_TOKEN:-}" ]; then
+      jq -n --arg t "$BOOTSTRAP_GITHUB_TOKEN" \
+        '{custom_secrets: {GITHUB_TOKEN: {value: $t}}}' \
+        | curl -fsS -o /dev/null -X PUT "${BASE}/api/settings/secrets" \
+            -H 'Content-Type: application/json' \
+            -H "X-Session-API-Key: ${SESSION_KEY}" \
+            --data @- \
+        && log "GITHUB_TOKEN secret stored" \
+        || log "WARNING: storing GITHUB_TOKEN failed"
+    fi
+
+    exit 0

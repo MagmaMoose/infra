@@ -8,6 +8,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 5Gi
-  # Longhorn (replicated, node-independent). Holds OpenHands sessions/settings state.
-  storageClassName: longhorn
+      storage: 10Gi
+  # The agent workspace is scratch state. local-path avoids an unschedulable Longhorn
+  # replica on the small OCI nodes and pins this single-instance workload to its node.
+  storageClassName: local-path

@@ -30,6 +30,7 @@
     - { name: "prometheus", cname: "{{ k3s_name }}" }
     - { name: "alertmanager", cname: "{{ k3s_name }}" }
     - { name: "n8n", cname: "{{ k3s_name }}" }
+    - { name: "openhands", cname: "{{ k3s_name }}" }
     - { name: "cloud", cname: "{{ k3s_name }}" }
     - { name: "desktop", cname: "{{ k3s_name }}" }
     - { name: "nzbget", cname: "{{ k3s_name }}" }
