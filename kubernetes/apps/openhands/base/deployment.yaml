@@ -23,6 +23,8 @@ spec:
         fsGroup: 10001
       containers:
         - name: openhands
+          securityContext:
+            allowPrivilegeEscalation: false
           # OpenHands V1 agent-canvas serves the UI and agent-server in one container.
           # The pod is the sandbox boundary; it intentionally has GitHub write access.
           image: ghcr.io/openhands/agent-canvas:1.5.2
@@ -89,6 +91,7 @@ spec:
               cpu: 50m
               memory: 1Gi
             limits:
+              cpu: "2"
               memory: 2Gi
           volumeMounts:
             - name: state
