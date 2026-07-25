@@ -1,3 +1,16 @@
+# Chargate/KICS suppressions (accepted risks, reviewed — genuinely actionable findings were
+# FIXED in code instead: seccompProfile: RuntimeDefault added to pod securityContext,
+# capabilities: drop: [ALL] added to container securityContext):
+#   7c81d34c no image digest          – repo convention: tag pinning matches all other app
+#                                       deployments; no digest automation is in place.
+#   a9c2f49d readOnlyRootFilesystem   – OpenHands agent-canvas writes to arbitrary paths
+#                                       during coding runs (pip/npm caches, /tmp, etc.).
+#                                       Enumerating every writable path into emptyDirs is
+#                                       fragile; accept until the write surface is fully
+#                                       mapped and emptyDir mounts can be added safely.
+#   3d658f8b secretKeyRef is defined  – repo-wide sanctioned pattern: ExternalSecret →
+#                                       secretKeyRef env vars (same as mem0, n8n-mcp, etc.).
+# kics-scan disable=7c81d34c-8e5a-402b-9798-9f442630e678,a9c2f49d-0671-4fc9-9ece-f4e261e128d0,3d658f8b-d988-41a0-a841-40043121de1e
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,10 +34,15 @@ spec:
         runAsUser: 10001
         runAsGroup: 10001
         fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: openhands
           securityContext:
             allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           # OpenHands V1 agent-canvas serves the UI and agent-server in one container.
           # The pod is the sandbox boundary; it intentionally has GitHub write access.
           image: ghcr.io/openhands/agent-canvas:1.5.2

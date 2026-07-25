@@ -1,3 +1,9 @@
+# Chargate/KICS suppression: the scanner flagged shell variable references like
+# ${BOOTSTRAP_LLM_API_KEY:-} inside the seed script as "hardcoded secrets". These are
+# environment variable lookups; the actual values are injected from the `openhands` Secret
+# (OCI Vault via ExternalSecrets) at pod runtime. No secret value is hardcoded here.
+# Reviewed and accepted as a false positive.
+# kics-scan disable=baee238e-1921-4801-9c3f-79ae1d7b2cbc
 apiVersion: v1
 kind: ConfigMap
 metadata:
