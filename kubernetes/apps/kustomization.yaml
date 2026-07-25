@@ -26,10 +26,8 @@ resources:
   - ./github-contributions
   - ./github-usage-dashboard
   - ./nievah
-  # DORMANT — autonomous-coding engine (acts as you on GitHub). Reviewed scaffold parked
-  # in ./openhands; uncomment to deploy ONLY after validating image/runtime in-cluster.
-  # See kubernetes/apps/openhands/README.md.
-  # - ./openhands
+  # OpenHands V1 autonomous-coding engine; selected explicitly by Nievah's harness config.
+  - ./openhands
   # backup
   - ./timemachine
   # miscellaneous (dashboard)

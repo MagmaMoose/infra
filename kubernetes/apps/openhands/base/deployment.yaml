@@ -5,7 +5,7 @@ metadata:
   namespace: openhands
 spec:
   replicas: 1
-  # Single stateful instance on an RWO Longhorn volume — never run two at once.
+  # The state volume is ReadWriteOnce, so keep one stateful instance.
   strategy:
     type: Recreate
   selector:
@@ -16,56 +16,95 @@ spec:
       labels:
         app: openhands
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
       containers:
         - name: openhands
-          # PIN + VERIFY before enabling. OpenHands is mid-V1 transition: the V0 server
-          # line is `docker.all-hands.dev/all-hands-ai/openhands:<ver>` (port 3000); V1 is
-          # `ghcr.io/openhands/agent-canvas` (port 8000, currently a release candidate).
-          # This scaffold pins the stable V0 server; confirm the tag/arch in-cluster first.
-          image: docker.all-hands.dev/all-hands-ai/openhands:0.50
+          # OpenHands V1 agent-canvas serves the UI and agent-server in one container.
+          # The pod is the sandbox boundary; it intentionally has GitHub write access.
+          image: ghcr.io/openhands/agent-canvas:1.5.2
           ports:
             - name: http
-              containerPort: 3000
+              containerPort: 8000
           env:
-            # RUNTIME=local runs the action server IN THIS container — no Docker-in-Docker,
-            # no privileged sandbox, no separate (amd64-only) runtime image. The pod itself
-            # is the sandbox boundary (ephemeral, scrubbed). Stronger isolation (Kubernetes
-            # runtime / DinD) is a deliberate follow-up if you need it.
-            - name: RUNTIME
-              value: local
-            # All inference through the in-cluster LiteLLM gateway. The litellm_proxy/ prefix
-            # is REQUIRED for OpenHands' custom-endpoint path (headless bugs #11608/#11632 hit
-            # plain custom URLs); the model must match a LiteLLM model_name.
-            - name: LLM_BASE_URL
-              value: http://litellm.automation.svc.cluster.local:4000
-            - name: LLM_MODEL
-              value: litellm_proxy/claude-opus-4-8
-            - name: LLM_API_KEY
+            - name: PORT
+              value: "8000"
+            - name: OPENHANDS_SUPPRESS_BANNER
+              value: "1"
+            - name: TZ
+              value: Europe/Amsterdam
+            # Bootstrap writes the encrypted V1 settings through /api/settings. These
+            # values are not read by the agent-server directly.
+            - name: BOOTSTRAP_LLM_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: openhands
                   key: llm-api-key
-            # Acts AS YOU on GitHub (clone/push/PR). Same trust posture as Nievah's write path.
-            - name: GITHUB_TOKEN
+            - name: BOOTSTRAP_GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: openhands
                   key: github-token
-            # Persistent state (sessions, settings) on the PVC.
-            - name: OH_PERSISTENCE_DIR
-              value: /.openhands-state
-            - name: TZ
-              value: Europe/Amsterdam
+            # Nievah uses this stable key for headless REST authentication. The seed script
+            # falls back to the generated key when the Vault entry is intentionally absent.
+            - name: SESSION_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openhands
+                  key: session-api-key
+                  optional: true
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /bin/bash
+                  - -c
+                  - /bootstrap/seed.sh & exit 0
+          startupProbe:
+            httpGet:
+              path: /alive
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /alive
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /alive
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 5
           resources:
             requests:
-              cpu: 200m
+              cpu: 50m
               memory: 1Gi
             limits:
               memory: 2Gi
           volumeMounts:
             - name: state
-              mountPath: /.openhands-state
+              mountPath: /workspace
+              subPath: workspace
+            - name: state
+              mountPath: /home/openhands/.openhands
+              subPath: openhands-state
+            - name: bootstrap
+              mountPath: /bootstrap
+              readOnly: true
       volumes:
         - name: state
           persistentVolumeClaim:
             claimName: openhands
+        - name: bootstrap
+          configMap:
+            name: openhands-bootstrap
+            defaultMode: 0755
