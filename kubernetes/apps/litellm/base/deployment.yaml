@@ -1,3 +1,9 @@
+# Chargate/KICS suppression (accepted risk, reviewed):
+#   4ac0e2b7 no CPU limits  – repo convention (CPU limits cause false CFS-throttle
+#                             alerts); LiteLLM fronts every agent call — request
+#                             fan-out bursts make CFS throttling add latency across
+#                             the board (see inline comment at resources).
+# kics-scan disable=4ac0e2b7-d2d2-4af7-8799-e8de6721ccda
 apiVersion: apps/v1
 kind: Deployment
 metadata:

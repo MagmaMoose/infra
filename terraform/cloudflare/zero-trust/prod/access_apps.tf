@@ -712,16 +712,20 @@ resource "cloudflare_zero_trust_access_policy" "grafana_caleb" {
 }
 
 # ---------------------------------------------------------------------------
-# AppSec / dev tooling — SonarQube, Backstage, Dependency-Track.
+# AppSec / dev tooling — SonarQube, Dependency-Track.
 #
-# All four hostnames were publicly tunnelled with NO edge gate and no
-# oauth2-proxy. Verified unauthenticated from the internet on 2026-07-24:
-# sonarqube 200 (and /api/system/status 200 — a version banner), dependencytrack
-# 200, dependencytrack-api 401 (Backstage is no longer deployed on the cluster,
-# unhealthy — Backstage community with no auth provider defaults to GUEST).
+# These hostnames were publicly tunnelled with NO edge gate and no oauth2-proxy.
+# Verified unauthenticated from the internet on 2026-07-24: sonarqube 200 (and
+# /api/system/status 200 — a version banner), dependencytrack 200,
+# dependencytrack-api 401.
+#
 # SonarQube force-auth and Dependency-Track both 401 their data APIs, so nothing
 # sensitive was anonymously readable; this is defence in depth plus keeping login
 # pages and version banners away from drive-by scanning.
+#
+# The Backstage app this change originally carried is gone: Backstage is no
+# longer deployed on the cluster, and an Access app for a hostname with no
+# tunnel ingress behind it is dead config.
 # ---------------------------------------------------------------------------
 
 # --- SonarQube --------------------------------------------------------------
