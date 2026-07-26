@@ -1,3 +1,9 @@
+# Chargate/KICS suppressions (accepted risks, reviewed):
+#   b7652612 readOnly is false – intentional: the agent writes cloned repos and session
+#                               state to the workspace and .openhands volumeMounts.
+#                               The field is explicit so the intent is visible rather
+#                               than relying on the Kubernetes default.
+# kics-scan disable=b7652612-de4e-4466-a0bf-1cd81f0c6063
 apiVersion: apps/v1
 kind: Deployment
 metadata:
