@@ -45,14 +45,19 @@ spec:
     # Domain filter - configure for your local domain
     domainFilters:
       - local  # Replace with your actual local domain managed by MikroTik
+      # Ember's Cloudflare-registered zone is split-horizon: records are
+      # created only in the LAN resolver, never in the public Cloudflare zone.
+      - whyf.uk
 
     # Source configuration - watch both Ingress and Service resources
     sources:
       - ingress
       - service
 
-    # Annotation filter - only manage resources with this annotation
-    annotationFilter: "external-dns.alpha.kubernetes.io/target=mikrotik"
+    # Only explicitly private Ingresses may create records in the LAN resolver.
+    # Do not use external-dns's `target` annotation as a selector: it overrides
+    # the record RDATA and would turn the private hostname into a CNAME.
+    annotationFilter: "dns.sargeant.co/visibility=private"
 
     # Policy configuration - sync creates, updates, and deletes DNS records
     policy: sync

@@ -43,6 +43,13 @@ spec:
       - sargeant.co
       - magmamoose.com
 
+    # `whyf.uk` is an Ember-only split-horizon zone. Its application records
+    # are owned exclusively by the MikroTik private-DNS controller; keeping it
+    # excluded here prevents a future filter expansion from publishing a
+    # private Traefik address in Cloudflare.
+    excludeDomains:
+      - whyf.uk
+
     # Source configuration - watch both Ingress and Service resources
     sources:
       - ingress

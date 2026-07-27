@@ -349,6 +349,7 @@ If you accidentally stage a secret, remove it with `git reset HEAD <file>` befor
    `X-Session-API-Key` as `OH_SESSION_API_KEYS_0`, not only as the legacy
    `SESSION_API_KEY`. The image generates and uses a separate public-proxy key when the
    canonical variable is absent, producing persistent 401s for clients such as Nievah.
+10. **Publishing the Ember private zone** — `whyf.uk` is split-horizon and belongs only to the MikroTik ExternalDNS controller. Keep it excluded from the Cloudflare ExternalDNS controller and out of Cloudflare Tunnel rules. DNS-01 ACME TXT records are the sole permitted public DNS writes for that zone.
 
 ## Definition of Done
 

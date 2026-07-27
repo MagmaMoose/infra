@@ -41,6 +41,12 @@ spec:
       - media
     DNS: 172.16.0.1
     settings:
+      # dnsmasq's local DNSSEC validation rejects valid signed responses from
+      # some VPN-visible zones (for example api.ipify.org), returning SERVFAIL
+      # to every VPN-routed pod. Cloudflare's upstream resolver already
+      # validates DNSSEC; keep DNS traffic inside the VPN and disable only the
+      # redundant, broken second validation at the gateway.
+      GATEWAY_ENABLE_DNSSEC: false
       VPN_INTERFACE: tun0 # OpenVPN
       VXLAN_ID: 42
       VXLAN_IP_NETWORK: "172.16.0"

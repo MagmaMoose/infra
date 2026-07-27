@@ -87,6 +87,21 @@ They are ordinary `worker` nodes **plus** an extra tier label:
   `kubernetes/infrastructure/services/stack/postgres-oci/base/cluster.yaml`
   (2 instances, one per OCI node via required hostname anti-affinity).
 
+## Private DNS zones
+
+`whyf.uk` is a split-horizon zone for the private Ember workload. Its application
+records are managed only by the MikroTik ExternalDNS instance and resolve only
+for LAN/VPN clients. The Cloudflare ExternalDNS instance explicitly excludes the
+zone, so it must never publish application A, AAAA, or CNAME records there.
+
+TLS still uses cert-manager's Cloudflare DNS-01 issuer. That issuer creates only
+the short-lived `_acme-challenge` TXT records needed for Let's Encrypt validation;
+it does not make an Ember application reachable from the public Internet.
+
+Keep the private-DNS annotation (`dns.sargeant.co/visibility=private`)
+on every `whyf.uk` Ingress. Do not add these hosts to a Cloudflare Tunnel or to
+the public Cloudflare ExternalDNS domain filters.
+
 ## How it's codified
 
 ### Node labels

@@ -58,6 +58,22 @@ Edit `helmrelease.yaml` and update the `domainFilters` section to match your loc
 domainFilters:
   - home.arpa  # Replace with your actual local domain
   - local
+  - whyf.uk    # Split-horizon zone: private records live only in MikroTik
+```
+
+### 4. Mark Private Records Explicitly
+
+This controller manages only resources annotated with
+`dns.sargeant.co/visibility: private`. The `whyf.uk` zone is split-horizon:
+application records are created in MikroTik only, while the Cloudflare
+External-DNS controller excludes that zone. DNS-01 ACME TXT records are the
+only `whyf.uk` records cert-manager may create in Cloudflare; never create
+Cloudflare application records or Tunnel routes for these hosts.
+
+```yaml
+metadata:
+  annotations:
+    dns.sargeant.co/visibility: private
 ```
 
 ## Components
@@ -81,8 +97,8 @@ domainFilters:
 
 Once deployed, External-DNS will automatically create DNS records in your MikroTik router for:
 
-1. **Ingress resources** with hostnames
-2. **Service resources** with `external-dns.alpha.kubernetes.io/hostname` annotation
+1. **Ingress resources** with hostnames and the private-visibility annotation
+2. **Service resources** with `external-dns.alpha.kubernetes.io/hostname` and the private-visibility annotation
 
 Example Service annotation:
 
@@ -93,6 +109,7 @@ metadata:
   name: my-app
   annotations:
     external-dns.alpha.kubernetes.io/hostname: my-app.local
+    dns.sargeant.co/visibility: private
 spec:
   type: LoadBalancer
   # ... rest of service spec
