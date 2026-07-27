@@ -68,9 +68,14 @@ spec:
                 secretKeyRef:
                   name: openhands
                   key: github-token
-            # Nievah uses this stable key for headless REST authentication. The seed script
-            # falls back to the generated key when the Vault entry is intentionally absent.
-            - name: SESSION_API_KEY
+            # Nievah uses this stable key for headless REST authentication. agent-canvas
+            # uses the V1 OH_SESSION_API_KEYS_0 value for its public proxy and agent server;
+            # the legacy SESSION_API_KEY is ignored when that canonical key is absent and
+            # would make agent-canvas generate a different, private key instead.
+            #
+            # When the Vault entry is intentionally absent this optional variable is unset,
+            # so agent-canvas falls back to its persisted generated key for manual use.
+            - name: OH_SESSION_API_KEYS_0
               valueFrom:
                 secretKeyRef:
                   name: openhands

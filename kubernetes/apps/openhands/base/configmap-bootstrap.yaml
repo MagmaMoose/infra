@@ -27,7 +27,7 @@ data:
 
     for _ in $(seq 1 60); do
       if curl -fsS -o /dev/null "${BASE}/alive" \
-        && { [ -n "${SESSION_API_KEY:-}" ] || [ -s "$KEY_FILE" ]; }; then break; fi
+        && { [ -n "${OH_SESSION_API_KEYS_0:-}" ] || [ -s "$KEY_FILE" ]; }; then break; fi
       sleep 3
     done
     if ! curl -fsS -o /dev/null "${BASE}/alive"; then
@@ -37,7 +37,7 @@ data:
 
     # A Vault-provided key gives Nievah stable headless authentication. For a fresh or
     # manually operated instance, retain the image-generated key as the fallback.
-    SESSION_KEY="${SESSION_API_KEY:-}"
+    SESSION_KEY="${OH_SESSION_API_KEYS_0:-}"
     if [ -z "$SESSION_KEY" ] && [ -s "$KEY_FILE" ]; then SESSION_KEY="$(cat "$KEY_FILE")"; fi
     if [ -z "$SESSION_KEY" ]; then
       log "no session API key available; skipping seed"

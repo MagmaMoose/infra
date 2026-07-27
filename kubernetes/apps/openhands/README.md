@@ -2,9 +2,9 @@
 
 OpenHands is the in-cluster autonomous-coding lane used by Nievah when a repository or
 operator selects `harness: openhands`. The deployment uses the multi-arch
-`ghcr.io/openhands/agent-canvas:1.5.2` image, runs the agent-server on port 8000, and routes
-inference through the in-cluster LiteLLM gateway using the `litellm_proxy/deepseek-v4-pro`
-model alias.
+`ghcr.io/openhands/agent-canvas:1.5.2` image. Its public UI/proxy listens on port 8000
+(and forwards `/api` to the internal V1 agent-server), and it routes inference through the
+in-cluster LiteLLM gateway using the `litellm_proxy/deepseek-v4-pro` model alias.
 
 The pod is deliberately a single stateful instance. Its 10Gi `local-path` volume stores the
 OpenHands settings and per-conversation workspaces. The pod itself is the sandbox boundary:
@@ -16,8 +16,11 @@ access. The ingress is LAN-only.
 The OpenHands `ExternalSecret` reads the LiteLLM key, the bootstrap GitHub token, and the stable
 `openhands-session-api-key` from OCI Vault. The latter is also mirrored into Nievah as
 `OPENHANDS_SESSION_API_KEY`; Nievah sends it as `X-Session-API-Key` for headless conversations.
-The bootstrap script prefers that stable key and falls back to the image-generated key only for
-manual operation when the Vault key is absent.
+Inject it into agent-canvas as **`OH_SESSION_API_KEYS_0`**, its canonical V1 key variable.
+`SESSION_API_KEY` is a legacy fallback: using it alone causes agent-canvas to generate a
+different public-proxy key, so Nievah receives 401 responses despite both deployments sourcing
+the same Vault value. The bootstrap script uses the canonical key and falls back to the
+image-generated key only for manual operation when the Vault key is absent.
 
 Do not put any of these values in Git. If the Vault entry is missing, create it before enabling
 an OpenHands harness entry in the Nievah admin allowlist. Flux will then reconcile the

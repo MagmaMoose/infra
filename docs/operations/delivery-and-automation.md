@@ -49,6 +49,15 @@ this repo.
 - **Prerequisite**: `renovate-github-token` (a GitHub PAT with contents +
   pull-requests + workflows) in OCI Vault.
 
+## OpenHands — Nievah's standby review harness
+
+Nievah can move a failed Claude Code review onto the OpenHands/DeepSeek harness. Both
+deployments read the same `openhands-session-api-key` from OCI Vault; OpenHands must inject it
+as `OH_SESSION_API_KEYS_0`, the agent-canvas V1 public-proxy key. Using only the legacy
+`SESSION_API_KEY` makes agent-canvas generate a different key and rejects Nievah with HTTP 401.
+The value stays in Vault and is delivered through the `openhands` ExternalSecret — never add it
+to a manifest or ConfigMap.
+
 ## Kyverno image-signature verification (SLSA scaffold)
 
 `kubernetes/apps/kyverno-policies` adds a Kyverno `ClusterPolicy` that **keyless**
