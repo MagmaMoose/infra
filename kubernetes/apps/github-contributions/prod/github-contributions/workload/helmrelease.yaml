@@ -32,24 +32,21 @@ spec:
       # live in base/github-contributions/image-automation.yaml; the shared `media`
       # ImageUpdateAutomation scans ./kubernetes/apps and pushes the bump to main.
       # v0.0.1 is a placeholder until Diatreme publishes the first real release tag.
-      tag: v0.0.1 # {"$imagepolicy": "flux-system:github-contributions:tag"}
+      tag: v0.0.4 # {"$imagepolicy": "flux-system:github-contributions:tag"}
       pullPolicy: IfNotPresent
       pullSecrets:
         - name: ghcr-pull-secret
-
     # Multi-source contribution tracking. NON-secret: references token env vars by
     # name (token_env); the tokens themselves come from the github-contributions-env
     # secret below (externalsecret.yaml). Rendered into the ConfigMap as
     # GITHUB_SOURCES.
     sources: '[{"name":"pinkroccade","host":"pinkroccade.ghe.com","scope":"enterprise","target":"pinkroccade","token_env":"GHES_TOKEN"},{"name":"magmamoose","host":"github.com","scope":"org","target":"magmamoose","token_env":"GH_TOKEN"},{"name":"personal","host":"github.com","scope":"user","target":"CalebSargeant","token_env":"GH_TOKEN"}]'
-
     # Collapse Caleb's commit identities (github.com login + work GHES login, and
     # both commit emails) into a single contributor.
     identity:
       logins: "CalebSargeant,sargea50"
       emails: "caleb@magmamoose.com,caleb.sargeant@pinkroccade.nl"
       sinceMonths: 12
-
     # AI layer via the in-cluster LiteLLM proxy (LITELLM_API_KEY is a secret below).
     ai:
       litellmBaseUrl: "http://litellm.automation.svc.cluster.local:8080"
@@ -58,11 +55,9 @@ spec:
       litellmModel: "deepseek-v4-flash"
       # NOTE: confirm the in-cluster base URL /v1 routing on first run. The OpenAI
       # SDK appends /v1 to litellmBaseUrl, so LiteLLM must answer at :8080/v1.
-
     config:
       publicUrl: "https://githubcontributions.magmamoose.com"
       currency: "USD"
-
     # First-class Postgres: the DSN is in the github-contributions-env secret
     # (built from the shared CNPG neondb_owner password + the githubcontributions
     # DB — see workload/database.yaml + externalsecret.yaml). store.build_store
@@ -77,19 +72,16 @@ spec:
     # pin is moot now there's no PVC).
     persistence:
       enabled: false
-
     # Secrets (DATABASE_URL + LITELLM_API_KEY + GH_TOKEN + GHES_TOKEN) come from the
     # ExternalSecret we manage in workload/externalsecret.yaml, referenced by name here.
     secrets:
       existingSecretName: github-contributions-env
     externalSecret:
       enabled: false
-
     # Ingress is DNS-only and hand-written (workload/ingress.yaml) to match the
     # firefly cloudflared-tunnel pattern; the chart's own Ingress stays off.
     ingress:
       enabled: false
-
     # Pin this always-online, public-facing dashboard to the OCI free-tier ARM
     # workers (ff-oci1/ff-oci2). The image must be published multi-arch
     # (linux/amd64 + linux/arm64) for this to schedule. Nodes are untainted, so
