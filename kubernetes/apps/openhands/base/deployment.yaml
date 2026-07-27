@@ -10,7 +10,12 @@
 #                                       mapped and emptyDir mounts can be added safely.
 #   3d658f8b secretKeyRef is defined  – repo-wide sanctioned pattern: ExternalSecret →
 #                                       secretKeyRef env vars (same as mem0, n8n-mcp, etc.).
-# kics-scan disable=7c81d34c-8e5a-402b-9798-9f442630e678,a9c2f49d-0671-4fc9-9ece-f4e261e128d0,3d658f8b-d988-41a0-a841-40043121de1e
+#   8b36775e no AppArmor annotation   – KICS wants the DEPRECATED beta annotation. The modern
+#                                       securityContext.appArmorProfile is deliberately NOT set
+#                                       yet: no AppArmor config exists in ansible/terraform, and
+#                                       a profile request on a node without AppArmor FAILS pod
+#                                       startup. Verify node support before enabling.
+# kics-scan disable=7c81d34c-8e5a-402b-9798-9f442630e678,a9c2f49d-0671-4fc9-9ece-f4e261e128d0,3d658f8b-d988-41a0-a841-40043121de1e,8b36775e-183d-4d46-b0f7-96a6f34a723f
 apiVersion: apps/v1
 kind: Deployment
 metadata:
