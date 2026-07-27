@@ -49,6 +49,19 @@ this repo.
 - **Prerequisite**: `renovate-github-token` (a GitHub PAT with contents +
   pull-requests + workflows) in OCI Vault.
 
+## Flux image updates
+
+`flux-system/media` is the shared `ImageUpdateAutomation` for tags managed in
+this repository, including the GitHub Contributions deployment. Its source is
+the `infra-image-automation` GitRepository. This source must use the canonical
+current repository URL (`https://github.com/MagmaMoose/infra`) and the
+`github-app-magmamoose` credential, matching Nievah's working automation.
+GitHub App tokens are scoped to one installation, so the legacy
+`buxfer-sync-github-app` credential cannot write MagmaMoose repositories. Use
+`fluxcdbot@users.noreply.github.com` as the generated commit author. An
+installation mismatch makes the ImageUpdateAutomation fail with a Git push
+authorization error and leaves all tag updates uncommitted.
+
 ## OpenHands — Nievah's standby review harness
 
 Nievah can move a failed Claude Code review onto the OpenHands/DeepSeek harness. Both
