@@ -28,10 +28,18 @@ spec:
                     sed -i 's/<name replace-wildcards="yes">%h<\/name>/<name replace-wildcards="yes">firefly<\/name>/' /etc/avahi/services/smbd.service
                     pkill -HUP avahi-daemon
           resources:
+            # KRR-sized (2026-07): cpu 130m, memory 838Mi. These inline values are now
+            # actually in effect — the t.small profile component was dropped from
+            # kustomization.yaml because its `op: add` on containers/0/resources was
+            # silently overriding them with 250m/256Mi.
             requests:
-              memory: "1157Mi"
-              cpu: "103m"
+              # Memory held at 128Mi, not KRR's 838Mi: that is a mid-backup figure
+              # and observed idle is ~75Mi. ff-vm1 cannot reserve every pod's peak
+              # (see infra#501); a running backup bursts into the 1157Mi limit.
+              memory: "128Mi"
+              cpu: "130m"
             limits:
+              # Headroom above the request: smbd buffers hard during a backup run.
               memory: "1157Mi"
           env:
             - name: AVAHI_NAME

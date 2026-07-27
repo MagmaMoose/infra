@@ -38,10 +38,13 @@ spec:
             - name: TZ
               value: Europe/Amsterdam
           resources:
-            # Chromium is memory-hungry; no CPU limit (CFS-throttle false alarms).
+            # KRR-sized (2026-07): cpu 10m, memory 327Mi. Chromium is bursty, not
+            # steadily busy — the old 200m request reserved capacity it never used.
+            # No CPU limit (CFS-throttle false alarms); 1536Mi limit for page spikes.
             requests:
-              cpu: 200m
-              memory: 512Mi
+              cpu: 10m
+              # ff-vm1 fit (infra#501): request = steady state, obs ~178Mi; 1536Mi limit
+              memory: 224Mi
             limits:
               memory: 1536Mi
           readinessProbe:

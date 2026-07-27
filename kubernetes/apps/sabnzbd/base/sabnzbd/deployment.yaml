@@ -33,14 +33,14 @@ spec:
               name: downloads
           resources:
             requests:
-              # right-sized: observed ~118Mi usage; 256Mi frees scheduling headroom
-              memory: "256Mi"
-              cpu: "200m"
+              # KRR-sized (2026-07): cpu 10m, memory 133Mi.
+              memory: "133Mi"
+              cpu: "10m"
               ephemeral-storage: "1Gi"
             limits:
               # generous on purpose so we never OOM; limits don't affect scheduling
+              # CPU limit dropped: unpacking is bursty and was being throttled.
               memory: "512Mi"
-              cpu: "750m"
               ephemeral-storage: "4Gi"
       volumes:
         - name: sabnzbd-config

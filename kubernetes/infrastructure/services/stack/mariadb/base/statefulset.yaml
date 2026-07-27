@@ -24,9 +24,10 @@ spec:
             # convention: 192Mi request frees ~320Mi of the Pi's memory-request
             # pressure, while a 512Mi limit keeps generous burst room for the DB.
             # CPU request only — no CPU limit (avoids false CFS-throttle alerts).
+            # KRR-sized (2026-07): cpu 10m, memory 136Mi.
             requests:
-              memory: "192Mi"
-              cpu: "50m"
+              memory: "136Mi"
+              cpu: "10m"
             limits:
               memory: "512Mi"
           ports:

@@ -18,11 +18,16 @@ data:
             env:
               TZ: Europe/Amsterdam
             resources:
+              # KRR-sized (2026-07): cpu 28m, memory 470Mi. These values are now
+              # actually in effect — the c.pico profile component was dropped from
+              # kustomization.yaml because its HelmRelease patch wrote
+              # spec.values.controllers.main.containers.main.resources, which takes
+              # precedence over this valuesFrom ConfigMap (so 100m/256Mi silently won).
               requests:
-                cpu: 14m
-                memory: 553Mi
+                cpu: 28m
+                memory: 470Mi
               limits:
-                memory: 553Mi
+                memory: 768Mi
 
     defaultPodOptions:
       hostNetwork: true

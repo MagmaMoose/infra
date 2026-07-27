@@ -93,11 +93,12 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 10
           resources:
+            # KRR-sized (2026-07): cpu 10m, memory 100Mi. CPU limit dropped
+            # (repo convention: CPU limits only buy false CFS-throttle alerts).
             requests:
-              cpu: 50m
-              memory: 64Mi
+              cpu: 10m
+              memory: 100Mi
             limits:
-              cpu: 200m
-              memory: 128Mi
+              memory: 192Mi
       nodeSelector:
         type: pi

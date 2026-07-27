@@ -30,12 +30,15 @@ spec:
             - name: varlibdockercontainers
               mountPath: /var/lib/docker/containers
               readOnly: true
+          # NOTE: kustomization.yaml `op: replace`s this whole block — these values
+          # are placeholders that keep the JSON-patch path valid. Change resources
+          # THERE, not here; they are kept in sync only to avoid confusion.
           resources:
             requests:
-              cpu: 10m
+              cpu: 14m
               memory: 100Mi
             limits:
-              memory: 100Mi
+              memory: 256Mi
       # Run on every node EXCEPT the Raspberry Pi (ff-pi1): the fluent-bit image's
       # jemalloc is built for 4KB pages and crashes on the Pi's 16KB-page arm64
       # kernel ("<jemalloc>: Unsupported system page size"). Collecting ff-pi1 logs

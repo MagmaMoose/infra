@@ -168,6 +168,14 @@ AWS-style naming mapped to Raspberry Pi constraints (requests → limits):
 
 Full table in `kubernetes/components/resource-profiles/kustomization.yaml` (5 families × 8 sizes: `p.*` 2:1 cpu/mem, `t.*` 1:1, `c.*` 1:2, `m.*` 1:4, `r.*` 1:8 — each from `pico` to `2xlarge`). Patch deployments by labelling them with `resource-profile=<name>` and applying the component.
 
+**Important gotchas:**
+
+- **The profile patch silently overrides inline `resources:`** — the patch is `op: add` on `/spec/template/spec/containers/0/resources`, which replaces the whole object. An app that lists a profile component AND sets `resources:` in its own Deployment gets the profile's numbers; the inline block is dead code that still greps as if it were live. This bit an entire KRR pass where six apps had correct inline values that never took effect. Verify with `kustomize build <dir> | grep -A6 resources:` — never by reading the Deployment alone.
+- **The patch only touches container 0** — sidecars are never sized by the profile component; they must carry their own inline `resources:` block.
+- **HelmRelease `valuesFrom` is outranked** — the profile writes `spec.values…`, which takes precedence over a `valuesFrom` ConfigMap. If an app uses both a resource-profile component and a `valuesFrom`, the ConfigMap values are dead.
+- **Prefer inline values** over profile components for resource sizing. Profiles are convenient for uniform workloads but obscure per-app sizing decisions. If a profile is used, do not also set resources inline.
+- **KRR cannot see bare pods** — Longhorn's `instance-manager-*` are created by longhorn-manager, not a Deployment/DaemonSet/StatefulSet, so they never appear in KRR output. They reserve `guaranteedInstanceManagerCPU` (default 12% of each node's allocatable CPU). Same blind spot for CNPG cluster pods and trivy scan Jobs. Budget them by hand.
+
 ### LiteLLM Auth Metadata
 
 LiteLLM (`kubernetes/apps/litellm`) intentionally separates Claude Code OAuth pass-through from LiteLLM gateway authentication:

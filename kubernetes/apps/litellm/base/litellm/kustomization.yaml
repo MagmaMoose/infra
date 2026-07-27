@@ -11,7 +11,9 @@ resources:
   - ollama-lan-endpoints.yaml
   - ollama-lan-ingress.yaml
 components:
-  - ../../../../components/resource-profiles/m.nano
+  # No resource-profile component: KRR-derived values live inline in deployment.yaml
+  # (m.nano's `op: add` on containers/0/resources would silently override them, and
+  # it only ever sized the litellm container — never the auth-proxy sidecar).
   # Pinned to the mini node (ff-vm1, type=mini) instead of native-cloud (ff-oci1/2).
   # The OCI free-tier ARM workers are 2-core and run ~95% CPU-requested (~75-90m free),
   # so LiteLLM's ~200m pod-template request (150m litellm + 50m auth-proxy) no longer

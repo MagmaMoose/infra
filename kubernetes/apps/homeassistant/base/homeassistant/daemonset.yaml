@@ -22,11 +22,17 @@ spec:
         - name: homeassistant
           image: ghcr.io/home-assistant/home-assistant:stable
           resources:
+            # KRR-sized (2026-07): cpu 10m, memory 694Mi. These inline values are now
+            # actually in effect — the c.small profile component was dropped from
+            # kustomization.yaml because its `op: add` on containers/0/resources was
+            # silently overriding them with 250m/512Mi.
             requests:
-              memory: "612Mi"
+              # ff-vm1 fit (infra#501): request = steady state, obs ~446Mi; 1Gi limit
+              memory: "560Mi"
               cpu: "10m"
             limits:
-              memory: "612Mi"
+              # Headroom above the request: HA pulls integrations in at runtime.
+              memory: "1Gi"
           ports:
             - containerPort: 8123 # Home Assistant web UI
           env:

@@ -19,12 +19,16 @@ spec:
         - name: qbittorrent
           image: linuxserver/qbittorrent:5.2.3 # {"$imagepolicy": "flux-system:qbittorrent"}
           resources:
-            # Right-sized: observed usage ~41Mi; request leaves scheduling headroom, generous limit avoids OOM
+            # KRR-sized (2026-07): cpu 70m, memory 588Mi — real torrent load is well
+            # above the old 10m/256Mi guess. Generous limit avoids OOM.
             requests:
-              memory: "256Mi"
-              cpu: "10m"
+              # Memory held at 128Mi, not KRR's 588Mi: observed steady state is
+              # ~70Mi (588Mi is a peak-torrent figure). ff-vm1 cannot reserve every
+              # pod's peak (see infra#501); the 768Mi limit absorbs busy periods.
+              memory: "128Mi"
+              cpu: "70m"
             limits:
-              memory: "512Mi"
+              memory: "768Mi"
           ports:
             - containerPort: 8080 # Web UI
             - containerPort: 55555 # BitTorrent (TCP/UDP)

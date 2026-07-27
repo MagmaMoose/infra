@@ -20,8 +20,12 @@ patches:
         path: /spec/template/spec/containers/0/resources
         value:
           requests:
-            cpu: 350m
-            memory: 768Mi
+            # KRR-sized (2026-07): cpu 25m, memory 454Mi. The 8Gi LIMIT is kept
+            # deliberately (KRR suggested 454Mi) — see the WAL-replay note above;
+            # capping at the steady-state request is what caused the OOM loop.
+            cpu: 25m
+            # ff-vm1 fit (infra#501): request = steady state, obs ~285Mi; 8Gi WAL-replay limit unchanged
+            memory: 360Mi
           limits:
             memory: 8Gi
     target:

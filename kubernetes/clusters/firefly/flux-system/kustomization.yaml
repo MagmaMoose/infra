@@ -13,6 +13,72 @@ resources:
   - ../../../infrastructure/flux  # HelmRepositories, registry/Git auth secrets, notifications
 components:
   - ../../../components/node-selectors/pi
-# Note: Removed t.nano resource profile - flux controllers need more resources
-# source-controller needs ~300Mi, kustomize-controller needs ~250Mi
-# Using default flux resources from gotk-components.yaml
+
+# Flux controller resources — KRR-sized (2026-07).
+#
+# Patched HERE rather than in gotk-components.yaml because that file is generated
+# ("DO NOT EDIT") and a `flux bootstrap` re-run would discard inline edits. A
+# resource-profile component can't be used either: the six controllers need wildly
+# different memory (100Mi .. 1166Mi), which one profile cannot express — that is why
+# the previous t.nano attempt was reverted to chart defaults.
+#
+# The gotk defaults were a uniform 100m/64Mi request with a 1-core CPU limit, which
+# was wrong in both directions: it reserved ~550m of CPU the controllers never use,
+# while requesting 64Mi for image-reflector-controller, whose real working set is
+# ~1166Mi (it caches every tag of every scanned image). Every CPU limit is dropped
+# (repo convention: CPU limits only buy false CFS-throttle alerts).
+patches:
+  - target:
+      kind: Deployment
+      name: helm-controller
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: { cpu: 10m, memory: 198Mi }
+          limits: { memory: 320Mi }
+  - target:
+      kind: Deployment
+      name: image-automation-controller
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: { cpu: 10m, memory: 111Mi }
+          limits: { memory: 192Mi }
+  - target:
+      kind: Deployment
+      name: image-reflector-controller
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: { cpu: 10m, memory: 1166Mi }
+          limits: { memory: 1536Mi }
+  - target:
+      kind: Deployment
+      name: kustomize-controller
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: { cpu: 78m, memory: 201Mi }
+          limits: { memory: 320Mi }
+  - target:
+      kind: Deployment
+      name: notification-controller
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: { cpu: 10m, memory: 100Mi }
+          limits: { memory: 192Mi }
+  - target:
+      kind: Deployment
+      name: source-controller
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests: { cpu: 12m, memory: 511Mi }
+          limits: { memory: 768Mi }

@@ -80,12 +80,12 @@ spec:
           # line to `:v<rev>`.
           image: ghcr.io/calebsargeant/atlantis-firefly:latest
           resources:
-            # ~55Mi idle; KRR ~228Mi. Request trimmed to 256Mi to free ff-pi1
-            # memory-request pressure; 2Gi limit retained as burst headroom for
-            # `parallel_plan` terragrunt spikes. No CPU limit (avoid CFS throttling).
+            # KRR-sized (2026-07): cpu 10m, memory 443Mi. 2Gi limit retained as
+            # burst headroom for `parallel_plan` terragrunt spikes. No CPU limit
+            # (avoid CFS throttling) — plans are bursty and short-lived.
             requests:
-              memory: "256Mi"
-              cpu: "100m"
+              memory: "443Mi"
+              cpu: "10m"
             limits:
               memory: "2Gi"
           env:

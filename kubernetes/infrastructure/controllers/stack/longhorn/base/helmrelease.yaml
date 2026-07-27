@@ -47,5 +47,46 @@ spec:
       snapshotterReplicaCount: 1
     longhornUI:
       replicas: 1
+    # KRR-sized (2026-07): cpu 40m, memory 483Mi. This is the only Longhorn
+    # component with a resources knob in chart 1.11 — see the postRenderers note
+    # at the bottom of this file for what is and is not reachable.
+    longhornManager:
+      resources:
+        requests:
+          cpu: 40m
+          # ff-vm1 fit (infra#501): request = steady state, obs ~262Mi; 768Mi limit
+          memory: 328Mi
+        limits:
+          memory: 768Mi
     ingress:
       enabled: false
+  # Longhorn 1.11 exposes a `resources` knob for longhornManager ONLY. longhorn-ui and
+  # longhorn-driver-deployer are Helm-rendered, so they are reachable with a post-render
+  # patch; both ran with no requests at all (BestEffort). KRR-sized (2026-07): 10m/100Mi.
+  #
+  # NOT reachable from here, and deliberately left alone: csi-attacher, csi-provisioner,
+  # csi-resizer, csi-snapshotter, longhorn-csi-plugin, the engine-image DaemonSets and
+  # pre-pull-share-manager-image. Longhorn's own controllers create those at runtime (they
+  # carry no Helm ownership metadata), so neither chart values nor a post-renderer can size
+  # them — that needs an upstream knob. See docs/ for the KRR follow-up list.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+              name: longhorn-ui
+            patch: |
+              - op: add
+                path: /spec/template/spec/containers/0/resources
+                value:
+                  requests: { cpu: 10m, memory: 100Mi }
+                  limits: { memory: 192Mi }
+          - target:
+              kind: Deployment
+              name: longhorn-driver-deployer
+            patch: |
+              - op: add
+                path: /spec/template/spec/containers/0/resources
+                value:
+                  requests: { cpu: 10m, memory: 100Mi }
+                  limits: { memory: 192Mi }

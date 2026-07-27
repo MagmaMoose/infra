@@ -18,11 +18,13 @@ spec:
           image: linuxserver/prowlarr:2.5.2 # {"$imagepolicy": "flux-system:prowlarr"}
           imagePullPolicy: IfNotPresent
           resources:
+            # KRR-sized (2026-07): cpu 10m, memory 194Mi. Was 100m/256Mi via the
+            # c.pico profile component.
             requests:
-              memory: "100Mi"
-              cpu: "11m"
+              memory: "194Mi"
+              cpu: "10m"
             limits:
-              memory: "100Mi"
+              memory: "320Mi"
           ports:
             - containerPort: 9696 # Prowlarr web interface
           env:
