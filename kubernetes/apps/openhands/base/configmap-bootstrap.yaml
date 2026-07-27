@@ -38,6 +38,12 @@ data:
     # A Vault-provided key gives Nievah stable headless authentication. For a fresh or
     # manually operated instance, retain the image-generated key as the fallback.
     SESSION_KEY="${OH_SESSION_API_KEYS_0:-}"
+    # Lifecycle hooks start as a separate process, so they do not inherit the deployment
+    # wrapper's exported value. Apply the same normalization before using this key as an HTTP
+    # header; a pasted trailing newline is invalid in a header and otherwise causes 401.
+    if [ -n "$SESSION_KEY" ]; then
+      SESSION_KEY="$(printf '%s' "$SESSION_KEY" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    fi
     if [ -z "$SESSION_KEY" ] && [ -s "$KEY_FILE" ]; then SESSION_KEY="$(cat "$KEY_FILE")"; fi
     if [ -z "$SESSION_KEY" ]; then
       log "no session API key available; skipping seed"
