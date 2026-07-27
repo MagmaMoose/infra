@@ -63,6 +63,7 @@ The `franklinhouse` cluster lives in a separate public repo, [calebsargeant/infr
 - Each infrastructure tier's `flux-kustomization.yaml` emits one Flux Kustomization CR per tier (`infrastructure-configs`, `-controllers`, `-services`), `path:` → `infrastructure/<tier>/stack` (or `configs/namespaces`).
 - Kustomizations labeled `app.kubernetes.io/sops=enabled` carry an inline `decryption:` block referencing the `sops-keys` Secret in `flux-system`.
 - Resource profiles (`components/resource-profiles/c.medium`: 500m-2 CPU, 1-4Gi memory etc.) are kustomize Components targeting labels on workloads.
+- GitHub App-backed Flux `GitRepository` resources must use the matching App installation for the repository owner. In particular, the shared infra image automation uses `github-app-magmamoose` for `MagmaMoose/infra` (not the legacy `buxfer-sync-github-app` credential); installation tokens cannot write outside their installation.
 
 ### 3. Secret Management (Preferred → Fallback Order)
 

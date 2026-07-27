@@ -14,10 +14,13 @@
 # shared Flux config here.
 
 # ---------------------------------------------------------------------------
-# Push source: the infra repo authenticated as the GitHub App (a `main` ruleset
-# bypass actor). The bootstrap `flux-system` GitRepository uses the SSH deploy
-# key, which is NOT a bypass actor — its direct pushes to main are declined by
-# the branch ruleset. This App-authenticated source is what lets the bumps land.
+# Push source: the infra repo authenticated as the MagmaMoose GitHub App (a
+# `main` ruleset bypass actor), matching the working Nievah automation. GitHub
+# App tokens are installation-scoped, so the legacy buxfer-sync credential cannot
+# write MagmaMoose/infra. The bootstrap `flux-system` GitRepository uses the SSH
+# deploy key, which is NOT a bypass actor — its direct pushes to main are
+# declined by the branch ruleset. This App-authenticated source is what lets the
+# bumps land.
 # ---------------------------------------------------------------------------
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
@@ -30,8 +33,9 @@ spec:
   ref:
     branch: main
   secretRef:
-    name: buxfer-sync-github-app
-  url: https://github.com/CalebSargeant/infra
+    name: github-app-magmamoose
+  timeout: 60s
+  url: https://github.com/MagmaMoose/infra
 ---
 # --- sonarr (linuxserver/sonarr) ---
 apiVersion: image.toolkit.fluxcd.io/v1beta2
@@ -359,7 +363,7 @@ spec:
         branch: main
     commit:
       author:
-        email: actions@users.noreply.github.com
+        email: fluxcdbot@users.noreply.github.com
         name: fluxcdbot
       messageTemplate: |-
         chore(media): bump image tags
