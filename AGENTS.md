@@ -344,6 +344,10 @@ If you accidentally stage a secret, remove it with `git reset HEAD <file>` befor
 6. **Committing any plaintext secret to a public repo** — rotate immediately if it happens
 7. **Forgetting Atlantis/OpenTofu provider env vars** — for Cloudflare Terragrunt projects, export provider tokens with `extra_arguments` (e.g. `CLOUDFLARE_API_TOKEN`) and keep the provider block empty so Atlantis plans authenticate the same way local plans do
 8. **Pinning false Cloudflare Tunnel defaults** — the v4 Cloudflare provider omits falsey tunnel `warp_routing` blocks on readback, so setting `warp_routing { enabled = false }` can create a persistent no-op plan. Omit the block unless WARP routing is enabled.
+9. **OpenHands agent-canvas session keys** — inject a shared headless
+   `X-Session-API-Key` as `OH_SESSION_API_KEYS_0`, not only as the legacy
+   `SESSION_API_KEY`. The image generates and uses a separate public-proxy key when the
+   canonical variable is absent, producing persistent 401s for clients such as Nievah.
 
 ## Definition of Done
 
