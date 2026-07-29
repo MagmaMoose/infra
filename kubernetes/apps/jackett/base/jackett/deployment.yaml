@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: jackett
-          image: linuxserver/jackett:0.24.2288 # {"$imagepolicy": "flux-system:jackett"}
+          image: linuxserver/jackett:0.24.2292 # {"$imagepolicy": "flux-system:jackett"}
           resources:
             # right-sized: observed ~93Mi; request leaves scheduling headroom, generous limit avoids OOM
             requests:
