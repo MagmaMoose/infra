@@ -1,0 +1,18 @@
+---
+# Empty database on the SHARED CNPG cluster (do NOT create a new Cluster). The
+# github-timesheet service creates its own table on first boot
+# (service/store.py PgStore), so it only needs an empty database it owns. Owned by
+# the shared `neondb_owner` role (password enforced by CNPG from OCI Vault
+# `neondb-owner-password`, surfaced to the app as DATABASE_URL via
+# externalsecret.yaml). Both the web pod and the nightly CronJob read/write it.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: githubtimesheet
+  namespace: database
+spec:
+  cluster:
+    name: postgres
+  name: githubtimesheet
+  owner: neondb_owner
+  databaseReclaimPolicy: retain

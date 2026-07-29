@@ -42,6 +42,10 @@ spec:
     domainFilters:
       - sargeant.co
       - magmamoose.com
+      # uren.calebsargeant.com — the github-timesheet dashboard's DNS-only Ingress.
+      # Same Magma Moose Cloudflare account as the zones above, so the shared CF
+      # API token already covers it.
+      - calebsargeant.com
 
     # Source configuration - watch both Ingress and Service resources
     sources:

@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# flux-system-scoped control-plane resources (the chart GitRepository + ghcr
+# reader RBAC) plus the cluster-scoped Namespace; each carries its own
+# metadata.namespace. Applied by prod/…/flux-kustomization.yaml, not aggregated.
+resources:
+  - namespace.yaml
+  - gitrepository.yaml
+  - image-automation.yaml
+  - ghcr-reader-rbac.yaml

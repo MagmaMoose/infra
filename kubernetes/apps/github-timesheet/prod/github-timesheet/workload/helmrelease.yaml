@@ -1,0 +1,74 @@
+# Deploys the github-timesheet Helm chart from MagmaMoose/github-timesheet
+# (charts/github-timesheet) via the GitRepository source in base/. All
+# firefly-specific deploy config lives here in values; the chart stays generic.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: github-timesheet
+  namespace: github-timesheet
+spec:
+  interval: 30m
+  releaseName: github-timesheet
+  chart:
+    spec:
+      chart: charts/github-timesheet
+      reconcileStrategy: Revision   # re-render when main advances
+      sourceRef:
+        kind: GitRepository
+        name: github-timesheet
+        namespace: flux-system
+      interval: 10m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    image:
+      repository: ghcr.io/magmamoose/github-timesheet
+      # Auto-bumped by Flux image automation — do NOT hand-edit; the `$imagepolicy`
+      # marker is the setter (ImageRepository/ImagePolicy in base/…/image-automation.yaml).
+      # v0.0.1 is a placeholder until Diatreme publishes the first real release tag.
+      tag: v0.0.1 # {"$imagepolicy": "flux-system:github-timesheet:tag"}
+      pullPolicy: IfNotPresent
+      pullSecrets:
+        - name: ghcr-pull-secret
+
+    config:
+      publicUrl: "https://uren.calebsargeant.com"
+      # GHE commit source: the enterprise host/org and Caleb's GHE login.
+      ghe:
+        host: pinkroccade.ghe.com
+        org: samenlevingszaken
+        user: sargea50
+      # Weekly manager email is deferred (feature, out of scope for v1): leaving
+      # smtpHost empty makes service/email.send_weekly a no-op, and cronjob.email
+      # below drops the --email flag, so the CronJob just refreshes the sheet.
+      email:
+        smtpHost: ""
+
+    # Nightly regeneration (18:30 Europe/Amsterdam), no email for now.
+    cronjob:
+      enabled: true
+      schedule: "30 18 * * 1-5"
+      timeZone: Europe/Amsterdam
+      email: false
+
+    # Secrets (DATABASE_URL + GHE_TOKEN + M365_ICS_URL + INGEST_TOKEN +
+    # DOWNLOAD_SIGNING_KEY + LITELLM_API_KEY) come from the ExternalSecret in
+    # workload/externalsecret.yaml, referenced by name here.
+    secrets:
+      existingSecretName: github-timesheet-env
+    externalSecret:
+      enabled: false
+
+    # Ingress is DNS-only and hand-written (workload/ingress.yaml) to match the
+    # firefly cloudflared-tunnel pattern; the chart's own Ingress stays off.
+    ingress:
+      enabled: false
+
+    # Pin to the OCI free-tier ARM workers (ff-oci1/ff-oci2), same as the sibling
+    # dashboards; the image is multi-arch and there's no PVC to bind a node.
+    nodeSelector:
+      topology.sargeant.co/tier: native-cloud

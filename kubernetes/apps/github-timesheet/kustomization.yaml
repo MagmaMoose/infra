@@ -1,0 +1,7 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Only references env overlays (prod). ./base/github-timesheet is the app's
+# control-plane library (chart GitRepository, ghcr RBAC, namespace) — applied by
+# the per-env Flux Kustomization (see prod/github-timesheet/flux-kustomization.yaml).
+resources:
+  - ./prod

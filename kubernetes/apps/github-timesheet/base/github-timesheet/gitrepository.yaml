@@ -1,0 +1,21 @@
+---
+# Chart source: the github-timesheet Helm chart lives in the external
+# MagmaMoose/github-timesheet repo under ./charts/github-timesheet. The prod
+# workload is a Flux HelmRelease that references this source; the deploy VALUES
+# (host, ghe target, secret refs) are firefly-specific and live in this infra
+# repo's HelmRelease, not the chart.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: github-timesheet
+  namespace: flux-system
+spec:
+  interval: 10m
+  provider: github
+  ref:
+    branch: main
+  secretRef:
+    # magmamoose-org repo; uses the MagmaMoose-org App installation, same as
+    # github-contributions, nievah, caldrith and diatreme-pro.
+    name: github-app-magmamoose
+  url: https://github.com/magmamoose/github-timesheet
