@@ -69,7 +69,11 @@ deployments read the same `openhands-session-api-key` from OCI Vault; OpenHands 
 as `OH_SESSION_API_KEYS_0`, the agent-canvas V1 public-proxy key. Using only the legacy
 `SESSION_API_KEY` makes agent-canvas generate a different key and rejects Nievah with HTTP 401.
 The value stays in Vault and is delivered through the `openhands` ExternalSecret — never add it
-to a manifest or ConfigMap.
+to a manifest or ConfigMap. The Deployment strips leading/trailing whitespace before starting
+agent-canvas because Nievah must trim an HTTP header but agent-canvas otherwise compares the
+raw environment string. Bump its non-secret `session-api-key-revision` pod annotation through
+GitOps after every Vault rotation; secret-backed environment variables do not update inside a
+running pod.
 
 ## Kyverno image-signature verification (SLSA scaffold)
 

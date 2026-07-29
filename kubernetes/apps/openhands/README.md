@@ -20,7 +20,12 @@ Inject it into agent-canvas as **`OH_SESSION_API_KEYS_0`**, its canonical V1 key
 `SESSION_API_KEY` is a legacy fallback: using it alone causes agent-canvas to generate a
 different public-proxy key, so Nievah receives 401 responses despite both deployments sourcing
 the same Vault value. The bootstrap script uses the canonical key and falls back to the
-image-generated key only for manual operation when the Vault key is absent.
+image-generated key only for manual operation when the Vault key is absent. The deployment
+normalizes leading/trailing whitespace from the Vault value before starting agent-canvas: HTTP
+headers cannot carry a pasted trailing newline, while the agent server otherwise treats it as
+part of the key. After rotating this Vault secret, bump the non-secret
+`openhands.magmamoose.com/session-api-key-revision` pod-template annotation through GitOps so
+the new environment value reaches the process.
 
 Do not put any of these values in Git. If the Vault entry is missing, create it before enabling
 an OpenHands harness entry in the Nievah admin allowlist. Flux will then reconcile the

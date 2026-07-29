@@ -173,6 +173,9 @@ Full table in `kubernetes/components/resource-profiles/kustomization.yaml` (5 fa
 LiteLLM (`kubernetes/apps/litellm`) intentionally separates Claude Code OAuth pass-through from LiteLLM gateway authentication:
 - Direct `:4000` traffic reserves `Authorization` for the client's Claude Code OAuth bearer token.
 - Direct `:4000` LiteLLM gateway auth uses `x-litellm-api-key` via `general_settings.litellm_key_header_name`.
+- OAuth pass-through aliases are account-neutral: a workload chooses and supplies its own
+  personal or Enterprise bearer. Do not add account-specific LiteLLM models or store those
+  tokens in this public repo; Nievah owns its per-GitHub-org account order.
 - The LAN/VPN ingress and service port `8080` go through the `auth-proxy` sidecar, which translates OpenAI-style `Authorization: Bearer <LiteLLM key>` into `x-litellm-api-key`.
 - Claude subscription-backed model entries should have no `litellm_params.api_key`, and should carry non-secret `model_info` metadata such as `auth_mode: claude-code-oauth-pass-through` and `billing_mode: claude-max-subscription` so the UI/API can show how the model is wired.
 - API-key-backed models are fine for plain OpenAI-compatible clients when they use the ingress or `:8080` proxy path.
@@ -348,7 +351,11 @@ If you accidentally stage a secret, remove it with `git reset HEAD <file>` befor
 9. **OpenHands agent-canvas session keys** — inject a shared headless
    `X-Session-API-Key` as `OH_SESSION_API_KEYS_0`, not only as the legacy
    `SESSION_API_KEY`. The image generates and uses a separate public-proxy key when the
-   canonical variable is absent, producing persistent 401s for clients such as Nievah.
+   canonical variable is absent, producing persistent 401s for clients such as Nievah. Its
+   deployment wrapper must also trim surrounding whitespace before agent-canvas starts:
+   Nievah correctly strips HTTP-header values, while the agent server otherwise compares the
+   raw environment string (a clipboard/Vault trailing newline produces an unavoidable 401).
+   Bump the non-secret pod-template session-key revision after Vault rotation so pods reload it.
 
 ## Definition of Done
 

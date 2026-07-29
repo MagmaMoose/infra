@@ -55,6 +55,15 @@ the model config:
   `model_info.billing_mode: claude-max-subscription`; this metadata should show on
   model detail views/API responses even though it is not secret material.
 
+### Multiple Claude subscription accounts
+
+The `-max` entries are deliberately **account-neutral**: LiteLLM forwards the OAuth bearer each
+Claude Code client supplied and never stores or selects a personal versus Enterprise Claude
+account itself. Separate workloads can therefore use their own subscription account through the
+same model alias and gateway virtual key. The workload, not LiteLLM, owns the routing policy;
+for example Nievah selects its Enterprise bearer for `samenlevingszaken`, retries personal
+Claude, then falls back to OpenHands.
+
 If the UI does not expose the custom `model_info` fields directly, query the model
 metadata through the proxy API while authenticated with the master key:
 
