@@ -12,7 +12,7 @@ spec:
   chart:
     spec:
       chart: charts/github-timesheet
-      reconcileStrategy: Revision   # re-render when main advances
+      reconcileStrategy: Revision # re-render when main advances
       sourceRef:
         kind: GitRepository
         name: github-timesheet
@@ -30,11 +30,10 @@ spec:
       # Auto-bumped by Flux image automation — do NOT hand-edit; the `$imagepolicy`
       # marker is the setter (ImageRepository/ImagePolicy in base/…/image-automation.yaml).
       # v0.0.1 is a placeholder until Diatreme publishes the first real release tag.
-      tag: v0.0.1 # {"$imagepolicy": "flux-system:github-timesheet:tag"}
+      tag: v0.0.2 # {"$imagepolicy": "flux-system:github-timesheet:tag"}
       pullPolicy: IfNotPresent
       pullSecrets:
         - name: ghcr-pull-secret
-
     config:
       publicUrl: "https://uren.calebsargeant.com"
       # GHE commit source: the enterprise host/org and Caleb's GHE login.
@@ -47,14 +46,12 @@ spec:
       # below drops the --email flag, so the CronJob just refreshes the sheet.
       email:
         smtpHost: ""
-
     # Nightly regeneration (18:30 Europe/Amsterdam), no email for now.
     cronjob:
       enabled: true
       schedule: "30 18 * * 1-5"
       timeZone: Europe/Amsterdam
       email: false
-
     # Secrets (DATABASE_URL + GHE_TOKEN + M365_ICS_URL + INGEST_TOKEN +
     # DOWNLOAD_SIGNING_KEY + LITELLM_API_KEY) come from the ExternalSecret in
     # workload/externalsecret.yaml, referenced by name here.
@@ -62,12 +59,10 @@ spec:
       existingSecretName: github-timesheet-env
     externalSecret:
       enabled: false
-
     # Ingress is DNS-only and hand-written (workload/ingress.yaml) to match the
     # firefly cloudflared-tunnel pattern; the chart's own Ingress stays off.
     ingress:
       enabled: false
-
     # Pin to the OCI free-tier ARM workers (ff-oci1/ff-oci2), same as the sibling
     # dashboards; the image is multi-arch and there's no PVC to bind a node.
     nodeSelector:
