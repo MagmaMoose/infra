@@ -30,7 +30,7 @@ EOF
 #
 # Access-group membership (family + friends email addresses) also lives in
 # OCI Vault — the public repo intentionally doesn't list PII. JSON shape:
-#   { "friends": ["…"], "caleb": ["…"], "household": ["…"], "caleb_personal": ["…"] }
+#   { "friends": ["…"], "caleb": ["…"], "household": ["…"], "caleb_personal": ["…"], "marc": ["…"] }
 locals {
   cf_token_secret_ocid         = "ocid1.vaultsecret.oc1.eu-amsterdam-1.amaaaaaa4ebs56aajtdkg5uwvfie4raijqushv4s3bep4feep6goh5hsnbpa"
   cf_access_groups_secret_ocid = "ocid1.vaultsecret.oc1.eu-amsterdam-1.amaaaaaa4ebs56aalypl7o6qeuuf3lk57oicmyt43uu5rknpurzczmrsv4mq"

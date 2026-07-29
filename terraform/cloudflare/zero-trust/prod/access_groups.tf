@@ -48,6 +48,17 @@ resource "cloudflare_zero_trust_access_group" "caleb_personal" {
   }
 }
 
+# Marc Vergunst (PinkRoccade manager) — email sourced from OCI Vault so it
+# doesn't appear in this public repo. Used by the GitHub Timesheet policy.
+resource "cloudflare_zero_trust_access_group" "marc" {
+  account_id = var.account_id
+  name       = "Marc"
+
+  include {
+    email = var.cf_access_groups_membership.marc
+  }
+}
+
 resource "cloudflare_zero_trust_access_group" "magma_moose_domain" {
   account_id = var.account_id
   name       = "Magma Moose"

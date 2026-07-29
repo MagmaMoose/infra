@@ -490,10 +490,13 @@ resource "cloudflare_zero_trust_access_policy" "github_timesheet_caleb_marc" {
   session_duration = "24h"
 
   # Within one include block the selectors are OR'd: Caleb (via his IdP group)
-  # OR Marc (via email-OTP).
+  # OR Marc (via email-OTP). Marc's address lives in OCI Vault (marc group) so
+  # it doesn't appear in this public repo.
   include {
-    group = [cloudflare_zero_trust_access_group.caleb.id]
-    email = ["marc.vergunst@pinkroccade.nl"]
+    group = [
+      cloudflare_zero_trust_access_group.caleb.id,
+      cloudflare_zero_trust_access_group.marc.id,
+    ]
   }
 }
 
