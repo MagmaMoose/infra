@@ -457,6 +457,49 @@ resource "cloudflare_zero_trust_access_policy" "github_contributions_caleb" {
   }
 }
 
+# --- self_hosted: GitHub Timesheet (firefly) -------------------------------
+# uren.calebsargeant.com serves Caleb's reconstructed PinkRoccade "Uren" sheet.
+# Unlike the Caleb-only dashboards above, this one is shared with his manager
+# Marc Vergunst — so the policy allows the Caleb IdP group OR Marc's email via the
+# one_time_pin IdP (Marc has no Google identity in this account; he gets a 6-digit
+# code by email). The tunnel ingress rule is in tunnels.tf; external-dns publishes
+# the CNAME from the k8s Ingress annotations (calebsargeant.com is in this account).
+resource "cloudflare_zero_trust_access_application" "github_timesheet" {
+  account_id                = var.account_id
+  name                      = "GitHub Timesheet"
+  type                      = "self_hosted"
+  domain                    = "uren.calebsargeant.com"
+  tags                      = ["Magma Moose"]
+  app_launcher_visible      = true
+  auto_redirect_to_identity = false
+  session_duration          = "24h"
+
+  allowed_idps = [
+    cloudflare_zero_trust_access_identity_provider.google_workspace.id,
+    cloudflare_zero_trust_access_identity_provider.one_time_pin.id,
+    cloudflare_zero_trust_access_identity_provider.google.id,
+  ]
+}
+
+resource "cloudflare_zero_trust_access_policy" "github_timesheet_caleb_marc" {
+  account_id       = var.account_id
+  application_id   = cloudflare_zero_trust_access_application.github_timesheet.id
+  name             = "Caleb + Marc"
+  decision         = "allow"
+  precedence       = 1
+  session_duration = "24h"
+
+  # Within one include block the selectors are OR'd: Caleb (via his IdP group)
+  # OR Marc (via email-OTP). Marc's address lives in OCI Vault (marc group) so
+  # it doesn't appear in this public repo.
+  include {
+    group = [
+      cloudflare_zero_trust_access_group.caleb.id,
+      cloudflare_zero_trust_access_group.marc.id,
+    ]
+  }
+}
+
 # --- self_hosted: Diatreme Dispatch API (bypass — bearer-gated) -------------
 # diatreme.magmamoose.com/api/dispatch is POSTed to by the Diatreme worker
 # (api.diatreme.magmamoose.com) when triage decides a Copilot comment is a

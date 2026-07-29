@@ -398,6 +398,19 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "firefly" {
       origin_request {}
     }
 
+    # Timesheet dashboard (firefly cluster) — uren.calebsargeant.com. Reconstructs
+    # Caleb's PinkRoccade "Uren" sheet from a published-calendar ICS + GHE commits.
+    # Gated by the self_hosted Cloudflare Access app in access_apps.tf (Caleb +
+    # his manager Marc, email-OTP). calebsargeant.com is in the same Magma Moose
+    # account; external-dns publishes the proxied CNAME from the k8s Ingress
+    # annotations (calebsargeant.com added to its domainFilters). Placed last
+    # (before the catch-all) so the plan is a clean append.
+    ingress_rule {
+      hostname = "uren.calebsargeant.com"
+      service  = "http://github-timesheet.github-timesheet.svc.cluster.local:8000"
+      origin_request {}
+    }
+
     # Cloudflared requires the last rule to be a catch-all with no hostname.
     ingress_rule {
       service = "http_status:404"

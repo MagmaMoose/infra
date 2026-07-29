@@ -10,6 +10,7 @@ variable "cf_access_groups_membership" {
     caleb          = list(string)
     household      = list(string)
     caleb_personal = list(string)
+    marc           = list(string)
   })
   sensitive = true
 }

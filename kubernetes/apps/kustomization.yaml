@@ -30,6 +30,7 @@ resources:
   - ./caldrith
   - ./chargate
   - ./github-contributions
+  - ./github-timesheet
   - ./github-usage-dashboard
   - ./nievah
   # OpenHands V1 autonomous-coding engine; selected explicitly by Nievah's harness config.

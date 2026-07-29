@@ -1,0 +1,21 @@
+# DNS-only Ingress: external-dns reads the host + target annotations and
+# publishes a proxied CNAME (uren.calebsargeant.com → the firefly cloudflared
+# tunnel). NOTE: this only works because calebsargeant.com was added to
+# external-dns's domainFilters (see
+# kubernetes/infrastructure/services/stack/external-dns-cloudflare/base/helmrelease.yaml);
+# it lives in the same Magma Moose Cloudflare account as magmamoose.com. The
+# tunnel routes the hostname to the in-cluster Service — that ingress rule + the
+# Cloudflare Access gate (Caleb + Marc, email-OTP) live in
+# terraform/cloudflare/zero-trust/prod/{tunnels,access_apps}.tf.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: github-timesheet
+  namespace: github-timesheet
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: "uren.calebsargeant.com"
+    external-dns.alpha.kubernetes.io/target: "7694eb38-c35e-4905-bd2b-16ab7053080a.cfargotunnel.com"
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "true"
+spec:
+  rules:
+    - host: uren.calebsargeant.com

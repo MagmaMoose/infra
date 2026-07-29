@@ -37,6 +37,7 @@ No modules.
 | [cloudflare_zero_trust_access_group.caleb_personal](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/zero_trust_access_group) | resource |
 | [cloudflare_zero_trust_access_group.friends](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/zero_trust_access_group) | resource |
 | [cloudflare_zero_trust_access_group.household](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/zero_trust_access_group) | resource |
+| [cloudflare_zero_trust_access_group.marc](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/zero_trust_access_group) | resource |
 | [cloudflare_zero_trust_access_group.magma_moose_domain](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/zero_trust_access_group) | resource |
 | [cloudflare_zero_trust_access_identity_provider.google](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/zero_trust_access_identity_provider) | resource |
 | [cloudflare_zero_trust_access_identity_provider.google_workspace](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/zero_trust_access_identity_provider) | resource |
@@ -73,7 +74,7 @@ No modules.
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
 | <a name="input_account_id"></a> [account\_id](#input\_account\_id) | Cloudflare account ID (Zero Trust org) | `string` | n/a | yes |
-| <a name="input_cf_access_groups_membership"></a> [cf\_access\_groups\_membership](#input\_cf\_access\_groups\_membership) | Email member lists for each Access group, sourced from OCI Vault by the terragrunt parse-time run\_cmd (see terragrunt.hcl). Kept out of git so the public repo doesn't list family/friends' personal addresses (PII). | <pre>object({<br/>    friends        = list(string)<br/>    caleb          = list(string)<br/>    household      = list(string)<br/>    caleb_personal = list(string)<br/>  })</pre> | n/a | yes |
+| <a name="input_cf_access_groups_membership"></a> [cf\_access\_groups\_membership](#input\_cf\_access\_groups\_membership) | Email member lists for each Access group, sourced from OCI Vault by the terragrunt parse-time run\_cmd (see terragrunt.hcl). Kept out of git so the public repo doesn't list family/friends' personal addresses (PII). | <pre>object({<br/>    friends        = list(string)<br/>    caleb          = list(string)<br/>    household      = list(string)<br/>    caleb_personal = list(string)<br/>    marc           = list(string)<br/>  })</pre> | n/a | yes |
 
 ## Outputs
 
