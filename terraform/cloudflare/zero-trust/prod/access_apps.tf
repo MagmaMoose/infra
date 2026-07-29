@@ -210,18 +210,17 @@ resource "cloudflare_zero_trust_access_application" "app_launcher" {
   ]
 }
 
-resource "cloudflare_zero_trust_access_policy" "app_launcher_magma" {
-  account_id       = var.account_id
-  application_id   = cloudflare_zero_trust_access_application.app_launcher.id
-  name             = "Magma Moose"
-  decision         = "allow"
-  precedence       = 1
-  session_duration = "24h"
-
-  include {
-    group = [cloudflare_zero_trust_access_group.magma_moose_domain.id]
-  }
-}
+# NOTE: the App Launcher's visibility policy is intentionally NOT managed here.
+# Cloudflare already has a dashboard-created "Caleb" policy at precedence 1 on this
+# app launcher. A terraform-managed "Magma Moose" (magma_moose_domain group) policy
+# used to be declared here at the SAME precedence 1, so it could never apply — every
+# `plan` wanted to create a second, colliding precedence-1 policy (the app launcher
+# stayed drift-y with a perpetual "1 to add"). Removed to make the plan converge
+# with zero access change. If we later want the launcher exposed to the whole
+# @magmamoose.com domain group, adopt the existing policy first via an
+# `import { to = ...; id = "account/<acct>/<app_id>/<policy_id>" }` block (see
+# imports.tf) — and confirm Caleb's CF login identity is in magma_moose_domain
+# before broadening, or it's a lockout.
 
 # --- self_hosted: Comment Commander Pro -------------------------------------
 # The comment-commander-pro dashboard (firefly cluster, behind the firefly
