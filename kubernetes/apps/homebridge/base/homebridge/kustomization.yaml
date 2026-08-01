@@ -6,7 +6,8 @@ resources:
   - configmap.yaml
   - pvc.yaml
 components:
-  - ../../../../components/resource-profiles/c.pico
+  # No resource-profile component: KRR-derived values live in configmap.yaml
+  # (c.pico patched spec.values directly, which outranks this valuesFrom ConfigMap).
   # Migrated off ff-pi1: hostPath persistence replaced with the Longhorn PVC in
   # pvc.yaml (referenced from configmap values), pinned to the worker node.
   - ../../../../components/node-selectors/worker-on-prem

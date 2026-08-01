@@ -67,8 +67,12 @@ spec:
       enabled: false
 
     resources:
+      # KRR-sized (2026-07): cpu 11m, memory 2174Mi. SonarQube idles almost
+      # entirely — the 500m CPU request was the single largest reservation on
+      # ff-vm1 and only mattered during a scan, which the absent CPU limit covers.
       requests:
-        cpu: 500m
-        memory: 2Gi
+        cpu: 11m
+        # ff-vm1 fit (infra#501): request = steady state, obs ~1695Mi; 6Gi limit
+        memory: 1900Mi
       limits:
         memory: 6Gi

@@ -80,9 +80,11 @@ spec:
       enabled: false
 
     # CPU request, no CPU limit (CFS-throttle false alarms); memory bounded.
+    # KRR-sized (2026-07): cpu 11m, memory 527Mi. Holmes is idle between
+    # investigations, so the old 100m/1Gi floor was mostly reserved-and-unused.
     resources:
       requests:
-        cpu: 100m
-        memory: 1Gi
+        cpu: 11m
+        memory: 527Mi
       limits:
         memory: 2Gi

@@ -38,9 +38,12 @@ spec:
         size: 10Gi
         className: longhorn
       resources:
+        # KRR-sized (2026-07): cpu 27m, memory 2067Mi. The memory request now sits
+        # just above the -Xmx2048m heap below (heap + metaspace + off-heap is the
+        # real RSS), which is why the old 1Gi request was a systematic under-read.
         requests:
-          cpu: 500m
-          memory: 1Gi
+          cpu: 27m
+          memory: 2067Mi
         limits:
           memory: 3Gi
       extraEnv:
@@ -113,11 +116,12 @@ spec:
               name: dependency-track-oidc
               key: client-id
       resources:
+        # KRR-sized (2026-07): cpu 10m, memory 100Mi (static nginx frontend).
         requests:
-          cpu: 100m
-          memory: 64Mi
+          cpu: 10m
+          memory: 100Mi
         limits:
-          memory: 128Mi
+          memory: 192Mi
 
     # The chart's built-in ingress only fronts the frontend; we supply both the
     # frontend and apiserver Ingresses ourselves (ingress.yaml).

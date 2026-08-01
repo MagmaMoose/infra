@@ -80,20 +80,23 @@ spec:
         # dashboard (`/`) loaded — surfacing as a 502 from the in-pod nginx.
         # ff-vm1 has ~10Gi free; give real headroom. No CPU limit (house
         # convention: CPU requests only — limits cause false CFS-throttle alerts).
+        # KRR-sized (2026-07): cpu 10m, memory 885Mi. Limit raised 1Gi -> 1536Mi to
+        # keep real headroom over the new request (885Mi under a 1Gi cap is the same
+        # near-the-ceiling shape that caused the OOM described above).
         resources:
           requests:
-            cpu: 100m
-            memory: 512Mi
+            cpu: 10m
+            memory: 885Mi
           limits:
-            memory: 1Gi
+            memory: 1536Mi
       nginx:
+        # KRR-sized (2026-07): cpu 10m, memory 100Mi. CPU limit dropped.
         resources:
           requests:
-            cpu: 50m
-            memory: 64Mi
+            cpu: 10m
+            memory: 100Mi
           limits:
-            cpu: 250m
-            memory: 128Mi
+            memory: 192Mi
       extraEnv:
         # Cap uWSGI workers/threads to bound memory on a shared node.
         - name: DD_UWSGI_NUM_PROCESSES
@@ -188,12 +191,13 @@ spec:
           topology.sargeant.co/tier: on-prem
         autoscaling:
           enabled: false
+        # KRR-sized (2026-07): cpu 10m, memory 242Mi. CPU limit dropped.
         resources:
           requests:
-            cpu: 100m
-            memory: 192Mi
+            cpu: 10m
+            # ff-vm1 fit (infra#501): request = steady state, obs ~145Mi; 384Mi limit
+            memory: 184Mi
           limits:
-            cpu: 500m
             memory: 384Mi
       beat:
         # Singleton scheduler — never scale >1 (duplicates scheduled jobs).
@@ -201,12 +205,12 @@ spec:
         nodeSelector:
           node-role.kubernetes.io/worker: ""
           topology.sargeant.co/tier: on-prem
+        # KRR-sized (2026-07): cpu 10m, memory 181Mi. CPU limit dropped.
         resources:
           requests:
-            cpu: 50m
-            memory: 128Mi
+            cpu: 10m
+            memory: 181Mi
           limits:
-            cpu: 200m
             memory: 256Mi
 
     initializer:

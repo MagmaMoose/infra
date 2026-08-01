@@ -45,3 +45,31 @@ output "service_token_n8n_mcp_client_secret" {
   value     = cloudflare_zero_trust_access_service_token.n8n_mcp.client_secret
   sensitive = true
 }
+
+# --- dependency-track-api ----------------------------------------------------
+# Non-human identity for dependencytrack-api.magmamoose.com, which has no known
+# caller. Gating it with a token ONLY (no browser SSO policy) keeps it from
+# becoming a UI back door while the hostname is retired.
+# The secret is readable only at create time — after the first apply, stash it:
+#   terragrunt output -raw service_token_dependency_track_api_client_id
+#   terragrunt output -raw service_token_dependency_track_api_client_secret
+# Rotating means destroy + recreate.
+resource "cloudflare_zero_trust_access_service_token" "dependency_track_api" {
+  account_id = var.account_id
+  name       = "dependency-track-api"
+  # v4 accepts only: 8760h (1y) | 17520h | 43800h | 87600h | forever
+  # Expires approximately 2027-07 (one year after first apply ~2026-07).
+  # Alert: check before then, especially if dependencytrack-api.magmamoose.com
+  # is still alive — silently expired tokens leave the host unprotected.
+  duration = "8760h"
+}
+
+output "service_token_dependency_track_api_client_id" {
+  value     = cloudflare_zero_trust_access_service_token.dependency_track_api.client_id
+  sensitive = true
+}
+
+output "service_token_dependency_track_api_client_secret" {
+  value     = cloudflare_zero_trust_access_service_token.dependency_track_api.client_secret
+  sensitive = true
+}
