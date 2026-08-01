@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# The workload for prod, applied by the `prod-platform2` Flux Kustomization (see
+# ../flux-kustomization.yaml). Each resource carries its own metadata.namespace —
+# the CNPG Database lives in `database`, everything else in `platform2` — so no
+# `namespace:` directive here.
+resources:
+  - database.yaml
+  - ghcr-pull-secret.yaml
+  - externalsecret-backend.yaml
+  - externalsecret-driver.yaml
+  - certificate.yaml
+  - helmrelease-backend.yaml
+  - helmrelease-driver.yaml

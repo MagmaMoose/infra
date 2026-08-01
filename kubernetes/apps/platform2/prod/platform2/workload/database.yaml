@@ -1,0 +1,23 @@
+---
+# Platform2's database on the SHARED CNPG cluster (AGENTS.md — do NOT create a
+# new Cluster). The backend's own migration hook builds every table, so all it
+# needs is an empty database it owns; `python -m app.migrate` runs as a Helm
+# pre-install/pre-upgrade hook and records applied files in schema_migrations.
+#
+# Owned by the shared `neondb_owner` role, whose password CNPG enforces from OCI
+# Vault (`neondb-owner-password`) and which externalsecret-backend.yaml composes
+# into DATABASE_URL. Same shape as github-usage-dashboard's Database CR.
+#
+# retain, not delete: plate reads are the product. A `prune` that removed this CR
+# must not take the data with it.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: platform2
+  namespace: database
+spec:
+  cluster:
+    name: postgres
+  name: platform2
+  owner: neondb_owner
+  databaseReclaimPolicy: retain

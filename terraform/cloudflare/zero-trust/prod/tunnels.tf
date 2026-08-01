@@ -411,6 +411,52 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "firefly" {
       origin_request {}
     }
 
+    # ── Platform2 — multi-tenant ANPR platform (tengen-systems/platform2) ────
+    # Three hostnames, but only two of them come through here. The console at
+    # platform2.magmamoose.com is a Cloudflare Worker serving static assets from
+    # the edge and never touches this tunnel; the two Python services do.
+    #
+    # They were meant to be Workers as well. They do not fit: the free-tier
+    # Worker limit is 3 MiB gzipped and pydantic_core alone is 4039 KiB
+    # uncompressed, before any application code — the driver, the smaller of the
+    # two, still measured 3.2 MiB gzipped. Getting under the ceiling means
+    # dropping Pydantic, which means dropping FastAPI and rewriting every route
+    # in both services (that repo's docs/deployment.md §2 has the numbers).
+    #
+    # Both Helm releases keep ingress.enabled=false and their Services ClusterIP
+    # on purpose: the tunnel dials cluster DNS directly, so an Ingress would be a
+    # second door into the same room. The flip side is that external-dns has no
+    # Ingress to publish from, so these two hostnames get explicit Terraform
+    # CNAMEs in terraform/cloudflare/dns-magmamoose/prod/terragrunt.hcl — the
+    # same split as pullrequests/defectdojo above.
+    #
+    # Placed last (before the catch-all) so the plan is a clean append, not a
+    # mid-list reorder. Neither host overlaps an existing rule.
+    ingress_rule {
+      hostname = "api.platform2.magmamoose.com"
+      service  = "http://platform2-backend.platform2.svc.cluster.local:8000"
+      origin_request {}
+    }
+
+    # https:// on 8443 with verification off, and both halves of that are
+    # deliberate. The driver refuses to serve plain HTTP — it terminates TLS
+    # itself with a cert-manager-issued internal certificate (the driver chart's
+    # values-firefly.yaml → tls.existingSecret: platform2-driver-tls), which is
+    # not a public certificate and has no chain the tunnel daemon could validate.
+    #
+    # no_tls_verify therefore governs exactly one hop, cloudflared → pod, inside
+    # the cluster. It is NOT the application's ALLOW_INSECURE_HTTP, which stays
+    # "false" here and in the chart values; cameras still validate the Cloudflare
+    # edge certificate on the way in. Confusing the two is the mistake this
+    # comment exists to prevent.
+    ingress_rule {
+      hostname = "driver.platform2.magmamoose.com"
+      service  = "https://platform2-driver.platform2.svc.cluster.local:8443"
+      origin_request {
+        no_tls_verify = true
+      }
+    }
+
     # Cloudflared requires the last rule to be a catch-all with no hostname.
     ingress_rule {
       service = "http_status:404"
