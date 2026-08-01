@@ -1,3 +1,8 @@
+# KICS 3e2d3b2f "hardcoded secret key" is a false positive: `existingSecret` values
+# are Kubernetes Secret NAMES (references to cert-manager and ExternalSecret-managed
+# objects) — no credential value is present in source.
+# kics-scan disable=3e2d3b2f-c22a-4df1-9cc6-a7a0aebb0c99
+#
 # The Platform2 camera-ingest edge service. Same OCI chart source and the same
 # "will not reconcile until tengen-systems/platform2 cuts its first release"
 # caveat as the backend — see helmrelease-backend.yaml.
