@@ -1,9 +1,0 @@
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-# Intentionally only references env overlays (prod, staging, ...).
-# ./base/jackett is the app's manifest library — applied EXCLUSIVELY by
-# the per-env Flux Kustomization (see prod/jackett/flux-kustomization.yaml).
-# Listing ./base here would cause both the cluster-level Kustomization AND
-# the prod-jackett Flux Kustomization to manage the same resources.
-resources:
-  - ./prod

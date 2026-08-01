@@ -314,7 +314,6 @@ The Gluetun sidecar component can be used with any application that needs VPN ro
 - **SABnzbd**: Usenet download client (default implementation)
 - **qBittorrent**: Torrent client
 - **Prowlarr**: Indexer manager
-- **Jackett**: Indexer proxy
 
 Simply add the component to the application's kustomization file.
 

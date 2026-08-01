@@ -15,7 +15,6 @@
     - { name: "prowlarr", cname: "{{ k3s_name }}" }
     - { name: "readarr", cname: "{{ k3s_name }}" }
     - { name: "bazarr", cname: "{{ k3s_name }}" }
-    - { name: "jackett", cname: "{{ k3s_name }}" }
     - { name: "qbittorrent", cname: "{{ k3s_name }}" }
     - { name: "homebridge", cname: "{{ k3s_name }}" }
     - { name: "photos", cname: "{{ k3s_name }}" }
