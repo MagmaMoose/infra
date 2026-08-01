@@ -62,12 +62,24 @@ spec:
     size: 10Gi
     storageClass: local-path
 
-  # Empty cluster for now (no apps pinned yet — infra plumbing only). CNPG
-  # auto-generates the `app` owner credentials into the secret `postgres-oci-app`.
-  # When apps are migrated to this tier, add a postgresql.cnpg.io Database CR
-  # (spec.cluster.name: postgres-oci) per app and a dedicated managed role whose
-  # password lives in OCI Vault (clone the externalsecret pattern), rather than
-  # reusing the shared neondb_owner.
+  # CNPG auto-generates the `app` owner credentials into the secret
+  # `postgres-oci-app`. Apps on this tier add a postgresql.cnpg.io `Database` CR
+  # (spec.cluster.name: postgres-oci, metadata.namespace: database-oci) — NOT a
+  # Cluster of their own.
+  #
+  # First consumer: Dün Mir Pro (kubernetes/apps/dunmir-pro/base/dunmir-pro/
+  # database.yaml — database `dunmir`, owner `app`). It reuses `app` rather than
+  # taking a dedicated role, which is the reverse of what this comment used to
+  # recommend, for two reasons worth recording: this operator ships no
+  # `users`/`roles` CRD (only databases/publications/subscriptions), so a role
+  # cannot be declared per-app the way a database can; and the shared `postgres`
+  # cluster's apps (sonarqube, backstage, defectdojo, dependency-track) already
+  # standardise on reusing that cluster's single owner role, `neondb_owner`.
+  # Per-app role isolation on this cluster is still possible — a
+  # `spec.managed.roles` entry HERE with a passwordSecret from OCI Vault, plus
+  # `owner:` on the app's Database CR — but it is a change to this shared Cluster
+  # and a second source of truth for a credential CNPG already owns, so it should
+  # be a deliberate decision rather than the default for the next app.
   bootstrap:
     initdb:
       database: app
