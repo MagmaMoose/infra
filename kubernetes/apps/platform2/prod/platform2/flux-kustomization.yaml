@@ -1,0 +1,57 @@
+---
+# Control plane: the OCI chart source, its GHCR credential, and the namespace.
+# These live in THIS repo under base/platform2 and are applied from the
+# flux-system source. Must reconcile before the workload, which references the
+# HelmRepository it creates.
+#
+# wait: false on purpose, and for the same reason chargate's source bundle sets
+# it: the HelmRepository stays NotReady until the first chart is published to
+# ghcr.io/tengen-systems/charts. With wait: true a NotReady source would hang
+# this Kustomization and, through the dependsOn below, block the namespace and
+# the CNPG Database from ever being applied — so nothing an operator could
+# pre-provision would land either.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: prod-platform2-source
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./kubernetes/apps/platform2/base/platform2
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  timeout: 2m
+  wait: false
+---
+# Workload: the two HelmReleases (backend + driver) plus everything firefly has
+# to hand them — the CNPG Database on the shared cluster, the OCI-Vault
+# ExternalSecrets, the GHCR pull-secret copy, and the driver's TLS certificate.
+# Deploy config is firefly-specific, so it lives in this infra repo and is pulled
+# from the flux-system source; only the charts come from the app repo.
+#
+# NOT REACHABLE YET. tengen-systems/platform2 has cut no release tag, so neither
+# ghcr.io/tengen-systems/charts/platform2-{backend,driver} nor the matching
+# images exist. Both HelmReleases will report `no chart version found` until the
+# first release is published; this Kustomization is expected to be NotReady
+# until then, and nothing else depends on it.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: prod-platform2
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./kubernetes/apps/platform2/prod/platform2/workload
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  timeout: 10m
+  wait: true
+  dependsOn:
+    - name: prod-platform2-source
+    # infrastructure-services brings up the shared CNPG cluster the Database CR
+    # attaches to, and the cloudflared tunnel that publishes both Services.
+    - name: infrastructure-services

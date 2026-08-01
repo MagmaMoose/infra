@@ -1,0 +1,44 @@
+---
+# The driver terminates its own TLS — cameras are pointed at a host and a port
+# and are not going to be re-provisioned to follow a proxy — so the pod needs a
+# certificate and key on disk, not an Ingress in front of it.
+#
+# Self-signed, not letsencrypt-dns, and that is the correct issuer here rather
+# than a shortcut. The only client that ever sees this certificate is the
+# cloudflared daemon inside the cluster, dialling
+# https://platform2-driver.platform2.svc.cluster.local:8443 — cameras validate
+# the EDGE's certificate at driver.platform2.magmamoose.com, which Cloudflare
+# owns. The tunnel's `no_tls_verify` (terraform/cloudflare/zero-trust, the rule
+# this release needs) is that daemon choosing to trust a hop it made inside the
+# cluster; it is NOT the application relaxing anything, and the driver's own
+# ALLOW_INSECURE_HTTP stays false. A public ACME certificate would add a
+# Cloudflare DNS-01 dependency and a 90-day renewal to a hop nobody verifies.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: platform2-driver-selfsigned
+  namespace: platform2
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: platform2-driver-tls
+  namespace: platform2
+spec:
+  # kubernetes.io/tls, so the keys are tls.crt / tls.key — exactly what the
+  # chart's tls.certKey / tls.keyKey default to and what the container is told to
+  # read via TLS_CERT_FILE / TLS_KEY_FILE.
+  secretName: platform2-driver-tls
+  issuerRef:
+    name: platform2-driver-selfsigned
+    kind: Issuer
+  # The Service DNS names the tunnel actually dials, plus the public hostname so
+  # the certificate still matches if the driver is ever switched to LoadBalancer
+  # and cameras dial the cluster directly.
+  dnsNames:
+    - platform2-driver.platform2.svc.cluster.local
+    - platform2-driver.platform2.svc
+    - platform2-driver
+    - driver.platform2.magmamoose.com

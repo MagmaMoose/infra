@@ -35,6 +35,8 @@ resources:
   - ./nievah
   # OpenHands V1 autonomous-coding engine; selected explicitly by Nievah's harness config.
   - ./openhands
+  # tengen-systems products (private repo; OCI-published charts, not a GitRepository)
+  - ./platform2
   # backup
   - ./timemachine
   # miscellaneous (dashboard)

@@ -1,0 +1,97 @@
+# KICS 3e2d3b2f "hardcoded secret key" is a false positive: `existingSecret` values
+# are Kubernetes Secret NAMES (references to cert-manager and ExternalSecret-managed
+# objects) — no credential value is present in source.
+# kics-scan disable=3e2d3b2f-c22a-4df1-9cc6-a7a0aebb0c99
+#
+# The Platform2 camera-ingest edge service. Same OCI chart source and the same
+# "will not reconcile until tengen-systems/platform2 cuts its first release"
+# caveat as the backend — see helmrelease-backend.yaml.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: platform2-driver
+  namespace: platform2
+spec:
+  interval: 30m
+  # Suspended until tengen-systems/platform2 cuts its first release — same reason
+  # as the backend. Drop suspend once 0.1.0 is published.
+  suspend: true
+  # Pinned for the same reason the backend's is: the tunnel ingress rule names
+  # https://platform2-driver.platform2.svc.cluster.local:8443, and the chart
+  # derives every object name — including the one the Certificate's dnsNames
+  # cover — from the release name.
+  releaseName: platform2-driver
+  chart:
+    spec:
+      chart: platform2-driver
+      version: ">=0.1.0 <0.2.0"
+      sourceRef:
+        kind: HelmRepository
+        name: tengen-systems-charts
+        namespace: flux-system
+      interval: 10m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    # Two replicas so a rolling upgrade never leaves cameras posting into a
+    # closed port — a camera that gets connection-refused retries forever and
+    # floods the logs. Safe only because the spool stays at its emptyDir default:
+    # the chart hard-fails a ReadWriteOnce spool PVC with replicaCount > 1, since
+    # the second pod would block forever on the volume. The trade is explicit —
+    # undeliverable reads are lost if a pod is destroyed before the backend
+    # recovers. Give each replica its own RWO volume, or drop to one replica, if
+    # that becomes unacceptable.
+    replicaCount: 2
+
+    imagePullSecrets:
+      - name: ghcr-tengen-pull-secret
+
+    # What cameras are pointed at, published by the tunnel onto this ClusterIP
+    # Service on 8443. That rule is https:// with no_tls_verify — see
+    # certificate.yaml for why that is the tunnel trusting an in-cluster hop and
+    # not the platform accepting plaintext.
+    publicHostname: driver.platform2.magmamoose.com
+
+    config:
+      # The PUBLIC API origin, not the backend Service, because nothing in this
+      # cluster terminates TLS in front of platform2-backend (it serves plain
+      # HTTP on 8000) and the driver refuses a plaintext backend URL. So a read
+      # carrying two JPEGs goes out to the edge and back down the tunnel. Put a
+      # mesh or an in-cluster gateway in front of that Service and this becomes:
+      #
+      #   BACKEND_URL: https://platform2-backend.platform2.svc.cluster.local:8000
+      #   TLS_CA_FILE: /etc/platform2/tls/ca.crt   # so verification stays on
+      #
+      # which is the shorter and more available route. Relaxing the rule instead
+      # is the line below, and it is not an option.
+      BACKEND_URL: https://api.platform2.magmamoose.com
+      # Restated at the chart default deliberately, because it is the one switch
+      # that would put plate images, camera identifiers and the bearer token on
+      # the wire in the clear. It is unrelated to the tunnel's no_tls_verify;
+      # they govern different hops. A copy of this file must not quietly lose it.
+      ALLOW_INSECURE_HTTP: "false"
+
+    # cert-manager writes this Secret (certificate.yaml) with tls.crt / tls.key,
+    # which is exactly the shape the chart mounts. The chart's own TLS
+    # ExternalSecret is off: the vault holds no copy of a certificate the cluster
+    # issues and renews for itself.
+    tls:
+      existingSecret: platform2-driver-tls # kics-scan ignore-line - Secret name reference, not a hardcoded credential
+      externalSecret:
+        enabled: false
+
+    # Same reasoning as the backend: the chart's ExternalSecret templates are
+    # external-secrets.io/v1 and this cluster's external-secrets is 0.11.x
+    # (v1beta1 only), so the DRIVER_TOKEN Secret is managed here instead —
+    # externalsecret-driver.yaml.
+    externalSecret:
+      enabled: false
+    existingSecret: platform2-driver-env # kics-scan ignore-line - Secret name reference, not a hardcoded credential
+
+    # nodeSelector unset for the same reason as the backend: no platform2 image
+    # has been published, so its architecture is unverified and pinning to the
+    # arm64 native-cloud tier would be a guess.

@@ -1,0 +1,122 @@
+# KICS 3e2d3b2f "hardcoded secret key" is a false positive: `existingSecret` values
+# are Kubernetes Secret NAMES (references to ExternalSecret-managed objects) — no
+# credential value is present in source.
+# kics-scan disable=3e2d3b2f-c22a-4df1-9cc6-a7a0aebb0c99
+#
+# The Platform2 API, from the chart tengen-systems/platform2 publishes as an OCI
+# artifact. Everything firefly-specific is in `values` here; the chart stays
+# generic, the same way github-usage-dashboard splits chart from deploy config.
+#
+# WILL NOT RECONCILE UNTIL THE FIRST RELEASE EXISTS. tengen-systems/platform2 has
+# cut no release tag, so oci://ghcr.io/tengen-systems/charts/platform2-backend has
+# no versions and this HelmRelease reports `no chart version found`. That is the
+# expected state on merge; it resolves itself the moment the app repo publishes.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: platform2-backend
+  namespace: platform2
+spec:
+  interval: 30m
+  # Suspended until tengen-systems/platform2 cuts its first release. Without this,
+  # Flux emits a reconcile error on every interval and routes it to the engineering-
+  # alerts Slack channel for an open-ended window. Drop suspend once 0.1.0 is out.
+  suspend: true
+  # Pinned, not incidental: the tunnel ingress rule in the infra Terraform names
+  # http://platform2-backend.platform2.svc.cluster.local:8000, and the chart
+  # derives every object name from the release name.
+  releaseName: platform2-backend
+  chart:
+    spec:
+      chart: platform2-backend
+      # Chart version and image tag ship from one release, and the chart leaves
+      # image.tag empty so it falls back to appVersion — so this range tracks
+      # both. Held inside 0.x: a minor bump pre-1.0 can still be breaking, and
+      # the first published chart is 0.1.0.
+      version: ">=0.1.0 <0.2.0"
+      sourceRef:
+        kind: HelmRepository
+        name: tengen-systems-charts
+        namespace: flux-system
+      interval: 10m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    # Two replicas so a rolling upgrade or a node drain never drops ingest. The
+    # API is stateless except for the SSE stream, where a console client is
+    # pinned to the replica it connected to and may miss a live alert on the
+    # other — it catches up on refresh, which is the accepted trade until there
+    # is a shared publish path.
+    replicaCount: 2
+
+    # image.repository is deliberately unset: the chart already defaults to
+    # ghcr.io/tengen-systems/platform2-backend. Only the credential is ours to
+    # supply — tengen-systems is a different org from magmamoose and platform2 is
+    # private, so the cluster's existing ghcr-pull-secret cannot read it.
+    imagePullSecrets:
+      - name: ghcr-tengen-pull-secret
+
+    # Printed into this release's NOTES.txt so the tunnel rule an operator adds
+    # in terraform/cloudflare/zero-trust arrives with the hostname and the
+    # Service DNS name already filled in. The chart never acts on it, and
+    # `ingress` stays off (chart default): the tunnel dials the ClusterIP Service
+    # directly, so an Ingress would be a second door into the same room.
+    publicHostname: api.platform2.magmamoose.com
+
+    config:
+      # The console is a Cloudflare Worker on platform2.magmamoose.com and this
+      # API is on api.<that>, so the two are different origins and this list is
+      # the only thing that lets the console call the API at all. Exact origin —
+      # the code default of "*" is not permissive, it fails every call, because
+      # the console sends an Authorization header and a browser refuses a
+      # wildcard on a credentialed request.
+      CORS_ALLOW_ORIGINS: https://platform2.magmamoose.com
+      # This API's own external origin, not the console's — it is what absolute
+      # links the API builds point at.
+      PUBLIC_URL: https://api.platform2.magmamoose.com
+
+      # Restated even though it currently matches the chart default. Where plate
+      # images land is a deployment decision and belongs in the deployment repo;
+      # inheriting it silently means a chart bump could move the bucket.
+      #
+      # Mega S4, not the in-cluster minio (infrastructure/services/stack/minio):
+      # that StatefulSet is a single replica on the Pi's local disk, sized for
+      # Thanos/Loki chunks and Postgres backups, with no replication. Plate
+      # images are the product and grow without bound. minio is reachable
+      # through the same SigV4 client if that trade is ever wanted —
+      # http://minio.core.svc.cluster.local:9000 plus its own key pair.
+      STORAGE_ENDPOINT_URL: https://s3.eu-central-1.s4.mega.io
+      STORAGE_REGION: eu-central-1
+      STORAGE_BUCKET: platform2-images
+
+      # SMTP_HOST is left at the chart's empty default on purpose: no relay is
+      # provisioned for this deployment yet, and a placeholder host makes every
+      # notification fail at send time with a DNS error instead of the setting
+      # being visibly absent. Set it together with SMTP_USERNAME and the
+      # smtp_password key in externalsecret-backend.yaml, or not at all.
+      SMTP_FROM: alerts@platform2.magmamoose.com
+
+    # The chart's own ExternalSecret templates emit external-secrets.io/v1, which
+    # the external-secrets 0.11.x running on this cluster does not serve — it is
+    # still on v1beta1. Ours (externalsecret-backend.yaml) is v1beta1 and, more
+    # to the point, has to TEMPLATE DATABASE_URL out of the shared CNPG
+    # neondb_owner password, which the chart's flat key/property mapping cannot
+    # do. So the chart is pointed at the Secret we manage instead.
+    externalSecret:
+      enabled: false
+    existingSecret: platform2-backend-env # kics-scan ignore-line - Secret name reference, not a hardcoded credential
+
+    # cronJob and migration stay at chart defaults: the */5 sweep (camera-offline
+    # detection, notification retries, audit retention) with concurrencyPolicy
+    # Forbid, and `python -m app.migrate` as a pre-install/pre-upgrade hook. Both
+    # want exactly one runner, and one release provides exactly one.
+
+    # nodeSelector is deliberately unset. Public-facing, always-online workloads
+    # in this cluster usually pin to the native-cloud tier (ff-oci1/ff-oci2), but
+    # those nodes are arm64 and no platform2 image has ever been published, so
+    # whether they are multi-arch is unknown. Pin it once the first release is
+    # out and its manifest list has been checked — see AGENTS.md.
