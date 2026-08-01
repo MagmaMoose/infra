@@ -47,8 +47,8 @@ spec:
     name: postgres-oci
   name: dunmir
   owner: app
-  # `C` collation + UTF8, matching how postgres-oci's own bootstrap database was
-  # initialised. Set explicitly because these cannot be changed after CREATE.
+  # `C` collation + UTF8, chosen explicitly for deterministic byte-ordering;
+  # cannot be changed after CREATE.
   encoding: UTF8
   localeCollate: C
   localeCType: C
