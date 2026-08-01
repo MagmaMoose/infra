@@ -1,0 +1,110 @@
+---
+# TWO ImageRepository + ImagePolicy pairs, not one. chargate/caldrith each ship a
+# single container image, so a single `flux-system:<app>:tag` policy is enough.
+# Dün Mir Pro ships two, built from two Dockerfiles and published independently
+# (backend/Dockerfile → the FastAPI/uvicorn API, frontend/Dockerfile → the nginx
+# image carrying the built Vite SPA). An ImagePolicy is bound to exactly one
+# ImageRepository, so a single shared policy would pin the frontend to whatever
+# tag the backend last published — silently, and only visibly as a stale SPA.
+#
+# The names here are load-bearing: they must match the `$imagepolicy` markers in
+# the dunmir-pro repo's k8s/overlays/prod/kustomization.yaml, which read
+#   {"$imagepolicy": "flux-system:dunmir-pro-backend:tag"}
+#   {"$imagepolicy": "flux-system:dunmir-pro-frontend:tag"}
+# A marker naming a policy that doesn't exist is not an error — the setter is
+# just never rewritten and the tag stays frozen at the placeholder.
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: dunmir-pro-backend
+  namespace: flux-system
+spec:
+  image: ghcr.io/magmamoose/dunmir-pro-backend
+  interval: 5m
+  provider: generic
+  # dunmir-pro is a private repo, so its GHCR packages inherit private
+  # visibility — this scan needs credentials where a public image would not.
+  secretRef:
+    name: ghcr-pull-secret
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: dunmir-pro-backend
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: dunmir-pro-backend
+  filterTags:
+    pattern: '^v[0-9]+\.[0-9]+\.[0-9]+$'
+    extract: '$0'
+  policy:
+    semver:
+      range: '>=0.1.0'
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: dunmir-pro-frontend
+  namespace: flux-system
+spec:
+  image: ghcr.io/magmamoose/dunmir-pro-frontend
+  interval: 5m
+  provider: generic
+  secretRef:
+    name: ghcr-pull-secret
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: dunmir-pro-frontend
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: dunmir-pro-frontend
+  filterTags:
+    pattern: '^v[0-9]+\.[0-9]+\.[0-9]+$'
+    extract: '$0'
+  policy:
+    semver:
+      range: '>=0.1.0'
+---
+# ONE ImageUpdateAutomation for BOTH policies. An ImageUpdateAutomation is scoped
+# to a GitRepository and a path, not to a policy: it scans every file under
+# `update.path` for `$imagepolicy` setters and rewrites each against whichever
+# policy the marker names. So two policies + one automation is correct here; a
+# second automation on the same branch would just race the first for the push.
+#
+# Flux rewrites the tags in the dunmir-pro repo's k8s/overlays/prod/
+# kustomization.yaml and pushes the bump back to that repo's main branch. The
+# github-app-magmamoose installation token on the GitRepository above is what
+# authorises that push, so it needs contents:write on dunmir-pro — read-only
+# access is enough to reconcile but NOT enough to automate.
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageUpdateAutomation
+metadata:
+  name: dunmir-pro
+  namespace: flux-system
+spec:
+  interval: 5m
+  sourceRef:
+    kind: GitRepository
+    name: dunmir-pro
+  git:
+    checkout:
+      ref:
+        branch: main
+    commit:
+      author:
+        email: actions@users.noreply.github.com
+        name: fluxcdbot
+      messageTemplate: |-
+        chore: update dunmir-pro images
+        {{range .Changed.Changes}}{{print .OldValue}} -> {{println .NewValue}}{{end}}
+
+        [ci skip]
+    push:
+      branch: main
+  update:
+    path: "./k8s/overlays/prod"
+    strategy: Setters

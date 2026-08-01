@@ -457,6 +457,50 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "firefly" {
       }
     }
 
+    # ── Dün Mir Pro (firefly cluster) — dunmir.magmamoose.com ────────────────
+    #
+    # !! CUTOVER, NOT A PLAIN ADD. Applying these two rules alone changes
+    # !! nothing: dunmir.magmamoose.com is TODAY served by the `dunmir-pro`
+    # !! Cloudflare Worker (dunmir-pro repo, wrangler.toml, routed at the apex),
+    # !! and a Worker route beats both a DNS record and a tunnel at the edge.
+    # !! Order matters and only one order is safe:
+    # !!   1. apply THESE rules (harmless while the Worker still wins)
+    # !!   2. remove the Worker's apex route / `wrangler delete` the Worker
+    # !!   3. let external-dns publish the proxied CNAME from the k8s Ingress
+    # !!      (dunmir-pro repo: k8s/base/ingress.yaml → target=<firefly tunnel>)
+    # !! Doing 2 before 1 is an outage — the hostname would have no origin at all.
+    # !! Nothing in Terraform can enforce this; it is a manual sequence.
+    #
+    # Pro moved off Workers because its auth path runs PBKDF2 at 600k iterations
+    # (~190ms CPU) and the Workers Free plan kills an invocation at 10ms — every
+    # login/signup/reset returned Error 1102. The backend now runs as a normal
+    # FastAPI pod, which has no such budget.
+    #
+    # TWO rules, most specific first (cloudflared evaluates top-to-bottom),
+    # exactly the split zoey.sargeant.co uses: API paths to the backend, the
+    # catch-all to the nginx pod serving the built SPA. The API paths go STRAIGHT
+    # to the backend rather than via the frontend's nginx — that keeps exactly one
+    # trusted proxy in front of the auth code, which is what TRUSTED_PROXY_COUNT=1
+    # in the app's backend.yaml assumes. Route them through nginx instead and that
+    # value has to become 2, or the per-IP brute-force limiter collapses into a
+    # single bucket keyed on the nginx pod's IP.
+    #
+    # No Access gate: this is a public product surface. Operators sign in with
+    # password + TOTP, agents authenticate with Bearer dunmir_ tokens, both
+    # in-app. Agents also PUT encrypted backup bodies up to 64 MiB to /v1/ingest,
+    # which the tunnel passes through without a proxy-body-size ceiling.
+    ingress_rule {
+      hostname = "dunmir.magmamoose.com"
+      path     = "^/(api|v1)(/|$)"
+      service  = "http://dunmir-backend.dunmir-pro.svc.cluster.local:8000"
+      origin_request {}
+    }
+    ingress_rule {
+      hostname = "dunmir.magmamoose.com"
+      service  = "http://dunmir-frontend.dunmir-pro.svc.cluster.local:80"
+      origin_request {}
+    }
+
     # Cloudflared requires the last rule to be a catch-all with no hostname.
     ingress_rule {
       service = "http_status:404"
