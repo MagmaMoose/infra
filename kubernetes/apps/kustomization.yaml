@@ -75,7 +75,6 @@ resources:
   - ./thanos-compactor
   - ./thanos-query
   - ./thanos-store
-  # delivery metrics (DORA)
   # platform (node-level tuning)
   - ./node-tuning
   # progressive delivery
@@ -92,7 +91,6 @@ resources:
   - ./security-integrations
   - ./sonarqube
   - ./trivy-operator
-  # developer portal
   # external-repo apps (workload manifests live in their own GitHub repos;
   # each dir holds only the in-cluster Flux plumbing — source, image
   # automation, namespace, and the Flux Kustomization that pulls the workload)
