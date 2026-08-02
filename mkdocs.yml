@@ -50,7 +50,6 @@ nav:
   - Operations:
       - AppSec and Dev Tooling: operations/appsec-dev-tooling.md
       - Delivery & Automation: operations/delivery-and-automation.md
-      - DORA Metrics (DevLake): operations/dora-devlake.md
       - Identity (Authentik): operations/identity-authentik.md
       - Runtime & Continuous Security: operations/runtime-continuous-security.md
       - DefectDojo: operations/defectdojo.md

@@ -185,15 +185,6 @@ spec:
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
-  name: devlake
-  namespace: flux-system
-spec:
-  interval: 1h
-  url: https://apache.github.io/devlake-helm-chart
----
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
-metadata:
   name: flagger
   namespace: flux-system
 spec:
