@@ -28,7 +28,6 @@ resources:
   - ./renovate
   # magmamoose products (open-core; external-repo + image automation)
   - ./caldrith
-  - ./chargate
   # Dün Mir Pro. The only PRIVATE source repo in this group — its GitRepository
   # needs github-app-magmamoose for read access, not just rate-limit headroom.
   # Migrated off Cloudflare Workers (Workers Free caps CPU at 10ms; Pro's PBKDF2

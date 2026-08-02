@@ -1,5 +1,5 @@
 ---
-# TWO ImageRepository + ImagePolicy pairs, not one. chargate/caldrith each ship a
+# TWO ImageRepository + ImagePolicy pairs, not one. caldrith ships a
 # single container image, so a single `flux-system:<app>:tag` policy is enough.
 # Dün Mir Pro ships two, built from two Dockerfiles and published independently
 # (backend/Dockerfile → the FastAPI/uvicorn API, frontend/Dockerfile → the nginx

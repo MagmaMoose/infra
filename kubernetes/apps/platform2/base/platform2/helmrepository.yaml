@@ -11,7 +11,7 @@
 #
 # It lives in this app's dir rather than in infrastructure/flux/ because it is
 # app-scoped and needs an app-scoped credential — same reasoning as the
-# per-app GitRepository sources under chargate/ and github-usage-dashboard/.
+# per-app GitRepository sources under caldrith/ and github-usage-dashboard/.
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:

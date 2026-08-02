@@ -21,7 +21,7 @@ spec:
     # ../../../clusters/firefly/flux-system/github-app-magmamoose-secret.yaml),
     # same as caldrith, nievah, diatreme-pro and zoey.
     #
-    # UNLIKE chargate and caldrith, this secretRef is REQUIRED, not a
+    # UNLIKE caldrith, this secretRef is REQUIRED, not a
     # consistency / rate-limit-headroom nicety: dunmir-pro is a PRIVATE
     # repository (`gh repo view magmamoose/dunmir-pro` → visibility PRIVATE).
     # Remove or misname it and source-controller gets an anonymous 404 on

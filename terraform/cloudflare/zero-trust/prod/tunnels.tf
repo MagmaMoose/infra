@@ -261,16 +261,6 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "firefly" {
       origin_request {}
     }
 
-    # Chargate token broker — MUST be publicly reachable so GitHub Actions runners
-    # can POST their OIDC token to /token (api.chargate.magmamoose.com). No Access
-    # gate (runners can't authenticate through Access); the broker verifies each
-    # caller's OIDC token itself and mints a repo-scoped Chargate[bot] token.
-    ingress_rule {
-      hostname = "api.chargate.magmamoose.com"
-      service  = "http://chargate.chargate.svc.cluster.local:8000"
-      origin_request {}
-    }
-
     # DefectDojo UI — fronted by oauth2-proxy (Google SSO, @magmamoose.com).
     # The proxy forwards to defectdojo-django and bypasses auth for /api/v2 +
     # /webhook (token/secret-authenticated, non-browser clients).
