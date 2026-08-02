@@ -56,6 +56,11 @@ spec:
       STATEMENTS_DIR: /data/statements
       STATEMENT_MONTHS: "13"
       SLACK_CHANNEL: "#finance"
+      # Cutover guard. Buxfer imported into this same budget under its own
+      # import_ids, which cannot dedup against our content hashes, so anything
+      # dated before this would land twice. Buxfer's last successful import
+      # was 2026-07-10. Clear once Buxfer is gone and this is the only writer.
+      YNAB_PUSH_SINCE: "2026-07-11"
       # Flip to "false" only once a sync has been watched end to end. Until then
       # the jobs scrape and parse but write nothing to YNAB, so a broken selector
       # cannot corrupt a live budget.
