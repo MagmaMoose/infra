@@ -47,3 +47,6 @@ spec:
   wait: true
   dependsOn:
     - name: prod-finance-source
+    # infrastructure-services brings up the shared CNPG cluster the Database CR
+    # attaches to.
+    - name: infrastructure-services
