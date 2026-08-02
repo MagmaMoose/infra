@@ -50,16 +50,17 @@ spec:
           resources:
             # Chromium is memory-hungry; no CPU limit (CFS-throttle false alarms).
             #
-            # The limit tracks CONCURRENT: each Chromium session is 300-500Mi under
-            # a real page, so 8 concurrent against 1536Mi was an OOMKill waiting for
-            # the first busy moment. ff-vm1 has 28Gi, so 4Gi is affordable; the
-            # request stays low because the service idles at near zero between jobs
-            # and reserving for the peak would strand memory the rest of the day.
+            # Limit = CONCURRENT × 500Mi (peak per session) + 1Gi /dev/shm.
+            # The shm emptyDir (medium: Memory) counts against this limit, so
+            # 8 × 500Mi + 1Gi = 5Gi is the ceiling that survives all 8 sessions
+            # fully loaded. ff-vm1 has 28Gi, so 5Gi is affordable; the request
+            # stays low because the service idles near zero between jobs and
+            # reserving for the peak would strand memory the rest of the day.
             requests:
               cpu: 200m
               memory: 512Mi
             limits:
-              memory: 4Gi
+              memory: 5Gi
           readinessProbe:
             tcpSocket:
               port: 3000
