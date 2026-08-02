@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - externalsecret.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+components:
+  # Pin to ff-vm1 (type=mini, amd64) — Chromium is heavy; keep it off the Pi.
+  - ../../../components/node-selectors/mini

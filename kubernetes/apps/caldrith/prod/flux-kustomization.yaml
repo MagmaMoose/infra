@@ -1,0 +1,74 @@
+---
+# Control plane: GitRepository (source for the external MagmaMoose/caldrith repo),
+# image automation, and the caldrith namespace. These live in THIS repo under
+# base/caldrith and are applied from the flux-system source. Must reconcile before
+# the workload below, which references the GitRepository it creates.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: prod-caldrith-source
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/sops: enabled
+spec:
+  interval: 10m
+  path: ./kubernetes/apps/caldrith/base
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  timeout: 2m
+  # wait: false on purpose. This bundle includes the ImageRepository, which stays
+  # NotReady until the first ghcr.io/magmamoose/caldrith image is published. With
+  # wait: true a NotReady ImageRepository would hang this Kustomization and — via
+  # the dependsOn below — block the workload's Ingress from ever applying, so
+  # external-dns would never publish caldrith.magmamoose.com. We only need
+  # these control-plane resources APPLIED (namespace + GitRepository must exist
+  # before the workload); their health must not gate DNS.
+  wait: false
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-keys
+---
+# Workload: the Caldrith webhook service, pulled from the EXTERNAL
+# MagmaMoose/caldrith repo (./k8s/overlays/prod) via the GitRepository created
+# above. The image tag in that overlay is bumped by the ImageUpdateAutomation.
+# DNS for caldrith.magmamoose.com is published by external-dns from the app's
+# Ingress; the firefly tunnel ingress_rule (tunnels.tf) terminates that hostname
+# at the in-cluster Service. NOT Access-gated — GitHub posts webhooks directly and
+# the app authenticates them via the webhook secret + HMAC signature. Caldrith
+# supersedes the retired safe-settings deployment.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: prod-caldrith
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./k8s/overlays/prod
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: caldrith
+  timeout: 5m
+  wait: true
+  dependsOn:
+    - name: prod-caldrith-source
+    - name: infrastructure-services
+  # Pin the externally-sourced workload to the cloud-worker tier (ff-oci*).
+  patches:
+    - target:
+        kind: Deployment
+      patch: |
+        - op: add
+          path: /spec/template/spec/nodeSelector
+          value:
+            topology.sargeant.co/tier: native-cloud
+    - target:
+        kind: CronJob
+      patch: |
+        - op: add
+          path: /spec/jobTemplate/spec/template/spec/nodeSelector
+          value:
+            topology.sargeant.co/tier: native-cloud
