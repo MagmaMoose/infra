@@ -29,6 +29,11 @@ resources:
   # magmamoose products (open-core; external-repo + image automation)
   - ./caldrith
   - ./chargate
+  # Dün Mir Pro. The only PRIVATE source repo in this group — its GitRepository
+  # needs github-app-magmamoose for read access, not just rate-limit headroom.
+  # Migrated off Cloudflare Workers (Workers Free caps CPU at 10ms; Pro's PBKDF2
+  # login costs ~190ms), so the cluster is now the only place it runs.
+  - ./dunmir-pro
   - ./github-contributions
   - ./github-timesheet
   - ./github-usage-dashboard
@@ -44,7 +49,6 @@ resources:
   # media
   - ./bazarr
   - ./flaresolverr
-  - ./jackett
   - ./nzbhydra2
   - ./overseerr
   - ./plex

@@ -1,0 +1,32 @@
+---
+# Source for the external MagmaMoose/dunmir-pro repo (the Dün Mir Pro
+# backend + frontend + CNPG manifests live there under ./k8s/overlays/prod,
+# with image automation).
+#
+# Not to be confused with the repo's own ./deploy/k8s tree, which is the
+# generic self-host reference shipped to licensees and is NOT reconciled from
+# here. ./k8s is MagmaMoose's own firefly deployment.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: dunmir-pro
+  namespace: flux-system
+spec:
+  interval: 10m
+  provider: github
+  ref:
+    branch: main
+  secretRef:
+    # magmamoose-org repo; uses the MagmaMoose-org App installation (see
+    # ../../../clusters/firefly/flux-system/github-app-magmamoose-secret.yaml),
+    # same as caldrith, nievah, diatreme-pro and zoey.
+    #
+    # UNLIKE chargate and caldrith, this secretRef is REQUIRED, not a
+    # consistency / rate-limit-headroom nicety: dunmir-pro is a PRIVATE
+    # repository (`gh repo view magmamoose/dunmir-pro` → visibility PRIVATE).
+    # Remove or misname it and source-controller gets an anonymous 404 on
+    # clone — the GitRepository never becomes Ready, prod-dunmir-pro never
+    # gets an artifact, and nothing about the failure says "private repo".
+    # Same reason diatreme-pro and zoey carry it.
+    name: github-app-magmamoose
+  url: https://github.com/magmamoose/dunmir-pro

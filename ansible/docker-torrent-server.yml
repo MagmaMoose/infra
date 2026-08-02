@@ -8,12 +8,11 @@
 #    - docker/torrent/network
     - docker/torrent/plex
     # - docker/torrent/deluge
-    #- docker/torrent/jackett
     # - docker/torrent/radarr
     # - docker/torrent/medusa
 #    - docker/torrent/lazylibrarian
     # - docker/torrent/readarr
-    # - docker/torrent/qbittorrent 
+    # - docker/torrent/qbittorrent
 #    - docker/torrent/mp3tag
     # - docker/torrent/prowlarr
     # - docker/torrent/sonarr

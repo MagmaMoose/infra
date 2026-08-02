@@ -1,0 +1,57 @@
+---
+# Dün Mir Pro's database, on the EXISTING `postgres-oci` cluster (COMMON_MISTAKES
+# #3 / AGENTS.md "Database Conventions (CNPG)": do NOT create a new Cluster).
+#
+# postgres-oci is the documented exception this app qualifies for — the
+# always-online CNPG cluster pinned to the OCI native-cloud nodes for
+# public-facing apps. Dün Mir Pro is exactly that workload and is itself pinned
+# to `topology.sargeant.co/tier: native-cloud` (prod/dunmir-pro/
+# flux-kustomization.yaml), so app and database are co-located on ff-oci1/ff-oci2
+# by construction. Nothing puts the home↔OCI link in the query path, and no
+# second Cluster, second PGDATA volume or second backup stream is created to
+# achieve it.
+#
+# The `dunmir-migrate` Job in the app repo creates the TABLES
+# (backend/schema/postgres.sql); this CR creates the empty database it applies
+# them to, and must converge first. The Job's `wait-for-postgres` initContainer
+# blocks on exactly that.
+#
+# OWNER `app`, not a dedicated role — two independent reasons:
+#   - This CNPG operator serves databases/publications/subscriptions and has NO
+#     `users`/`roles` CRD, so a `User` CR is not something the API can accept.
+#   - The shared-cluster apps (sonarqube, backstage, defectdojo, dependency-track)
+#     all reuse their cluster's single owner role, `neondb_owner` on `postgres`.
+#     postgres-oci's equivalent is `app`, created by its bootstrap.initdb, with a
+#     CNPG-generated password published as the `postgres-oci-app` Secret.
+# Reusing it adds no credential, no OCI Vault entry and no edit to the shared
+# Cluster's spec. Per-app role isolation (postgres-oci's cluster.yaml notes the
+# aspiration) would be a `spec.managed.roles` entry there plus a Vault-backed
+# password — a deliberate change to the shared cluster, out of scope for standing
+# an app up on it.
+#
+# NAMESPACE: `database-oci`, i.e. the CLUSTER's namespace, which is why this file
+# is here and not in the dunmir-pro app repo. That repo's k8s/overlays/prod sets
+# `namespace: dunmir-pro` on everything, so a Database CR shipped there would be
+# rewritten into `dunmir-pro` — where no cluster named postgres-oci exists — and
+# would sit un-Applied. Same split sonarqube and backstage use: the workload in
+# its own namespace, the Database CR in the database namespace. This
+# kustomization deliberately carries no top-level `namespace:` directive, so the
+# metadata.namespace below survives.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: dunmir
+  namespace: database-oci
+spec:
+  cluster:
+    name: postgres-oci
+  name: dunmir
+  owner: app
+  # `C` collation + UTF8, chosen explicitly for deterministic byte-ordering;
+  # cannot be changed after CREATE.
+  encoding: UTF8
+  localeCollate: C
+  localeCType: C
+  # Keep the database (customer identity: users, sessions, memberships, billing
+  # accounts) if this CR is ever pruned or deleted.
+  databaseReclaimPolicy: retain

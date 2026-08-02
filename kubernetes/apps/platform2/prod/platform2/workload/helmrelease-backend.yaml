@@ -1,3 +1,8 @@
+# KICS 3e2d3b2f "hardcoded secret key" is a false positive: `existingSecret` values
+# are Kubernetes Secret NAMES (references to ExternalSecret-managed objects) — no
+# credential value is present in source.
+# kics-scan disable=3e2d3b2f-c22a-4df1-9cc6-a7a0aebb0c99
+#
 # The Platform2 API, from the chart tengen-systems/platform2 publishes as an OCI
 # artifact. Everything firefly-specific is in `values` here; the chart stays
 # generic, the same way github-usage-dashboard splits chart from deploy config.
@@ -13,6 +18,10 @@ metadata:
   namespace: platform2
 spec:
   interval: 30m
+  # Suspended until tengen-systems/platform2 cuts its first release. Without this,
+  # Flux emits a reconcile error on every interval and routes it to the engineering-
+  # alerts Slack channel for an open-ended window. Drop suspend once 0.1.0 is out.
+  suspend: true
   # Pinned, not incidental: the tunnel ingress rule in the infra Terraform names
   # http://platform2-backend.platform2.svc.cluster.local:8000, and the chart
   # derives every object name from the release name.
@@ -99,7 +108,7 @@ spec:
     # do. So the chart is pointed at the Secret we manage instead.
     externalSecret:
       enabled: false
-    existingSecret: platform2-backend-env
+    existingSecret: platform2-backend-env # kics-scan ignore-line - Secret name reference, not a hardcoded credential
 
     # cronJob and migration stay at chart defaults: the */5 sweep (camera-offline
     # detection, notification retries, audit retention) with concurrencyPolicy

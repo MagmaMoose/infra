@@ -1,3 +1,8 @@
+# KICS 3e2d3b2f "hardcoded secret key" is a false positive: `existingSecret` values
+# are Kubernetes Secret NAMES (references to cert-manager and ExternalSecret-managed
+# objects) — no credential value is present in source.
+# kics-scan disable=3e2d3b2f-c22a-4df1-9cc6-a7a0aebb0c99
+#
 # The Platform2 camera-ingest edge service. Same OCI chart source and the same
 # "will not reconcile until tengen-systems/platform2 cuts its first release"
 # caveat as the backend — see helmrelease-backend.yaml.
@@ -8,6 +13,9 @@ metadata:
   namespace: platform2
 spec:
   interval: 30m
+  # Suspended until tengen-systems/platform2 cuts its first release — same reason
+  # as the backend. Drop suspend once 0.1.0 is published.
+  suspend: true
   # Pinned for the same reason the backend's is: the tunnel ingress rule names
   # https://platform2-driver.platform2.svc.cluster.local:8443, and the chart
   # derives every object name — including the one the Certificate's dnsNames
@@ -72,7 +80,7 @@ spec:
     # ExternalSecret is off: the vault holds no copy of a certificate the cluster
     # issues and renews for itself.
     tls:
-      existingSecret: platform2-driver-tls
+      existingSecret: platform2-driver-tls # kics-scan ignore-line - Secret name reference, not a hardcoded credential
       externalSecret:
         enabled: false
 
@@ -82,7 +90,7 @@ spec:
     # externalsecret-driver.yaml.
     externalSecret:
       enabled: false
-    existingSecret: platform2-driver-env
+    existingSecret: platform2-driver-env # kics-scan ignore-line - Secret name reference, not a hardcoded credential
 
     # nodeSelector unset for the same reason as the backend: no platform2 image
     # has been published, so its architecture is unverified and pinning to the
