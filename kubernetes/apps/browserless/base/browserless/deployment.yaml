@@ -29,21 +29,37 @@ spec:
                   name: browserless
                   key: token
             # Bound memory: cap concurrent + queued sessions and per-session time.
+            #
+            # Raised for finance-sync, which drives three FNB profiles from three
+            # independent browser contexts and then downloads PDF statements over
+            # the same CDP connection. At CONCURRENT=3 those three sessions used
+            # the whole service, leaving nothing for n8n or Hermes; at
+            # TIMEOUT=120000 a single account's scrape-then-download exceeded the
+            # two-minute session cap and browserless killed it mid-download.
+            #
+            # 600000 is browserless's own ceiling for a session's idle window and
+            # matches the 10-minute keep_alive Cloudflare uses for the same job.
             - name: CONCURRENT
-              value: "3"
+              value: "8"
             - name: QUEUED
-              value: "6"
+              value: "16"
             - name: TIMEOUT
-              value: "120000"
+              value: "600000"
             - name: TZ
               value: Europe/Amsterdam
           resources:
             # Chromium is memory-hungry; no CPU limit (CFS-throttle false alarms).
+            #
+            # The limit tracks CONCURRENT: each Chromium session is 300-500Mi under
+            # a real page, so 8 concurrent against 1536Mi was an OOMKill waiting for
+            # the first busy moment. ff-vm1 has 28Gi, so 4Gi is affordable; the
+            # request stays low because the service idles at near zero between jobs
+            # and reserving for the peak would strand memory the rest of the day.
             requests:
               cpu: 200m
               memory: 512Mi
             limits:
-              memory: 1536Mi
+              memory: 4Gi
           readinessProbe:
             tcpSocket:
               port: 3000
@@ -62,4 +78,9 @@ spec:
         - name: dshm
           emptyDir:
             medium: Memory
-            sizeLimit: 256Mi
+            # Scaled with CONCURRENT: every session wants its own shared-memory
+            # arena and 256Mi across 8 of them is back to the tab crashes this
+            # volume exists to prevent. medium: Memory is charged against the
+            # container's memory limit, so this 1Gi is part of the 4Gi above,
+            # not on top of it.
+            sizeLimit: 1Gi
