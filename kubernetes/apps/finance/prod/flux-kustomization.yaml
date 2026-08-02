@@ -1,0 +1,49 @@
+---
+# Control plane: the OCI chart source and the namespace. Must reconcile before
+# the workload, which references the HelmRepository it creates.
+#
+# wait: false on purpose. The HelmRepository stays NotReady until the first
+# chart is published to ghcr.io/calebsargeant/charts. With wait: true a NotReady
+# source would hang this Kustomization and, through the dependsOn below, block
+# the namespace and the CNPG Database from ever being applied — so nothing an
+# operator could pre-provision would land either.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: prod-finance-source
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./kubernetes/apps/finance/base
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  timeout: 2m
+  wait: false
+---
+# Workload: the HelmRelease plus the CNPG Database on the shared cluster. The
+# ExternalSecret is part of the chart, not this repo, so credentials rotate with
+# the release rather than with a commit here.
+#
+# NOT REACHABLE YET. CalebSargeant/finance has cut no release tag, so neither
+# ghcr.io/calebsargeant/charts/finance nor the matching image exists. The
+# HelmRelease will report `no chart version found` until the first release is
+# published; this Kustomization is expected to be NotReady until then, and
+# nothing else depends on it.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: prod-finance
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./kubernetes/apps/finance/prod/workload
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  timeout: 10m
+  wait: true
+  dependsOn:
+    - name: prod-finance-source

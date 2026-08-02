@@ -1,0 +1,24 @@
+---
+# finance's database on the SHARED CNPG cluster (AGENTS.md — do NOT create a new
+# Cluster). The chart's migration hook builds every table, so all this needs is
+# an empty database it owns; `python -m app.migrate` runs as a Helm
+# pre-install/pre-upgrade hook and records applied files in schema_migrations.
+#
+# Owned by the shared `neondb_owner` role, whose password CNPG enforces from OCI
+# Vault and which finance-database-url composes into DATABASE_URL.
+#
+# retain, not delete: this table is the replay buffer. Every transaction not yet
+# accepted by YNAB lives here and nowhere else, so a `prune` that removed this CR
+# must not take the data with it — that would silently lose whatever the last
+# sync had not yet pushed.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: finance
+  namespace: database
+spec:
+  cluster:
+    name: postgres
+  name: finance
+  owner: neondb_owner
+  databaseReclaimPolicy: retain

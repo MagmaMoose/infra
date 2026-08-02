@@ -1,0 +1,113 @@
+---
+# finance — FNB to YNAB sync. Replaces buxfer-sync (and the Buxfer subscription).
+#
+# One image, three workloads: the API as a Deployment, the daily transaction sync
+# and the weekly statement batch as CronJobs. Chart values carry the schedules
+# and the entrypoints; only the firefly-specific deployment config is here.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: finance
+  namespace: finance
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: finance
+      # Any 0.x. Tighten once the chart stabilises; until then a chart release
+      # should reach the cluster without a commit here.
+      version: ">=0.1.0"
+      sourceRef:
+        kind: HelmRepository
+        name: calebsargeant-charts
+        namespace: flux-system
+      interval: 10m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+      # Keep a failed upgrade's state rather than rolling back: the migration
+      # hook runs first, and a rollback would leave the schema ahead of the
+      # image with nothing recording that it happened.
+      remediateLastFailure: false
+  values:
+    # Pin to the cloud tier, as buxfer-sync was. The scrape talks to FNB over the
+    # internet and to browserless over cluster DNS; neither wants the on-prem
+    # node's uplink.
+    nodeSelector:
+      topology.sargeant.co/tier: native-cloud
+
+    publicHostname: finance-api.magmamoose.com
+
+    config:
+      ENVIRONMENT: production
+      LOG_LEVEL: info
+      # The shared browserless service. Its presence is what makes the scraper
+      # connect over CDP instead of launching a Chromium the image does not
+      # contain.
+      BROWSERLESS_URL: ws://browserless.automation.svc.cluster.local:3000
+      # The console Worker's exact origin — the console sends Authorization and a
+      # browser refuses a wildcard on a credentialed request.
+      CORS_ALLOW_ORIGINS: https://finance.magmamoose.com
+      PUBLIC_URL: https://finance-api.magmamoose.com
+      ACCOUNTS_CONFIG: /app/config/accounts.yaml
+      STATEMENTS_DIR: /data/statements
+      STATEMENT_MONTHS: "13"
+      SLACK_CHANNEL: "#finance"
+      # Flip to "false" only once a sync has been watched end to end. Until then
+      # the jobs scrape and parse but write nothing to YNAB, so a broken selector
+      # cannot corrupt a live budget.
+      DRY_RUN: "true"
+
+    externalSecret:
+      enabled: true
+      # firefly's external-secrets serves v1beta1 and v1alpha1 only; a v1
+      # manifest fails to apply with "no matches for kind".
+      apiVersion: external-secrets.io/v1beta1
+      secretStore:
+        name: oci-vault
+        kind: ClusterSecretStore
+      # One OCI Vault secret per value, flat kebab-case, no `property` — OCI
+      # Vault secrets are opaque strings, so a property selector silently
+      # resolves to nothing. Listed in full because `data` is a map and a
+      # partial override merges rather than replaces.
+      data:
+        DATABASE_URL:
+          key: finance-database-url
+        API_TOKEN:
+          key: finance-api-token
+        FNB_CALEB_USERNAME:
+          key: finance-fnb-caleb-username
+        FNB_CALEB_PASSWORD:
+          key: finance-fnb-caleb-password
+        FNB_TRACEY_USERNAME:
+          key: finance-fnb-tracey-username
+        FNB_TRACEY_PASSWORD:
+          key: finance-fnb-tracey-password
+        FNB_MAGMAMOOSE_USERNAME:
+          key: finance-fnb-magmamoose-username
+        FNB_MAGMAMOOSE_PASSWORD:
+          key: finance-fnb-magmamoose-password
+        YNAB_API_TOKEN:
+          key: finance-ynab-api-token
+        YNAB_BUDGET_ID:
+          key: finance-ynab-budget-id
+        GOOGLE_CREDENTIALS_JSON:
+          key: finance-google-credentials-json
+        GOOGLE_DRIVE_FOLDER_ID:
+          key: finance-google-drive-folder-id
+        # Already in the vault, shared with the browserless Deployment.
+        BROWSERLESS_TOKEN:
+          key: browserless-token
+        # Already in the vault — reuses Nievah's Slack app.
+        SLACK_BOT_TOKEN:
+          key: nievah-slack-bot-token
+
+    persistence:
+      enabled: true
+      size: 5Gi
+      # Node-local, so the PVC binds the CronJob to whichever node first
+      # scheduled it. Acceptable: it is a cache, and the PDFs land in Drive.
+      storageClass: local-path
