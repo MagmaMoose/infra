@@ -73,7 +73,7 @@ spec:
   # recommend, for two reasons worth recording: this operator ships no
   # `users`/`roles` CRD (only databases/publications/subscriptions), so a role
   # cannot be declared per-app the way a database can; and the shared `postgres`
-  # cluster's apps (sonarqube, backstage, defectdojo, dependency-track) already
+  # cluster's apps (sonarqube, defectdojo, dependency-track) already
   # standardise on reusing that cluster's single owner role, `neondb_owner`.
   # Per-app role isolation on this cluster is still possible — a
   # `spec.managed.roles` entry HERE with a passwordSecret from OCI Vault, plus

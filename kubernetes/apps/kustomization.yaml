@@ -95,7 +95,6 @@ resources:
   - ./sonarqube
   - ./trivy-operator
   # developer portal
-  - ./backstage
   # external-repo apps (workload manifests live in their own GitHub repos;
   # each dir holds only the in-cluster Flux plumbing — source, image
   # automation, namespace, and the Flux Kustomization that pulls the workload)

@@ -7,7 +7,7 @@ kind: Kustomization
 # carries its own metadata.namespace. Adding a `namespace:` here would rewrite
 # the Database into `dunmir-pro`, where postgres-oci does not exist — the same
 # reason those two files live here and not in the app repo (whose overlay does
-# set `namespace: dunmir-pro`). Matches sonarqube/backstage/dependency-track.
+# set `namespace: dunmir-pro`). Matches sonarqube/dependency-track.
 resources:
   - namespace.yaml
   - gitrepository.yaml

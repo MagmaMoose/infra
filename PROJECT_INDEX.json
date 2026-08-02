@@ -78,7 +78,6 @@
       "apps": [
         "atlantis",
         "authentik",
-        "backstage",
         "bazarr",
         "blackbox-exporter",
         "defectdojo",
