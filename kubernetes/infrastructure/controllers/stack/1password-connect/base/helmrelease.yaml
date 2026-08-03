@@ -24,11 +24,11 @@ spec:
       # Reference existing secret for credentials
       credentialsName: onepassword-credentials
       credentialsKey: 1password-credentials.json
-      
+
       # API server configuration
       api:
         name: connect-api
-        replicas: 2
+        replicas: 1
         nodeSelector:
           type: pi
         resources:
@@ -39,14 +39,14 @@ spec:
             memory: 128Mi
           limits:
             memory: 128Mi
-        
+
         # HTTP port configuration
         httpPort: 8080
-      
+
       # Sync server configuration
       sync:
         name: connect-sync
-        replicas: 2
+        replicas: 1
         nodeSelector:
           type: pi
         resources:
@@ -57,31 +57,31 @@ spec:
             memory: 128Mi
           limits:
             memory: 128Mi
-        
+
         # HTTP port configuration
         httpPort: 8081
-      
+
       # Service configuration
       service:
         type: ClusterIP
         port: 8080
-    
+
     # Operator configuration
     operator:
       # Enable the operator
       create: true
-      
+
       # Token configuration - reference existing secret
       token:
         name: onepassword-token
         key: token
-      
+
       # Node selector for operator
       nodeSelector:
         type: pi
-      
+
       # Operator pod configuration
-      replicas: 2
+      replicas: 1
       resources:
         requests:
           cpu: 10m
@@ -91,6 +91,6 @@ spec:
 
       # Polling interval for checking 1Password items
       pollingInterval: 600
-      
+
       # AutoRestart configuration
       autoRestart: true

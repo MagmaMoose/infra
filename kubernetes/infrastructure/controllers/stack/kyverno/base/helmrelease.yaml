@@ -74,12 +74,12 @@ spec:
         failureThreshold: 6
         successThreshold: 1
     backgroundController:
-      replicas: 2
+      replicas: 1
     # cleanup-controller exposes the same :9443 webhook server and crashloops identically;
-    # loosen its probes too. Its webhook only gates CleanupPolicy, not cluster-wide admission,
-    # so a flap is not cluster-impacting.
+    # loosen its probes too. Keep one replica — its webhook only gates CleanupPolicy, not
+    # cluster-wide admission, so a single-pod flap is not cluster-impacting.
     cleanupController:
-      replicas: 2
+      replicas: 1
       startupProbe:
         httpGet:
           path: /health/liveness
@@ -110,7 +110,7 @@ spec:
         failureThreshold: 6
         successThreshold: 1
     reportsController:
-      replicas: 2
+      replicas: 1
     # Disable PolicyReports cleanup — not needed for our use case.
     policyReportsCleanup:
       enabled: false
