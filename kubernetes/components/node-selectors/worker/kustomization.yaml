@@ -33,6 +33,15 @@ patches:
         value:
           node-role.kubernetes.io/worker: ""
 
+  # CronJobs (nodeSelector lives under the jobTemplate)
+  - target:
+      kind: CronJob
+    patch: |
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/nodeSelector
+        value:
+          node-role.kubernetes.io/worker: ""
+
   # HelmReleases (app-template v4+)
   - target:
       kind: HelmRelease

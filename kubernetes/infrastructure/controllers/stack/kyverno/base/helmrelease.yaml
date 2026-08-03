@@ -42,6 +42,15 @@ spec:
     # are not affected; keep them at one replica. Steady-state usage (admission ~63Mi vs 384Mi
     # limit) shows the slow start is node-level, not pod-resource-driven, so resources are
     # left at kyverno chart defaults (3.8+).
+    #
+    # None of the 4 controllers set their own .nodeSelector, so this cascades to all of them
+    # (each controller's template does `.Values.<component>.nodeSelector | default
+    # .Values.global.nodeSelector`) — pinning kyverno to ff-pi1, per
+    # docs/reference/cluster-topology.md. Previously unpinned: nothing stopped the scheduler
+    # from placing it on the CPU-request-saturated ff-vm1 instead.
+    global:
+      nodeSelector:
+        node-role.kubernetes.io/system: ""
     admissionController:
       replicas: 2
       startupProbe:
@@ -74,12 +83,12 @@ spec:
         failureThreshold: 6
         successThreshold: 1
     backgroundController:
-      replicas: 2
+      replicas: 1
     # cleanup-controller exposes the same :9443 webhook server and crashloops identically;
-    # loosen its probes too. Its webhook only gates CleanupPolicy, not cluster-wide admission,
-    # so a flap is not cluster-impacting.
+    # loosen its probes too. Keep one replica — its webhook only gates CleanupPolicy, not
+    # cluster-wide admission, so a single-pod flap is not cluster-impacting.
     cleanupController:
-      replicas: 2
+      replicas: 1
       startupProbe:
         httpGet:
           path: /health/liveness
@@ -110,7 +119,7 @@ spec:
         failureThreshold: 6
         successThreshold: 1
     reportsController:
-      replicas: 2
+      replicas: 1
     # Disable PolicyReports cleanup — not needed for our use case.
     policyReportsCleanup:
       enabled: false
