@@ -20,8 +20,10 @@ spec:
   chart:
     spec:
       chart: platform2-driver
-      # Same 0.0.x hold as the backend, and the same reason.
-      version: ">=0.0.9 <0.1.0"
+      # Pinned exactly, paired with values.image.tag below — same reason as the
+      # backend, see helmrelease-backend.yaml. Wants to be ">=0.0.9 <0.1.0"
+      # again once tengen-systems/platform2#17 has released.
+      version: "0.0.9"
       sourceRef:
         kind: HelmRepository
         name: tengen-systems-charts
@@ -46,6 +48,12 @@ spec:
 
     imagePullSecrets:
       - name: ghcr-tengen-pull-secret
+
+    # TEMPORARY, paired with the exact chart pin above — chart 0.0.9 asks for
+    # image tag "0.0.9" while the release pushes "v0.0.9". Removed together with
+    # that pin once tengen-systems/platform2#17 has released.
+    image:
+      tag: v0.0.9
 
     # What cameras are pointed at, published by the tunnel onto this ClusterIP
     # Service on 8443. That rule is https:// with no_tls_verify — see

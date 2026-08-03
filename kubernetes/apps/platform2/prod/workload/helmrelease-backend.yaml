@@ -21,12 +21,13 @@ spec:
   chart:
     spec:
       chart: platform2-backend
-      # Chart version and image tag ship from one release, and the chart leaves
-      # image.tag empty so it falls back to appVersion — so this range tracks
-      # both. Held inside the 0.0.x series: pre-1.0 a minor bump is allowed to
-      # break, so 0.1.0 has to be an explicit decision here rather than something
-      # Flux picks up on its own.
-      version: ">=0.0.9 <0.1.0"
+      # Pinned exactly rather than ranged, because values.image.tag below is
+      # pinned too and the two have to move together — see that comment. The
+      # range this wants to be, once the pin is gone, is ">=0.0.9 <0.1.0":
+      # inside the 0.0.x series, since pre-1.0 a minor bump is allowed to break
+      # and 0.1.0 should be an explicit decision here rather than something Flux
+      # picks up on its own.
+      version: "0.0.9"
       sourceRef:
         kind: HelmRepository
         name: tengen-systems-charts
@@ -52,6 +53,18 @@ spec:
     # private, so the cluster's existing ghcr-pull-secret cannot read it.
     imagePullSecrets:
       - name: ghcr-tengen-pull-secret
+
+    # TEMPORARY, AND PAIRED WITH THE PIN BELOW. Chart 0.0.9 resolves its image
+    # from .Chart.AppVersion verbatim — "0.0.9" — but the release pushes the
+    # image as "v0.0.9", so the chart's own default pulls a tag that does not
+    # exist. tengen-systems/platform2#17 fixes the helper.
+    #
+    # Both the tag and the chart version are pinned exactly, together, on
+    # purpose: a range here would let Flux move to a fixed chart while this line
+    # silently held the image at v0.0.9. Remove both in one commit once #17 has
+    # released, and let the range resume.
+    image:
+      tag: v0.0.9
 
     # Printed into this release's NOTES.txt so the tunnel rule an operator adds
     # in terraform/cloudflare/zero-trust arrives with the hostname and the
