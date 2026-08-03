@@ -39,7 +39,7 @@ spec:
         className: longhorn
       resources:
         requests:
-          cpu: 500m
+          cpu: 50m
           memory: 1Gi
         limits:
           memory: 3Gi
@@ -114,7 +114,7 @@ spec:
               key: client-id
       resources:
         requests:
-          cpu: 100m
+          cpu: 50m
           memory: 64Mi
         limits:
           memory: 128Mi

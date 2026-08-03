@@ -4,5 +4,4 @@ kind: Namespace
 metadata:
   name: automation
   labels:
-    goldilocks.fairwinds.com/enabled: "true"
     ghcr-pull-secret: sync

@@ -82,14 +82,14 @@ spec:
         # convention: CPU requests only — limits cause false CFS-throttle alerts).
         resources:
           requests:
-            cpu: 100m
+            cpu: 10m
             memory: 512Mi
           limits:
             memory: 1Gi
       nginx:
         resources:
           requests:
-            cpu: 50m
+            cpu: 10m
             memory: 64Mi
           limits:
             cpu: 250m
@@ -190,7 +190,7 @@ spec:
           enabled: false
         resources:
           requests:
-            cpu: 100m
+            cpu: 10m
             memory: 192Mi
           limits:
             cpu: 500m
@@ -215,7 +215,7 @@ spec:
         topology.sargeant.co/tier: on-prem
       resources:
         requests:
-          cpu: 100m
+          cpu: 10m
           memory: 256Mi
         limits:
           cpu: 500m

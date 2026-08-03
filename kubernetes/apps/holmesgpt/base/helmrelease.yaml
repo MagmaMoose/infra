@@ -82,7 +82,7 @@ spec:
     # CPU request, no CPU limit (CFS-throttle false alarms); memory bounded.
     resources:
       requests:
-        cpu: 100m
+        cpu: 10m
         memory: 1Gi
       limits:
         memory: 2Gi

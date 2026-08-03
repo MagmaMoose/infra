@@ -46,6 +46,6 @@ spec:
       resizerReplicaCount: 1
       snapshotterReplicaCount: 1
     longhornUI:
-      replicas: 1
+      replicas: 2
     ingress:
       enabled: false

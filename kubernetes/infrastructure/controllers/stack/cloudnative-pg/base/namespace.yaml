@@ -4,4 +4,3 @@ kind: Namespace
 metadata:
   name: cloudnative-pg
   labels:
-    goldilocks.fairwinds.com/enabled: "true"

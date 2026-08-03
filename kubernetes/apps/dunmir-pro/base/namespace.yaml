@@ -3,4 +3,3 @@ kind: Namespace
 metadata:
   name: dunmir-pro
   labels:
-    goldilocks.fairwinds.com/enabled: "true"
