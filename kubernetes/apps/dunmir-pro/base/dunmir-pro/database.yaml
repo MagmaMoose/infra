@@ -19,7 +19,7 @@
 # OWNER `app`, not a dedicated role — two independent reasons:
 #   - This CNPG operator serves databases/publications/subscriptions and has NO
 #     `users`/`roles` CRD, so a `User` CR is not something the API can accept.
-#   - The shared-cluster apps (sonarqube, backstage, defectdojo, dependency-track)
+#   - The shared-cluster apps (sonarqube, defectdojo, dependency-track)
 #     all reuse their cluster's single owner role, `neondb_owner` on `postgres`.
 #     postgres-oci's equivalent is `app`, created by its bootstrap.initdb, with a
 #     CNPG-generated password published as the `postgres-oci-app` Secret.
@@ -33,7 +33,7 @@
 # is here and not in the dunmir-pro app repo. That repo's k8s/overlays/prod sets
 # `namespace: dunmir-pro` on everything, so a Database CR shipped there would be
 # rewritten into `dunmir-pro` — where no cluster named postgres-oci exists — and
-# would sit un-Applied. Same split sonarqube and backstage use: the workload in
+# would sit un-Applied. Same split sonarqube uses: the workload in
 # its own namespace, the Database CR in the database namespace. This
 # kustomization deliberately carries no top-level `namespace:` directive, so the
 # metadata.namespace below survives.

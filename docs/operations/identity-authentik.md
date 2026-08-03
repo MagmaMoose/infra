@@ -3,7 +3,7 @@
 `kubernetes/apps/authentik` deploys [Authentik](https://goauthentik.io/) — an
 open-source OIDC/SAML identity provider — on the amd64 `worker` node, at
 `authentik.magmamoose.com`. It's the foundation for unifying SSO across the cluster
-(SonarQube, Backstage, Grafana, DefectDojo, …) in place of per-app oauth2-proxy.
+(SonarQube, Grafana, DefectDojo, …) in place of per-app oauth2-proxy.
 
 ## How it's wired
 

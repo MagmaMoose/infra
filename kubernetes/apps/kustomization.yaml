@@ -28,7 +28,6 @@ resources:
   - ./renovate
   # magmamoose products (open-core; external-repo + image automation)
   - ./caldrith
-  - ./chargate
   # Dün Mir Pro. The only PRIVATE source repo in this group — its GitRepository
   # needs github-app-magmamoose for read access, not just rate-limit headroom.
   # Migrated off Cloudflare Workers (Workers Free caps CPU at 10ms; Pro's PBKDF2
@@ -76,8 +75,6 @@ resources:
   - ./thanos-compactor
   - ./thanos-query
   - ./thanos-store
-  # delivery metrics (DORA)
-  - ./devlake
   # platform (node-level tuning)
   - ./node-tuning
   # progressive delivery
@@ -94,8 +91,6 @@ resources:
   - ./security-integrations
   - ./sonarqube
   - ./trivy-operator
-  # developer portal
-  - ./backstage
   # external-repo apps (workload manifests live in their own GitHub repos;
   # each dir holds only the in-cluster Flux plumbing — source, image
   # automation, namespace, and the Flux Kustomization that pulls the workload)

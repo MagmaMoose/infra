@@ -4,7 +4,7 @@
 # flux-system source. Must reconcile before the workload, which references the
 # HelmRepository it creates.
 #
-# wait: false on purpose, and for the same reason chargate's source bundle sets
+# wait: false on purpose, and for the same reason caldrith's source bundle sets
 # it: the HelmRepository stays NotReady until the first chart is published to
 # ghcr.io/tengen-systems/charts. With wait: true a NotReady source would hang
 # this Kustomization and, through the dependsOn below, block the namespace and

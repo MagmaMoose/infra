@@ -125,8 +125,8 @@ spec:
           path: /spec/jobTemplate/spec/template/spec/nodeSelector
           value:
             topology.sargeant.co/tier: native-cloud
-    # Job: dunmir-migrate. Not in the chargate/caldrith template because neither
-    # ships a Job — Pro does, and it is the one pod that MUST NOT stray. It
+    # Job: dunmir-migrate. Not in the caldrith template because it does not
+    # ship a Job — Pro does, and it is the one pod that MUST NOT stray. It
     # applies backend/schema/postgres.sql, and the backend Deployment blocks on a
     # wait-for-schema initContainer until it has; scheduled on the wrong side of
     # the home↔OCI link it runs its DDL over the WAN and, if that link is down,

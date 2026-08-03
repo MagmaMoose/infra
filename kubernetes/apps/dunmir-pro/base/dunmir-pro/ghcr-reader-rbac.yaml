@@ -5,10 +5,10 @@
 # ExternalSecret in the dunmir-pro repo's k8s/base/ghcr-pull-secret.yaml, whose
 # `auth.jwt.serviceAccountRef` names exactly this SA. Applied (with the rest of
 # base/dunmir-pro) by the prod-dunmir-pro-source Flux Kustomization. Mirrors
-# chargate's, caldrith's and diatreme-pro's ghcr-reader-rbac.yaml.
+# caldrith's and diatreme-pro's ghcr-reader-rbac.yaml.
 #
-# Not optional for this app. chargate and caldrith are public repos whose GHCR
-# packages inherited public visibility, so their pull secret is belt-and-braces;
+# Not optional for this app. caldrith is a public repo whose GHCR
+# packages inherited public visibility, so its pull secret is belt-and-braces;
 # dunmir-pro is private, so its packages are private too and both Deployments
 # ImagePullBackOff without this Secret reaching the namespace.
 #

@@ -78,12 +78,10 @@
       "apps": [
         "atlantis",
         "authentik",
-        "backstage",
         "bazarr",
         "blackbox-exporter",
         "defectdojo",
         "dependency-track",
-        "devlake",
         "excalidraw",
         "falco",
         "flagger",
