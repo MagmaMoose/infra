@@ -85,18 +85,24 @@ spec:
       # links the API builds point at.
       PUBLIC_URL: https://api.platform2.magmamoose.com
 
-      # Restated even though it currently matches the chart default. Where plate
-      # images land is a deployment decision and belongs in the deployment repo;
-      # inheriting it silently means a chart bump could move the bucket.
+      # Restated even though the bucket name matches the chart default. Where
+      # plate images land is a deployment decision and belongs in the deployment
+      # repo; inheriting it silently means a chart bump could move the bucket.
       #
-      # Mega S4, not the in-cluster minio (infrastructure/services/stack/minio):
-      # that StatefulSet is a single replica on the Pi's local disk, sized for
-      # Thanos/Loki chunks and Postgres backups, with no replication. Plate
-      # images are the product and grow without bound. minio is reachable
-      # through the same SigV4 client if that trade is ever wanted —
-      # http://minio.core.svc.cluster.local:9000 plus its own key pair.
-      STORAGE_ENDPOINT_URL: https://s3.eu-central-1.s4.mega.io
-      STORAGE_REGION: eu-central-1
+      # Cloudflare R2, reached over its S3-compatible endpoint by the same
+      # hand-rolled SigV4 client the code uses for every other provider — the
+      # backend has no R2-specific path here, only a different endpoint and key
+      # pair. Region is "auto" because R2 has no regions to address; the
+      # locationHint given at bucket creation (weur) is a placement preference,
+      # not something a request signs against.
+      #
+      # Not the in-cluster minio (infrastructure/services/stack/minio): that
+      # StatefulSet is a single replica on the Pi's local disk, sized for
+      # Thanos/Loki chunks and Postgres backups, with no replication, and it has
+      # restarted 560 times in 24 days. Plate images are the product and grow
+      # without bound.
+      STORAGE_ENDPOINT_URL: https://6e26afa31c37dee1dc82ad2f214f9b3c.r2.cloudflarestorage.com
+      STORAGE_REGION: auto
       STORAGE_BUCKET: platform2-images
 
       # SMTP_HOST is left at the chart's empty default on purpose: no relay is
