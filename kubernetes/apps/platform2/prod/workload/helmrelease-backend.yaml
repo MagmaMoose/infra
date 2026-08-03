@@ -7,10 +7,6 @@
 # artifact. Everything firefly-specific is in `values` here; the chart stays
 # generic, the same way github-usage-dashboard splits chart from deploy config.
 #
-# WILL NOT RECONCILE UNTIL THE FIRST RELEASE EXISTS. tengen-systems/platform2 has
-# cut no release tag, so oci://ghcr.io/tengen-systems/charts/platform2-backend has
-# no versions and this HelmRelease reports `no chart version found`. That is the
-# expected state on merge; it resolves itself the moment the app repo publishes.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -18,10 +14,6 @@ metadata:
   namespace: platform2
 spec:
   interval: 30m
-  # Suspended until tengen-systems/platform2 cuts its first release. Without this,
-  # Flux emits a reconcile error on every interval and routes it to the engineering-
-  # alerts Slack channel for an open-ended window. Drop suspend once 0.1.0 is out.
-  suspend: true
   # Pinned, not incidental: the tunnel ingress rule in the infra Terraform names
   # http://platform2-backend.platform2.svc.cluster.local:8000, and the chart
   # derives every object name from the release name.
@@ -29,11 +21,13 @@ spec:
   chart:
     spec:
       chart: platform2-backend
-      # Chart version and image tag ship from one release, and the chart leaves
-      # image.tag empty so it falls back to appVersion — so this range tracks
-      # both. Held inside 0.x: a minor bump pre-1.0 can still be breaking, and
-      # the first published chart is 0.1.0.
-      version: ">=0.1.0 <0.2.0"
+      # Pinned exactly rather than ranged, because values.image.tag below is
+      # pinned too and the two have to move together — see that comment. The
+      # range this wants to be, once the pin is gone, is ">=0.0.9 <0.1.0":
+      # inside the 0.0.x series, since pre-1.0 a minor bump is allowed to break
+      # and 0.1.0 should be an explicit decision here rather than something Flux
+      # picks up on its own.
+      version: "0.0.9"
       sourceRef:
         kind: HelmRepository
         name: tengen-systems-charts
@@ -59,6 +53,18 @@ spec:
     # private, so the cluster's existing ghcr-pull-secret cannot read it.
     imagePullSecrets:
       - name: ghcr-tengen-pull-secret
+
+    # TEMPORARY, AND PAIRED WITH THE PIN BELOW. Chart 0.0.9 resolves its image
+    # from .Chart.AppVersion verbatim — "0.0.9" — but the release pushes the
+    # image as "v0.0.9", so the chart's own default pulls a tag that does not
+    # exist. tengen-systems/platform2#17 fixes the helper.
+    #
+    # Both the tag and the chart version are pinned exactly, together, on
+    # purpose: a range here would let Flux move to a fixed chart while this line
+    # silently held the image at v0.0.9. Remove both in one commit once #17 has
+    # released, and let the range resume.
+    image:
+      tag: v0.0.9
 
     # Printed into this release's NOTES.txt so the tunnel rule an operator adds
     # in terraform/cloudflare/zero-trust arrives with the hostname and the
@@ -115,8 +121,7 @@ spec:
     # Forbid, and `python -m app.migrate` as a pre-install/pre-upgrade hook. Both
     # want exactly one runner, and one release provides exactly one.
 
-    # nodeSelector is deliberately unset. Public-facing, always-online workloads
-    # in this cluster usually pin to the native-cloud tier (ff-oci1/ff-oci2), but
-    # those nodes are arm64 and no platform2 image has ever been published, so
-    # whether they are multi-arch is unknown. Pin it once the first release is
-    # out and its manifest list has been checked — see AGENTS.md.
+    # nodeSelector is deliberately unset, and now safely so: v0.0.9's manifest
+    # list carries linux/amd64 and linux/arm64, so a pod is schedulable on the
+    # arm64 native-cloud tier (ff-oci1/ff-oci2) as well as everywhere else.
+    # Pinning to that tier is still open — see AGENTS.md.

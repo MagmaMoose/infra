@@ -3,9 +3,8 @@
 # objects) — no credential value is present in source.
 # kics-scan disable=3e2d3b2f-c22a-4df1-9cc6-a7a0aebb0c99
 #
-# The Platform2 camera-ingest edge service. Same OCI chart source and the same
-# "will not reconcile until tengen-systems/platform2 cuts its first release"
-# caveat as the backend — see helmrelease-backend.yaml.
+# The Platform2 camera-ingest edge service. Same OCI chart source as the backend —
+# see helmrelease-backend.yaml.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -13,9 +12,6 @@ metadata:
   namespace: platform2
 spec:
   interval: 30m
-  # Suspended until tengen-systems/platform2 cuts its first release — same reason
-  # as the backend. Drop suspend once 0.1.0 is published.
-  suspend: true
   # Pinned for the same reason the backend's is: the tunnel ingress rule names
   # https://platform2-driver.platform2.svc.cluster.local:8443, and the chart
   # derives every object name — including the one the Certificate's dnsNames
@@ -24,7 +20,10 @@ spec:
   chart:
     spec:
       chart: platform2-driver
-      version: ">=0.1.0 <0.2.0"
+      # Pinned exactly, paired with values.image.tag below — same reason as the
+      # backend, see helmrelease-backend.yaml. Wants to be ">=0.0.9 <0.1.0"
+      # again once tengen-systems/platform2#17 has released.
+      version: "0.0.9"
       sourceRef:
         kind: HelmRepository
         name: tengen-systems-charts
@@ -49,6 +48,12 @@ spec:
 
     imagePullSecrets:
       - name: ghcr-tengen-pull-secret
+
+    # TEMPORARY, paired with the exact chart pin above — chart 0.0.9 asks for
+    # image tag "0.0.9" while the release pushes "v0.0.9". Removed together with
+    # that pin once tengen-systems/platform2#17 has released.
+    image:
+      tag: v0.0.9
 
     # What cameras are pointed at, published by the tunnel onto this ClusterIP
     # Service on 8443. That rule is https:// with no_tls_verify — see
