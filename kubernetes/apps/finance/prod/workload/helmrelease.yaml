@@ -112,10 +112,19 @@ spec:
           key: finance-ynab-api-token
         YNAB_BUDGET_ID:
           key: finance-ynab-budget-id
-        GOOGLE_CREDENTIALS_JSON:
-          key: finance-google-credentials-json
-        GOOGLE_DRIVE_FOLDER_ID:
-          key: finance-google-drive-folder-id
+        # GOOGLE_CREDENTIALS_JSON / GOOGLE_DRIVE_FOLDER_ID are deliberately
+        # absent. Neither secret exists in the vault yet — confirmed by
+        # `oci vault secret list`, which returns every other key here and not
+        # those two. external-secrets resolves a `data` list all-or-nothing, so
+        # naming an absent key means the ExternalSecret never produces the
+        # Secret AT ALL, and every workload in the release loses DATABASE_URL,
+        # the FNB logins and the YNAB token along with it.
+        #
+        # Statement archival to Drive is the only thing that wants them, and it
+        # is not on the FNB -> YNAB path: services.drive raises DriveError at
+        # the point of use, so the weekly batch job fails loudly at its archive
+        # step while the daily sync is untouched. Add both back here once the
+        # service-account key is in the vault.
         # Already in the vault, shared with the browserless Deployment.
         BROWSERLESS_TOKEN:
           key: browserless-token
