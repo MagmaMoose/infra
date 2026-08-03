@@ -16,7 +16,11 @@ spec:
       chart: finance
       # Any 0.x. Tighten once the chart stabilises; until then a chart release
       # should reach the cluster without a commit here.
-      version: ">=0.1.0"
+      #
+      # >=0.0.1, not >=0.1.0: semantic-release cut v0.0.1 and chart-release
+      # packages with --version "${tag#v}", so the published chart is 0.0.1
+      # regardless of the 0.1.0 in Chart.yaml. A >=0.1.0 range matches nothing.
+      version: ">=0.0.1"
       sourceRef:
         kind: HelmRepository
         name: calebsargeant-charts
