@@ -60,8 +60,8 @@ projects:
 
   # Zone-level config supporting magmamoose.com (repo: MagmaMoose/website).
   # The site is a Worker deployed by that repo's GitHub Actions workflow, which
-  # also attaches the apex custom domain — so this owns only the www hostname
-  # and its 301 to the apex.
+  # also attaches www as the custom domain — so this owns only the apex hostname
+  # and its 301 to www.
   - name: cloudflare-website-magmamoose-prod
     dir: terraform/cloudflare/website-magmamoose/prod
     workspace: default
