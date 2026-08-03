@@ -128,29 +128,17 @@ inputs = {
       proxied = true
     },
 
-    # The console is a Cloudflare Worker, published from the app repo with
-    # `wrangler deploy --routes "platform2.magmamoose.com/*"`. This record exists
-    # solely to anchor that route.
+    # NOTE: platform2.magmamoose.com is deliberately absent. The console is a
+    # Cloudflare Worker attached by *custom domain*, not by route, so wrangler
+    # creates the record and the certificate itself as part of attaching — the
+    # same split as www.magmamoose.com (see cloudflare/website-magmamoose/prod).
     #
-    # A Worker *route* is not a Worker *custom domain*. A custom domain creates
-    # its own DNS record and certificate as part of attaching (that is how
-    # www.magmamoose.com works — see cloudflare/website-magmamoose/prod, where
-    # wrangler owns www and Terraform owns only the apex). A route creates
-    # nothing: it matches a request the zone is already answering, so with no
-    # record here the hostname is NXDOMAIN, the request never reaches
-    # Cloudflare, and the route never fires.
-    #
-    # 100:: is the IPv6 discard prefix — the conventional placeholder for a
-    # proxied hostname with no real origin. Nothing is reachable behind it, so
-    # the Worker is the only thing that can ever answer, and if the route is
-    # removed the hostname fails closed instead of exposing something else.
-    # First hostname in this zone to need this; there was no local precedent.
-    {
-      name    = "platform2.magmamoose.com"
-      type    = "AAAA"
-      value   = "100::"
-      proxied = true
-    },
+    # This began as a proxied `AAAA 100::` placeholder, because a Worker route
+    # creates no DNS and would otherwise leave the hostname NXDOMAIN. That is
+    # exactly what happened: the Worker deployed with a correct route against a
+    # hostname this stack had never applied, and the site was dark. The app repo
+    # moved to a custom domain so its deploy is self-sufficient, which makes a
+    # record here not merely redundant but conflicting — do not add one back.
 
     # NOTE: dunmir.magmamoose.com (Dün Mir Pro UI) is a Cloudflare Pages custom
     # domain — its DNS is created by the Pages "Custom domains" flow, NOT here.
