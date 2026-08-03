@@ -121,6 +121,24 @@ spec:
     # Forbid, and `python -m app.migrate` as a pre-install/pre-upgrade hook. Both
     # want exactly one runner, and one release provides exactly one.
 
+    # TEMPORARY, until the chart's hook ordering is fixed. The migration Job is a
+    # pre-install hook and names the chart's ServiceAccount, but that
+    # ServiceAccount carries no hook annotation — so Helm creates it in the main
+    # phase, after the hook has already tried to run. On a first install the Job
+    # never gets a pod:
+    #
+    #   pods "platform2-backend-migrate-" is forbidden: error looking up service
+    #   account platform2/platform2-backend: serviceaccount ... not found
+    #
+    # create: false makes every workload fall back to the namespace's default
+    # ServiceAccount, which always exists. Nothing is given up by that here: the
+    # chart binds no Role or RoleBinding to its ServiceAccount, and all three pod
+    # specs set automountServiceAccountToken: false, so neither identity carries
+    # a token or a permission. Remove once the chart annotates the ServiceAccount
+    # as a pre-install hook ahead of the Job.
+    serviceAccount:
+      create: false
+
     # nodeSelector is deliberately unset, and now safely so: v0.0.9's manifest
     # list carries linux/amd64 and linux/arm64, so a pod is schedulable on the
     # arm64 native-cloud tier (ff-oci1/ff-oci2) as well as everywhere else.
