@@ -5,9 +5,10 @@ resources:
   - configmap.yaml
   - daemonset.yaml
   - service.yaml
-# No node-selector: Fluent Bit is a DaemonSet and must run on EVERY node. The
-# previous `mini` selector left ff-pi1 (control-plane) logs uncollected. The
-# DaemonSet's NoSchedule toleration lets it land on ff-pi1 (image is multi-arch).
+# No node-selector here: placement is handled by daemonset.yaml's own nodeAffinity,
+# which runs Fluent Bit on every node EXCEPT ff-pi1 (control-plane) — the image's
+# jemalloc crashes on the Pi's 16KB-page arm64 kernel. See daemonset.yaml for the
+# affinity + the follow-up on collecting ff-pi1 logs via a different shipper.
 patches:
   # Fluent Bit resources — no CPU limit (avoid throttling); modest memory.
   - patch: |

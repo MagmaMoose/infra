@@ -26,5 +26,11 @@ spec:
   driftDetection:
     mode: enabled
   values:
+    # The operator itself (not the postgres Cluster CR it manages, which has its own
+    # affinity pinning it to the worker). A system controller, per
+    # docs/reference/cluster-topology.md — pin to ff-pi1. Previously unpinned: nothing
+    # stopped the scheduler from placing it on the CPU-request-saturated ff-vm1 instead.
+    nodeSelector:
+      node-role.kubernetes.io/system: ""
     crds:
       create: true

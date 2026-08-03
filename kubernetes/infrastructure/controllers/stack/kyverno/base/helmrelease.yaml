@@ -42,6 +42,15 @@ spec:
     # are not affected; keep them at one replica. Steady-state usage (admission ~63Mi vs 384Mi
     # limit) shows the slow start is node-level, not pod-resource-driven, so resources are
     # left at kyverno chart defaults (3.8+).
+    #
+    # None of the 4 controllers set their own .nodeSelector, so this cascades to all of them
+    # (each controller's template does `.Values.<component>.nodeSelector | default
+    # .Values.global.nodeSelector`) — pinning kyverno to ff-pi1, per
+    # docs/reference/cluster-topology.md. Previously unpinned: nothing stopped the scheduler
+    # from placing it on the CPU-request-saturated ff-vm1 instead.
+    global:
+      nodeSelector:
+        node-role.kubernetes.io/system: ""
     admissionController:
       replicas: 2
       startupProbe:

@@ -28,3 +28,12 @@ patches:
         path: /spec/template/spec/nodeSelector
         value:
           type: mini
+
+  # CronJobs (nodeSelector lives under the jobTemplate)
+  - target:
+      kind: CronJob
+    patch: |
+      - op: add
+        path: /spec/jobTemplate/spec/template/spec/nodeSelector
+        value:
+          type: mini
