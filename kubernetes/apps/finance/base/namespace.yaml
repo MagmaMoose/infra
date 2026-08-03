@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: finance
+  labels:
+    goldilocks.fairwinds.com/enabled: "true"
+    # Clones the flux-system ghcr-pull-secret into this namespace. The finance
+    # image lives at ghcr.io/calebsargeant/finance, which the MagmaMoose-org
+    # token can already read — same as buxfer-sync, which this replaces.
+    ghcr-pull-secret: sync

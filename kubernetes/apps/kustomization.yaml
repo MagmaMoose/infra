@@ -41,6 +41,9 @@ resources:
   - ./openhands
   # tengen-systems products (private repo; OCI-published charts, not a GitRepository)
   - ./platform2
+  # personal finance — FNB to YNAB sync, replacing buxfer-sync and the Buxfer
+  # subscription. Same shape as platform2: OCI-published chart, not a GitRepository.
+  - ./finance
   # backup
   - ./timemachine
   # miscellaneous (dashboard)
