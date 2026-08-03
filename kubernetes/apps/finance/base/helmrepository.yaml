@@ -7,10 +7,10 @@
 # this shape keeps the `chart` + semver `version` range every other HelmRelease
 # here uses — so a chart release is picked up without a commit in this repo.
 #
-# NOT REACHABLE YET: CalebSargeant/finance has cut no release tag, so
-# ghcr.io/calebsargeant/charts/finance does not exist. This source will report
-# NotReady until the first release publishes, which is why the source
-# Kustomization sets `wait: false`.
+# The chart is published by MagmaMoose/finance's chart-release workflow, which
+# pushes to ghcr.io/${github.repository_owner} — so magmamoose, not
+# calebsargeant. The repo's git remote still says CalebSargeant because GitHub
+# redirects transferred repositories, which is what made this look right.
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
@@ -19,8 +19,9 @@ metadata:
 spec:
   type: oci
   interval: 10m
-  url: oci://ghcr.io/calebsargeant/charts
-  # Same credential buxfer-sync pulls its image with — the packages are under
-  # the calebsargeant account and the existing flux-system token can read them.
+  url: oci://ghcr.io/magmamoose/charts
+  # Same credential buxfer-sync pulls with. The packages are now under the
+  # MagmaMoose org, so this token needs read:packages there — if the source
+  # reports 403 rather than 404, that is the thing to widen.
   secretRef:
     name: ghcr-pull-secret
