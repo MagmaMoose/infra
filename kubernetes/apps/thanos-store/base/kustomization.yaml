@@ -1,4 +1,18 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - ./thanos-store
+  - statefulset.yaml
+  - service.yaml
+components:
+  - ../../../components/node-selectors/mini
+patches:
+  # Homelab runs a single Thanos Store replica (base declares 2 for HA; one is
+  # enough to serve long-term blocks from MinIO on this 2-node cluster). Was 0,
+  # which left Thanos Query blind to all historical data in object storage.
+  - patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: StatefulSet
+      labelSelector: "app.kubernetes.io/name=thanos-store"

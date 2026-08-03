@@ -1,0 +1,19 @@
+---
+# Source for the external MagmaMoose/nievah repo (the Nievah PR-review webhook-service
+# manifests live there under ./k8s/overlays/prod, with image automation).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: nievah
+  namespace: flux-system
+spec:
+  interval: 10m
+  provider: github
+  ref:
+    branch: main
+  secretRef:
+    # magmamoose-org repo; uses the MagmaMoose-org App installation (see
+    # ../../clusters/firefly/flux-system/github-app-magmamoose-secret.yaml),
+    # same as caldrith, diatreme-pro and zoey.
+    name: github-app-magmamoose
+  url: https://github.com/magmamoose/nievah

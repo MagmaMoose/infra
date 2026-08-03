@@ -1,0 +1,20 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: prod-mem0
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./kubernetes/apps/mem0/base
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  timeout: 5m
+  wait: true
+  # Needs the CNPG operator (Database CR), external-secrets (OCI Vault), and LiteLLM —
+  # all part of the infrastructure-services bundle.
+  dependsOn:
+    - name: infrastructure-services
+# No `decryption` block: the only secret is an ExternalSecret (OCI Vault); no SOPS.
