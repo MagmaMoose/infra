@@ -1,0 +1,26 @@
+---
+# Chart source for the finance release. The chart is published as an OCI
+# artifact from CalebSargeant/finance, so there is no index to fetch.
+#
+# HelmRepository rather than OCIRepository, matching platform2: a HelmRelease
+# pointed at an OCIRepository has to name one immutable artifact revision, while
+# this shape keeps the `chart` + semver `version` range every other HelmRelease
+# here uses — so a chart release is picked up without a commit in this repo.
+#
+# NOT REACHABLE YET: CalebSargeant/finance has cut no release tag, so
+# ghcr.io/calebsargeant/charts/finance does not exist. This source will report
+# NotReady until the first release publishes, which is why the source
+# Kustomization sets `wait: false`.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: calebsargeant-charts
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 10m
+  url: oci://ghcr.io/calebsargeant/charts
+  # Same credential buxfer-sync pulls its image with — the packages are under
+  # the calebsargeant account and the existing flux-system token can read them.
+  secretRef:
+    name: ghcr-pull-secret

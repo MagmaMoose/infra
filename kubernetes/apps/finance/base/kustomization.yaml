@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# No `namespace:` directive: the HelmRepository is flux-system-scoped and the
+# Namespace is cluster-scoped, so each carries its own metadata.namespace.
+#
+# No image automation. The chart leaves `image.tag` empty and falls back to
+# `.Chart.AppVersion`, and the release pipeline publishes chart and image from
+# one tag — so the semver range on the HelmRelease already tracks the image, and
+# an ImageRepository would add an object that stays NotReady until the first
+# release exists.
+resources:
+  - namespace.yaml
+  - helmrepository.yaml
