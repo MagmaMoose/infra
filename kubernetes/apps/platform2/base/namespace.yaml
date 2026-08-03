@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform2
+  labels:
+    goldilocks.fairwinds.com/enabled: "true"
+    # Deliberately NOT labelled `ghcr-pull-secret: sync`. That Kyverno policy
+    # (infrastructure/configs/rbac/sync-ghcr-pull-secret-policy.yaml) clones the
+    # flux-system `ghcr-pull-secret`, which is a MagmaMoose-org token and cannot
+    # read ghcr.io/tengen-systems/*. Platform2's pull credential is a separate
+    # one, projected from OCI Vault — see ghcr-pull-secret.yaml here and the
+    # namespace-local copy in ../prod/workload/ghcr-pull-secret.yaml.

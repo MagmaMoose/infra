@@ -1,4 +1,14 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - ./github-runner
+  - namespace.yaml
+  - serviceaccount.yaml
+  - service.yaml
+  - externalsecret.yaml
+  - configmap.yaml
+  - statefulset.yaml
+components:
+  # Pin to ff-vm1 (the only amd64 node, 32 GiB) — the actions-runner + MegaLinter
+  # images are amd64 and need multi-GB RAM. worker-on-prem selects the worker role
+  # AND the on-prem tier so the pod never drifts onto the arm64 OCI workers.
+  - ../../../components/node-selectors/worker-on-prem

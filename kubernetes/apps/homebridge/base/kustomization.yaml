@@ -1,4 +1,37 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+namespace: automation
 resources:
-  - ./homebridge
+  - ../../../components/helm-releases/bjw-s-app-template.yaml
+  - configmap.yaml
+  - pvc.yaml
+components:
+  - ../../../components/resource-profiles/c.pico
+  # Migrated off ff-pi1: hostPath persistence replaced with the Longhorn PVC in
+  # pvc.yaml (referenced from configmap values), pinned to the worker node.
+  - ../../../components/node-selectors/worker-on-prem
+  - ../../../components/ingress-standards/sargeant.co
+  - ../../../components/helm-release-standards/configmap-values
+
+patches:
+  - target:
+      kind: HelmRelease
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: homebridge
+      - op: replace
+        path: /spec/valuesFrom/0/name
+        value: homebridge-values
+      - op: replace
+        path: /spec/values/ingress/main/hosts/0/host
+        value: homebridge.sargeant.co
+      - op: replace
+        path: /spec/values/ingress/main/hosts/1/host
+        value: homebridge.sargeant.local
+      - op: replace
+        path: /spec/values/ingress/main/tls/0/hosts/0
+        value: homebridge.sargeant.co
+      - op: replace
+        path: /spec/values/ingress/main/tls/0/secretName
+        value: homebridge-tls

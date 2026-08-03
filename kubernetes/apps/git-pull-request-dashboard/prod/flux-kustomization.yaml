@@ -13,7 +13,7 @@ metadata:
     app.kubernetes.io/sops: enabled
 spec:
   interval: 10m
-  path: ./kubernetes/apps/git-pull-request-dashboard/base/git-pull-request-dashboard
+  path: ./kubernetes/apps/git-pull-request-dashboard/base
   prune: true
   sourceRef:
     kind: GitRepository

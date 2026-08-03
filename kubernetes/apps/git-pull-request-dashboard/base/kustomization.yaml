@@ -1,8 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# The app's control-plane library (GitRepository + image automation), applied
-# by the per-env Flux Kustomization (see prod/flux-kustomization.yaml), not
-# aggregated directly. The workload manifests live in the external
-# magmamoose/git-pull-request-dashboard repo.
+# No `namespace:` directive — these are flux-system-scoped control-plane
+# resources (GitRepository, image automation); each carries its own
+# metadata.namespace. The workload itself lives in the external
+# magmamoose/git-pull-request-dashboard repo and targets the `automation` ns.
 resources:
-  - ./git-pull-request-dashboard
+  - gitrepository.yaml
+  - image-automation.yaml
