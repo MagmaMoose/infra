@@ -3,4 +3,3 @@ kind: Namespace
 metadata:
   name: nextcloud
   labels:
-    goldilocks.fairwinds.com/enabled: "true"

@@ -3,4 +3,3 @@ kind: Namespace
 metadata:
   name: github-contributions
   labels:
-    goldilocks.fairwinds.com/enabled: "true"

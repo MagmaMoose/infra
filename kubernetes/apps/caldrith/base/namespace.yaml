@@ -3,4 +3,3 @@ kind: Namespace
 metadata:
   name: caldrith
   labels:
-    goldilocks.fairwinds.com/enabled: "true"

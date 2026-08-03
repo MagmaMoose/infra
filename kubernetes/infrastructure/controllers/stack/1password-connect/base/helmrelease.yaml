@@ -28,7 +28,7 @@ spec:
       # API server configuration
       api:
         name: connect-api
-        replicas: 1
+        replicas: 2
         nodeSelector:
           type: pi
         resources:
@@ -46,7 +46,7 @@ spec:
       # Sync server configuration
       sync:
         name: connect-sync
-        replicas: 1
+        replicas: 2
         nodeSelector:
           type: pi
         resources:
@@ -81,7 +81,7 @@ spec:
         type: pi
       
       # Operator pod configuration
-      replicas: 1
+      replicas: 2
       resources:
         requests:
           cpu: 10m

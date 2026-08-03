@@ -20,7 +20,7 @@ patches:
         path: /spec/template/spec/containers/0/resources
         value:
           requests:
-            cpu: 350m
+            cpu: 35m
             memory: 768Mi
           limits:
             memory: 8Gi

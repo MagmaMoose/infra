@@ -4,4 +4,3 @@ kind: Namespace
 metadata:
   name: backup
   labels:
-    goldilocks.fairwinds.com/enabled: "true"

@@ -58,6 +58,20 @@ projects:
       enabled: true
     apply_requirements: [mergeable]
 
+  # Zone-level config supporting magmamoose.com (repo: MagmaMoose/website).
+  # The site is a Worker deployed by that repo's GitHub Actions workflow, which
+  # also attaches www as the custom domain — so this owns only the apex hostname
+  # and its 301 to www.
+  - name: cloudflare-website-magmamoose-prod
+    dir: terraform/cloudflare/website-magmamoose/prod
+    workspace: default
+    terraform_version: v1.11.3
+    workflow: terragrunt
+    autoplan:
+      when_modified: ["**/*.tf", "**/*.tfvars", "**/*.hcl"]
+      enabled: true
+    apply_requirements: [mergeable]
+
   # ─── FortiGate (home-lab edge — physical 40Fs) ───────────────────────────
   # autoplan disabled: a plan connects to the live FortiGate API, and the units
   # aren't wired/reachable yet. Run manually once hardware + tokens exist:

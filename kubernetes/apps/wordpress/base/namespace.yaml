@@ -3,4 +3,3 @@ kind: Namespace
 metadata:
   name: wordpress
   labels:
-    goldilocks.fairwinds.com/enabled: "true"

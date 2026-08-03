@@ -8,4 +8,3 @@ kind: Namespace
 metadata:
   name: database-oci
   labels:
-    goldilocks.fairwinds.com/enabled: "true"
