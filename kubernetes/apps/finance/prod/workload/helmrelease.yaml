@@ -59,7 +59,15 @@ spec:
       ACCOUNTS_CONFIG: /app/config/accounts.yaml
       STATEMENTS_DIR: /data/statements
       STATEMENT_MONTHS: "13"
-      SLACK_CHANNEL: "#finance"
+      # The channel ID, not "#finance". A name has to be resolved to an ID
+      # first, which needs the conversations.list scope the Nievah app does not
+      # carry — so every sync summary died with
+      #
+      #   Slack chat.postMessage failed: 200 channel_not_found
+      #
+      # even after the app was invited to the channel. An ID is accepted
+      # directly. It is also stable: renaming the channel does not break this.
+      SLACK_CHANNEL: "C08BHHDGC0K"
       # Deliberately EMPTY. YNAB_RESPECT_PRIOR_IMPORTS (on by default) derives
       # the cutover boundary from YNAB per account, and setting both ANDs them
       # into max(global date, per-account boundary) — which permanently withholds
