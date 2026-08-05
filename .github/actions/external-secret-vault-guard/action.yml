@@ -1,0 +1,64 @@
+# Composite action rather than a plain script so MagmaMoose/dunmir-pro can
+# consume it directly:
+#
+#   - uses: magmamoose/infra/.github/actions/external-secret-vault-guard@<sha>
+#     with:
+#       paths: k8s
+#       vault-stores: ClusterSecretStore/oci-vault
+#
+# dunmir-pro ships its own ExternalSecret against the same vault and was the
+# second outage this guard exists to prevent, so one implementation serving
+# both repos is the point -- not a nice-to-have.
+name: External Secret vault guard
+description: >-
+  Fail when an ExternalSecret remoteRef names an OCI Vault secret that does not
+  exist or is not ACTIVE. Lists secret NAMES only; never reads a value.
+
+inputs:
+  paths:
+    description: Space-separated scan roots (repo-relative).
+    required: false
+    default: kubernetes
+  vault-stores:
+    description: >-
+      Space-separated KIND/NAME allowlist of stores whose remoteRef.key is a
+      vault secret name. An allowlist, so a newly added kubernetes-provider
+      mirror is skipped by default rather than falsely failed.
+    required: false
+    default: ClusterSecretStore/oci-vault
+  report-orphans:
+    description: List ACTIVE vault secrets referenced by nothing. Informational only.
+    required: false
+    default: "false"
+  min-vault-secrets:
+    description: >-
+      Plausibility floor. If the vault listing returns fewer than this, refuse
+      to compare rather than emit a wall of false failures.
+    required: false
+    default: "25"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      shell: bash
+      run: python -m pip install --require-hashes=false -r "${{ github.action_path }}/requirements.txt"
+
+    - name: Check ExternalSecret references against the vault
+      shell: bash
+      # Credentials arrive as env vars, never as command-line arguments: argv is
+      # visible to every process on the runner. OCI_KEY_CONTENT holds the PEM
+      # inline so it never touches the filesystem -- no file, no chmod, and no
+      # shell mangling its newlines into "PEM routines: no start line".
+      run: |
+        args=()
+        for p in ${{ inputs.paths }}; do args+=(--path "$p"); done
+        for s in ${{ inputs.vault-stores }}; do args+=(--vault-store "$s"); done
+        args+=(--min-vault-secrets "${{ inputs.min-vault-secrets }}")
+        if [ "${{ inputs.report-orphans }}" = "true" ]; then args+=(--report-orphans); fi
+        python "${{ github.action_path }}/check_external_secret_refs.py" "${args[@]}"
