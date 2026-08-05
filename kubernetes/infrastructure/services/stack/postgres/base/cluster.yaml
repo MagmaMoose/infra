@@ -19,6 +19,24 @@ spec:
       topology.sargeant.co/tier: on-prem
     enablePodAntiAffinity: false
 
+  # Without a `resources` block the instances are BestEffort — the kubelet's FIRST eviction
+  # and OOM target under node memory pressure. Every other workload in this tier (valkey,
+  # mariadb, litellm) already declares requests and is Burstable, so Postgres alone was being
+  # killed first. An OOM-killed Postgres is an unclean shutdown, which is how instances kept
+  # coming back wedged in WAL replay ("invalid resource manager ID", startup probe 500) and had
+  # to be re-bootstrapped by hand — postgres-2 (2026-07-31) and postgres-4 (2026-08-05, which
+  # also forced a primary failover that 503'd LiteLLM and killed four PR reviews).
+  #
+  # Sized from the tuning below: shared_buffers 256MB + effective_cache_size 1GB + per-connection
+  # work_mem, so ~1Gi steady with headroom to 2Gi. 3 instances = 3Gi requested on a 28Gi node.
+  # No CPU limit deliberately — throttling a database causes replication lag, not safety.
+  resources:
+    requests:
+      cpu: 200m
+      memory: 1Gi
+    limits:
+      memory: 2Gi
+
   postgresql:
     parameters:
       max_connections: "200"
