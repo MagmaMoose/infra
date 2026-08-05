@@ -125,6 +125,14 @@ resource type.
    | `OCI_GUARD_FINGERPRINT` | API key fingerprint |
    | `OCI_GUARD_KEY_CONTENT` | the full PEM, `BEGIN`/`END` lines included |
    | `OCI_VAULT_OCID` | vault OCID |
+   | `OCI_COMPARTMENT_OCID` | OCID of the compartment that contains the vault's secrets |
+
+   `OCI_COMPARTMENT_OCID` is required whenever the vault's secrets live in a
+   sub-compartment rather than the tenancy root. `ListSecrets` is scoped to one
+   compartment and is **not recursive**: if this is wrong or absent the listing
+   returns zero or too few secrets, trips the `min-vault-secrets` floor, and the
+   guard exits 2 on every real run. Set it to the compartment shown in
+   Vault → Secrets in the OCI console.
 
    Optional repo variable `OCI_REGION` (defaults to `eu-amsterdam-1`).
 
