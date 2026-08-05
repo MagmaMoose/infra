@@ -30,7 +30,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: n8n
-          image: n8nio/n8n:2.34.0 # {"$imagepolicy": "flux-system:n8n"}
+          image: n8nio/n8n:2.34.1 # {"$imagepolicy": "flux-system:n8n"}
           resources:
             # n8n 2.x outgrew the old 512Mi limit: under that cgroup V8 capped
             # its old-space heap at ~256Mi and OOM-crashed on startup ("Reached
