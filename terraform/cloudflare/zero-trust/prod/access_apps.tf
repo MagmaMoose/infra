@@ -260,18 +260,21 @@ resource "cloudflare_zero_trust_access_policy" "comment_commander_pro_caleb" {
   }
 }
 
-# --- Dün Mir Pro — now gated by Stytch, NOT Cloudflare Access ----------------
-# The licensed operator UI (github.com/MagmaMoose/dunmir) now authenticates
-# CUSTOMERS itself via Stytch B2B magic links: the app fail-closes to /login and
-# the worker validates the forwarded session JWT, scoping each operator to their
-# own tenant. The Cloudflare Access application that used to gate it has therefore
-# been removed — Access would double-gate and block self-serve customer sign-up
-# (only emails in the Caleb access group could get in). Removing it makes the
-# Pages URLs reachable, but the app is gated by Stytch at the edge of every route.
+# --- Dün Mir — gated by the app itself, NOT Cloudflare Access ----------------
+# The operator console (github.com/MagmaMoose/dunmir) authenticates CUSTOMERS
+# itself: first-party password + mandatory TOTP against opaque server-side
+# sessions, scoping each operator to their own tenant. The Access application
+# that used to gate it was removed and stays removed — Access would double-gate
+# and block self-serve sign-up outright, since only members of the Caleb access
+# group could reach the sign-up page at all.
 #
-# NOTE: applying this DESTROYS the Access app + its policy — dunmir.magmamoose.com
-# and *.mikrotik-minder-pro.pages.dev become Stytch-gated only. Confirm Stytch
-# sign-in works before merging.
+# (This block described Stytch B2B magic links until the app moved to
+# first-party auth. Stytch is gone from the product; only the conclusion here is
+# unchanged, and it is the conclusion that matters: no Access app on this
+# hostname, deliberately.)
+#
+# Nothing to apply — there is no resource here. It is a signpost for the next
+# person who wonders why a public product surface has no Access policy.
 
 # --- self_hosted: Zoey ------------------------------------------------------
 # Zoey — the project-intelligence dashboard (firefly cluster, behind the
