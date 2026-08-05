@@ -40,7 +40,15 @@ spec:
     extract: '$0'
   policy:
     semver:
-      range: '>=0.1.0'
+      # `>=0.1.0` matched NOTHING. GHCR holds v0.0.4 plus pr-* and latest, and
+      # the filterTags pattern above discards every pr-*/latest tag before the
+      # range is applied — so the policy could never resolve, the $imagepolicy
+      # setter in dunmir-pro's k8s/overlays/prod/kustomization.yaml was never
+      # rewritten, and the v0.1.0 placeholder shipped to the cluster as a real
+      # tag. Every pod then sat in ImagePullBackOff pulling a tag that has
+      # never existed. A policy that matches no tag is not an error in Flux —
+      # it is silent, which is why this survived for days.
+      range: '>=0.0.1'
 ---
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImageRepository
@@ -67,7 +75,8 @@ spec:
     extract: '$0'
   policy:
     semver:
-      range: '>=0.1.0'
+      # Same as the backend policy above — see the comment there.
+      range: '>=0.0.1'
 ---
 # ONE ImageUpdateAutomation for BOTH policies. An ImageUpdateAutomation is scoped
 # to a GitRepository and a path, not to a policy: it scans every file under
