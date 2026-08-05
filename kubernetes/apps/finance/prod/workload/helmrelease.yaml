@@ -56,6 +56,17 @@ spec:
       # browser refuses a wildcard on a credentialed request.
       CORS_ALLOW_ORIGINS: https://finance.magmamoose.com
       PUBLIC_URL: https://finance-api.magmamoose.com
+      # The Drive service account acts as this user. Without it the uploads have
+      # nowhere to go: a service account's own Drive quota is zero bytes, so it
+      # cannot own the files it creates, and Shared Drives — which would own them
+      # instead — are not on this Workspace plan. Impersonating makes the files
+      # Caleb's, stored against his quota, in his Drive.
+      #
+      # Authorised in the Admin console for client 106606908306775608354, scoped
+      # to drive.file and nothing else: the key can reach files it created and
+      # no other document in the domain.
+      GOOGLE_IMPERSONATE_SUBJECT: caleb@magmamoose.com
+
       ACCOUNTS_CONFIG: /app/config/accounts.yaml
       STATEMENTS_DIR: /data/statements
       STATEMENT_MONTHS: "13"
@@ -120,19 +131,15 @@ spec:
           key: finance-ynab-api-token
         YNAB_BUDGET_ID:
           key: finance-ynab-budget-id
-        # GOOGLE_CREDENTIALS_JSON / GOOGLE_DRIVE_FOLDER_ID are deliberately
-        # absent. Neither secret exists in the vault yet — confirmed by
-        # `oci vault secret list`, which returns every other key here and not
-        # those two. external-secrets resolves a `data` list all-or-nothing, so
-        # naming an absent key means the ExternalSecret never produces the
-        # Secret AT ALL, and every workload in the release loses DATABASE_URL,
-        # the FNB logins and the YNAB token along with it.
-        #
-        # Statement archival to Drive is the only thing that wants them, and it
-        # is not on the FNB -> YNAB path: services.drive raises DriveError at
-        # the point of use, so the weekly batch job fails loudly at its archive
-        # step while the daily sync is untouched. Add both back here once the
-        # service-account key is in the vault.
+        # Both now exist, so both are named again. They were removed while they
+        # did not: external-secrets resolves this list all-or-nothing, so one
+        # absent key means NO Secret at all — and the release would lose
+        # DATABASE_URL, the FNB logins and the YNAB token for the sake of a
+        # Drive upload. Verified present before re-adding.
+        GOOGLE_CREDENTIALS_JSON:
+          key: finance-google-credentials-json
+        GOOGLE_DRIVE_FOLDER_ID:
+          key: finance-google-drive-folder-id
         # Already in the vault, shared with the browserless Deployment.
         BROWSERLESS_TOKEN:
           key: browserless-token
