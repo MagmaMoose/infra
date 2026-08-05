@@ -7,19 +7,32 @@
 # ImageRepository, so a single shared policy would pin the frontend to whatever
 # tag the backend last published — silently, and only visibly as a stale SPA.
 #
-# The names here are load-bearing: they must match the `$imagepolicy` markers in
-# the dunmir-pro repo's k8s/overlays/prod/kustomization.yaml, which read
+# The RESOURCE names here are load-bearing: they must match the `$imagepolicy`
+# markers in the dunmir repo's k8s/overlays/prod/kustomization.yaml, which read
 #   {"$imagepolicy": "flux-system:dunmir-pro-backend:tag"}
 #   {"$imagepolicy": "flux-system:dunmir-pro-frontend:tag"}
 # A marker naming a policy that doesn't exist is not an error — the setter is
-# just never rewritten and the tag stays frozen at the placeholder.
+# just never rewritten and the tag stays frozen at the placeholder. They keep the
+# `dunmir-pro-` prefix on purpose, matching this directory and the namespace,
+# even though the repository is now `dunmir`.
+#
+# `spec.image` DID have to move, and that is a separate axis. The published image
+# name follows the REPOSITORY name — Diatreme bakes with
+# IMAGE_NAME=magmamoose/${GITHUB_REPOSITORY##*/} — so renaming dunmir-pro →
+# dunmir moved the images to ghcr.io/magmamoose/dunmir-{backend,frontend} while
+# these still scanned the old name. v0.0.7 through v0.0.12 published to a name
+# nothing consumed and the cluster ran v0.0.6 for six releases, reporting itself
+# healthy throughout: a scan of a name that has stopped receiving tags is not an
+# error either. The dunmir repo's ci.yml now derives the expected image names
+# from `github.repository` and fails on drift; this file is outside its reach, so
+# it is called out in that check's failure message.
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImageRepository
 metadata:
   name: dunmir-pro-backend
   namespace: flux-system
 spec:
-  image: ghcr.io/magmamoose/dunmir-pro-backend
+  image: ghcr.io/magmamoose/dunmir-backend
   interval: 5m
   provider: generic
   # dunmir-pro is a private repo, so its GHCR packages inherit private
@@ -56,7 +69,7 @@ metadata:
   name: dunmir-pro-frontend
   namespace: flux-system
 spec:
-  image: ghcr.io/magmamoose/dunmir-pro-frontend
+  image: ghcr.io/magmamoose/dunmir-frontend
   interval: 5m
   provider: generic
   secretRef:
