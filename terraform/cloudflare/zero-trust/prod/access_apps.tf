@@ -261,7 +261,7 @@ resource "cloudflare_zero_trust_access_policy" "comment_commander_pro_caleb" {
 }
 
 # --- Dün Mir Pro — now gated by Stytch, NOT Cloudflare Access ----------------
-# The licensed operator UI (github.com/MagmaMoose/dunmir-pro) now authenticates
+# The licensed operator UI (github.com/MagmaMoose/dunmir) now authenticates
 # CUSTOMERS itself via Stytch B2B magic links: the app fail-closes to /login and
 # the worker validates the forwarded session JWT, scoping each operator to their
 # own tenant. The Cloudflare Access application that used to gate it has therefore
