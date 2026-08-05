@@ -439,47 +439,48 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "firefly" {
       }
     }
 
-    # ── Dün Mir Pro (firefly cluster) — dunmir.magmamoose.com ────────────────
+    # ── Dün Mir — api.dunmir.magmamoose.com (firefly cluster) ────────────────
     #
-    # !! CUTOVER, NOT A PLAIN ADD. Applying these two rules alone changes
-    # !! nothing: dunmir.magmamoose.com is TODAY served by the `dunmir-pro`
-    # !! Cloudflare Worker (dunmir-pro repo, wrangler.toml, routed at the apex),
-    # !! and a Worker route beats both a DNS record and a tunnel at the edge.
-    # !! Order matters and only one order is safe:
-    # !!   1. apply THESE rules (harmless while the Worker still wins)
-    # !!   2. remove the Worker's apex route / `wrangler delete` the Worker
+    # The API only. The console is NOT served from this cluster: it is a static
+    # bundle on Cloudflare Workers Static Assets at dunmir.magmamoose.com
+    # (dunmir repo, frontend/wrangler.toml), which terminates at the edge and
+    # never reaches a tunnel. That is why there is one rule here and not the
+    # api/frontend split this block used to carry — a catch-all rule for the apex
+    # would describe a path no request can take.
+    #
+    # Dün Mir moved off Workers for the API because its auth path runs PBKDF2 at
+    # 600k iterations (~190ms CPU) and the Workers Free plan kills an invocation
+    # at 10ms — every login/signup/reset returned Error 1102. The backend now runs
+    # as a normal FastAPI pod, which has no such budget. Only the static console
+    # went back to Workers, where 10ms of CPU is 10ms more than it needs.
+    #
+    # No path predicate: this hostname is the API, whole. Traffic goes STRAIGHT to
+    # the backend and not via the frontend's nginx, which keeps exactly one
+    # trusted proxy in front of the auth code — what TRUSTED_PROXY_COUNT=1 in the
+    # app's backend.yaml assumes. Add a hop and that value has to become 2, or the
+    # per-IP brute-force limiter collapses into a single bucket keyed on the
+    # intermediate pod's IP.
+    #
+    # !! THIS HOSTNAME WAS OCCUPIED, and applying this rule alone does nothing.
+    # !! api.dunmir.magmamoose.com was a Workers Custom Domain on the legacy
+    # !! open-source control plane (the `dunmir` Worker on the `minder` D1
+    # !! database) — the deployment the dunmir repo consolidated and replaced. A
+    # !! Custom Domain owns its DNS record, so external-dns cannot publish over
+    # !! it. Order:
+    # !!   1. apply THIS rule — inert while nothing resolves to the tunnel;
+    # !!   2. release the Custom Domain from the legacy `dunmir` Worker;
     # !!   3. let external-dns publish the proxied CNAME from the k8s Ingress
-    # !!      (dunmir-pro repo: k8s/base/ingress.yaml → target=<firefly tunnel>)
-    # !! Doing 2 before 1 is an outage — the hostname would have no origin at all.
-    # !! Nothing in Terraform can enforce this; it is a manual sequence.
-    #
-    # Pro moved off Workers because its auth path runs PBKDF2 at 600k iterations
-    # (~190ms CPU) and the Workers Free plan kills an invocation at 10ms — every
-    # login/signup/reset returned Error 1102. The backend now runs as a normal
-    # FastAPI pod, which has no such budget.
-    #
-    # TWO rules, most specific first (cloudflared evaluates top-to-bottom),
-    # exactly the split zoey.sargeant.co uses: API paths to the backend, the
-    # catch-all to the nginx pod serving the built SPA. The API paths go STRAIGHT
-    # to the backend rather than via the frontend's nginx — that keeps exactly one
-    # trusted proxy in front of the auth code, which is what TRUSTED_PROXY_COUNT=1
-    # in the app's backend.yaml assumes. Route them through nginx instead and that
-    # value has to become 2, or the per-IP brute-force limiter collapses into a
-    # single bucket keyed on the nginx pod's IP.
+    # !!      (dunmir repo: k8s/base/ingress.yaml → target=<firefly tunnel>).
+    # !! Doing 3 before 2 publishes nothing. Doing 2 before 1 costs a 404 window
+    # !! on a hostname nothing points at yet. Terraform cannot enforce this.
     #
     # No Access gate: this is a public product surface. Operators sign in with
     # password + TOTP, agents authenticate with Bearer dunmir_ tokens, both
     # in-app. Agents also PUT encrypted backup bodies up to 64 MiB to /v1/ingest,
     # which the tunnel passes through without a proxy-body-size ceiling.
     ingress_rule {
-      hostname = "dunmir.magmamoose.com"
-      path     = "^/(api|v1)(/|$)"
+      hostname = "api.dunmir.magmamoose.com"
       service  = "http://dunmir-backend.dunmir-pro.svc.cluster.local:8000"
-      origin_request {}
-    }
-    ingress_rule {
-      hostname = "dunmir.magmamoose.com"
-      service  = "http://dunmir-frontend.dunmir-pro.svc.cluster.local:80"
       origin_request {}
     }
 
