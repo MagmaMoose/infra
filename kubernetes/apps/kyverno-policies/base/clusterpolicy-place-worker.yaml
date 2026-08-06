@@ -1,0 +1,66 @@
+---
+# Placement tier: `worker` — ANY k3s agent (ff-vm1, ff-oci1, ff-oci2).
+#
+# Replaces `kubernetes/components/node-selectors/worker`.
+#
+# `node-role.kubernetes.io/worker` spans BOTH the on-prem and native-cloud tiers
+# AND both CPU architectures (ff-vm1 is amd64, the OCI pair is arm64). It is a
+# ROLE, not a tier. Only use it for workloads that are genuinely
+# architecture-agnostic and have no node-local state; otherwise pick `on-prem`
+# or `cloud`.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: place-worker
+  annotations:
+    policies.kyverno.io/title: Pin `tier=worker` workloads to any k3s agent
+    policies.kyverno.io/category: Scheduling / Placement
+    policies.kyverno.io/subject: Deployment,StatefulSet,DaemonSet,CronJob
+    policies.kyverno.io/description: >-
+      Adds nodeSelector `node-role.kubernetes.io/worker: ""` to the pod template
+      of any controller labelled `placement.sargeant.co/tier: worker`. Spans
+      architectures — verify the image is multi-arch before using this tier.
+    pod-policies.kyverno.io/autogen-controllers: none
+spec:
+  admission: true
+  background: false
+  mutateExistingOnPolicyUpdate: false
+  failurePolicy: Fail
+  webhookTimeoutSeconds: 10
+  rules:
+    - name: pod-template
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+              selector:
+                matchLabels:
+                  placement.sargeant.co/tier: worker
+      mutate:
+        patchStrategicMerge:
+          spec:
+            template:
+              spec:
+                nodeSelector:
+                  node-role.kubernetes.io/worker: ""
+    - name: cronjob-template
+      match:
+        any:
+          - resources:
+              kinds:
+                - CronJob
+              selector:
+                matchLabels:
+                  placement.sargeant.co/tier: worker
+      mutate:
+        patchStrategicMerge:
+          spec:
+            jobTemplate:
+              spec:
+                template:
+                  spec:
+                    nodeSelector:
+                      node-role.kubernetes.io/worker: ""

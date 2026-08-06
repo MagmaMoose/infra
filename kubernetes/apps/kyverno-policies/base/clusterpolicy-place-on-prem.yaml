@@ -1,0 +1,72 @@
+---
+# Placement tier: `on-prem` — the on-prem worker only (ff-vm1, amd64).
+#
+# Replaces `kubernetes/components/node-selectors/worker-on-prem` AND its legacy
+# alias `.../mini` (`type: mini`). Both selected exactly ff-vm1 — verified
+# against live node labels: ff-vm1 is the only node carrying
+# `node-role.kubernetes.io/worker` together with `topology.sargeant.co/tier=on-prem`,
+# and it is also the only node with `type=mini`. (ff-pi1 is `tier=on-prem` too,
+# but is NOT a worker, so the two-key selector still resolves to ff-vm1 alone.)
+#
+# This is the tier for amd64-only images, Longhorn/NFS/hostPath data that lives
+# on ff-vm1, and anything coupled to the on-prem LAN. It is also the most
+# contended node in the fleet (~97% CPU / ~99% memory REQUESTED as of
+# 2026-08-06), so adding workloads here needs a capacity check first.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: place-on-prem
+  annotations:
+    policies.kyverno.io/title: Pin `tier=on-prem` workloads to ff-vm1
+    policies.kyverno.io/category: Scheduling / Placement
+    policies.kyverno.io/subject: Deployment,StatefulSet,DaemonSet,CronJob
+    policies.kyverno.io/description: >-
+      Adds nodeSelector `node-role.kubernetes.io/worker: ""` +
+      `topology.sargeant.co/tier: on-prem` to the pod template of any controller
+      labelled `placement.sargeant.co/tier: on-prem`.
+    pod-policies.kyverno.io/autogen-controllers: none
+spec:
+  admission: true
+  background: false
+  mutateExistingOnPolicyUpdate: false
+  failurePolicy: Fail
+  webhookTimeoutSeconds: 10
+  rules:
+    - name: pod-template
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+              selector:
+                matchLabels:
+                  placement.sargeant.co/tier: on-prem
+      mutate:
+        patchStrategicMerge:
+          spec:
+            template:
+              spec:
+                nodeSelector:
+                  node-role.kubernetes.io/worker: ""
+                  topology.sargeant.co/tier: on-prem
+    - name: cronjob-template
+      match:
+        any:
+          - resources:
+              kinds:
+                - CronJob
+              selector:
+                matchLabels:
+                  placement.sargeant.co/tier: on-prem
+      mutate:
+        patchStrategicMerge:
+          spec:
+            jobTemplate:
+              spec:
+                template:
+                  spec:
+                    nodeSelector:
+                      node-role.kubernetes.io/worker: ""
+                      topology.sargeant.co/tier: on-prem

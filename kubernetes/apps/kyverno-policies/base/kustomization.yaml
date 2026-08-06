@@ -5,3 +5,14 @@ resources:
   # Resource-management guard-rail: every namespace gets a default REQUEST so
   # nothing is admitted unsized. Deliberately sets no default LIMIT.
   - clusterpolicy-default-limitrange.yaml
+  # Placement — replaces kubernetes/components/node-selectors/*.
+  # Inert until a controller carries `placement.sargeant.co/tier`, so landing
+  # these on their own changes nothing. The per-app migration follows.
+  - clusterpolicy-place-system.yaml
+  - clusterpolicy-place-worker.yaml
+  - clusterpolicy-place-on-prem.yaml
+  - clusterpolicy-place-cloud.yaml
+  # Typo guards (Audit only) — without these, a misspelled tier silently skips
+  # the mutation and the workload lands unpinned.
+  - clusterpolicy-validate-placement-tier.yaml
+  - clusterpolicy-validate-placement-priority.yaml
