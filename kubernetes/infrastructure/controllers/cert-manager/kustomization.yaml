@@ -15,3 +15,41 @@ labels:
       placement.sargeant.co/tier: system
     includeSelectors: false
     includeTemplates: false
+# cert-manager is the only app here whose workloads want DIFFERENT priority
+# classes, so the priority label is set per-Deployment rather than via `labels:`
+# (kustomize runs the labels transformer AFTER patches, so a patch that edits a
+# label the transformer then writes would be silently overwritten).
+#   controller  -> critical : TLS expiry cascades into every ingress
+#   cainjector  -> high     : gates cert-manager's own CRs, not the cluster
+#   webhook     -> high     : same
+patches:
+  - target:
+      kind: Deployment
+      name: cert-manager
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: cert-manager
+        labels:
+          placement.sargeant.co/priority: critical
+  - target:
+      kind: Deployment
+      name: cert-manager-cainjector
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: cert-manager-cainjector
+        labels:
+          placement.sargeant.co/priority: high
+  - target:
+      kind: Deployment
+      name: cert-manager-webhook
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: cert-manager-webhook
+        labels:
+          placement.sargeant.co/priority: high

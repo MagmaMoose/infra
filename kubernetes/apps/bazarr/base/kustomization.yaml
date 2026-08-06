@@ -34,5 +34,6 @@ labels:
   # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
   - pairs:
       placement.sargeant.co/tier: on-prem
+      placement.sargeant.co/priority: low
     includeSelectors: false
     includeTemplates: false
