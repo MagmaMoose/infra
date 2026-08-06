@@ -48,7 +48,8 @@ spec:
           #
           # A startupProbe is the correct primitive for a slow-starting container:
           # liveness/readiness are suspended until it first succeeds, giving replay
-          # up to 10 minutes here, after which the normal 210s liveness window
+          # up to 60 minutes here (the accumulated WAL measured 1.6GB after 244
+          # restarts, and a 10-minute budget was still exceeded — 61 probe failures), after which the normal 210s liveness window
           # applies to the running process. This is the same failure the resources
           # comment in kustomization.yaml describes, one layer up — that one fixed
           # the OOM during replay, this one stops the probe killing the replay.
@@ -58,7 +59,7 @@ spec:
               port: 3100
             periodSeconds: 10
             timeoutSeconds: 5
-            failureThreshold: 60
+            failureThreshold: 360
           livenessProbe:
             httpGet:
               path: /ready
