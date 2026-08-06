@@ -1,0 +1,13 @@
+# Temporary diagnostic: determines whether this repository can create workflow
+# runs at all. No .github/workflows/* run has been created since 2026-08-06
+# 09:09 despite Security/Release being `active` with unfiltered `on: pull_request`.
+# Delete once the cause is found.
+name: CI Probe
+on:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "workflow runs are being created"
