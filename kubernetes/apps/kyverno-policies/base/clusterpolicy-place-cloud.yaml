@@ -1,0 +1,74 @@
+---
+# Placement tier: `cloud` — the OCI free-tier arm64 pair (ff-oci1, ff-oci2).
+#
+# Replaces `kubernetes/components/node-selectors/native-cloud`. The node label
+# keeps its existing value `native-cloud`; only the WORKLOAD-side name is
+# shortened to `cloud`, matching cleanup.md's target taxonomy
+# (system / worker / on-prem / cloud).
+#
+# This is the only tier that spans two nodes, so it is the only place where a
+# replica count above 1 buys real fault tolerance — and the only place where a
+# topologySpreadConstraint or required host anti-affinity is worth writing.
+#
+# CAPACITY WARNING (measured 2026-08-06): ff-oci1 1990m/2000m and ff-oci2
+# 1980m/2000m CPU REQUESTED — roughly 30m of unreserved CPU across the entire
+# tier. Moving a workload here today will leave it Pending. Land the KRR/VPA
+# request corrections first.
+#
+# ARCH WARNING: both nodes are arm64. Verify the image publishes a linux/arm64
+# manifest before moving anything here.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: place-cloud
+  annotations:
+    policies.kyverno.io/title: Pin `tier=cloud` workloads to the OCI native-cloud tier
+    policies.kyverno.io/category: Scheduling / Placement
+    policies.kyverno.io/subject: Deployment,StatefulSet,DaemonSet,CronJob
+    policies.kyverno.io/description: >-
+      Adds nodeSelector `topology.sargeant.co/tier: native-cloud` to the pod
+      template of any controller labelled `placement.sargeant.co/tier: cloud`.
+    pod-policies.kyverno.io/autogen-controllers: none
+spec:
+  admission: true
+  background: false
+  mutateExistingOnPolicyUpdate: false
+  failurePolicy: Fail
+  webhookTimeoutSeconds: 10
+  rules:
+    - name: pod-template
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+              selector:
+                matchLabels:
+                  placement.sargeant.co/tier: cloud
+      mutate:
+        patchStrategicMerge:
+          spec:
+            template:
+              spec:
+                nodeSelector:
+                  topology.sargeant.co/tier: native-cloud
+    - name: cronjob-template
+      match:
+        any:
+          - resources:
+              kinds:
+                - CronJob
+              selector:
+                matchLabels:
+                  placement.sargeant.co/tier: cloud
+      mutate:
+        patchStrategicMerge:
+          spec:
+            jobTemplate:
+              spec:
+                template:
+                  spec:
+                    nodeSelector:
+                      topology.sargeant.co/tier: native-cloud

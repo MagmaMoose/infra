@@ -1,0 +1,60 @@
+---
+# Typo guard for `placement.sargeant.co/tier`.
+#
+# The mutating policies gate on an exact label VALUE, so a typo (`clould`,
+# `onprem`) is silent: the workload is simply not mutated and lands wherever the
+# scheduler puts it. This rule makes that loud.
+#
+# Ships as Audit, matching the house scaffold pattern in
+# clusterpolicy-verify-images.yaml. Flip `validationFailureAction` to Enforce
+# once the migration is complete and the report is clean:
+#   kubectl --context=ember get cpolr | grep validate-placement-tier
+#
+# failurePolicy is Ignore on purpose: this guards against a typo, not an
+# attacker, so it must never be the thing that blocks a deploy during a Kyverno
+# outage.
+#
+# NOTE: kept as a SEPARATE policy from validate-placement-priority. Combining
+# both rules into one ClusterPolicy makes Kyverno's own policy-validation
+# webhook exceed its 10s timeout on ff-pi1 (reproduced three times with
+# `kubectl apply --dry-run=server`); one rule per policy validates instantly.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: validate-placement-tier
+  annotations:
+    policies.kyverno.io/title: placement tier label must use a known value
+    policies.kyverno.io/category: Scheduling / Placement
+    policies.kyverno.io/subject: Deployment,StatefulSet,DaemonSet,CronJob
+    policies.kyverno.io/description: >-
+      Flags a controller whose placement.sargeant.co/tier label carries a value
+      outside {system, worker, on-prem, cloud}, which would otherwise silently
+      skip the placement mutation.
+    pod-policies.kyverno.io/autogen-controllers: none
+spec:
+  validationFailureAction: Audit
+  admission: true
+  background: true
+  failurePolicy: Ignore
+  webhookTimeoutSeconds: 30
+  rules:
+    - name: tier-value-known
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - CronJob
+              selector:
+                matchExpressions:
+                  - key: placement.sargeant.co/tier
+                    operator: Exists
+      validate:
+        message: >-
+          placement.sargeant.co/tier must be one of: system, worker, on-prem, cloud.
+        pattern:
+          metadata:
+            labels:
+              placement.sargeant.co/tier: "system|worker|on-prem|cloud"

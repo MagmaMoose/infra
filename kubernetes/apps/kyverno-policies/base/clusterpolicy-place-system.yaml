@@ -1,0 +1,86 @@
+---
+# Placement tier: `system` — the k3s server node (ff-pi1).
+#
+# Replaces `kubernetes/components/node-selectors/system` AND its legacy alias
+# `.../pi` (`type: pi`). Both selected exactly ff-pi1, so the migration is a
+# no-op at the node-set level — verified against live node labels: ff-pi1 is the
+# only node carrying both `node-role.kubernetes.io/system` and `type=pi`.
+#
+# Opt in by putting `placement.sargeant.co/tier: system` in the CONTROLLER's
+# metadata.labels (not the pod template's). This policy deliberately does NOT
+# match bare Pods: mutating the controller template is what makes the setting
+# survive a ReplicaSet rollout, and it keeps a single mechanism for both
+# nodeSelector and priorityClassName (the latter is meaningless on a Pod — the
+# in-tree Priority admission plugin has already resolved spec.priority by the
+# time a webhook sees the Pod).
+#
+# `Job` is deliberately NOT matched: the components it replaces never patched
+# Job either, and a Job's spec.template is immutable, so newly labelling an
+# existing Job would make Flux's next apply fail. CronJob-spawned Jobs are
+# covered by the jobTemplate rule below.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: place-system
+  annotations:
+    policies.kyverno.io/title: Pin `tier=system` workloads to the k3s server node
+    policies.kyverno.io/category: Scheduling / Placement
+    policies.kyverno.io/subject: Deployment,StatefulSet,DaemonSet,CronJob
+    policies.kyverno.io/description: >-
+      Adds nodeSelector `node-role.kubernetes.io/system: ""` to the pod template
+      of any controller labelled `placement.sargeant.co/tier: system`.
+    # Documentation only: no rule here matches Pod, so Kyverno's pod-controller
+    # autogen never fires. Stated explicitly so nobody "helpfully" adds Pod.
+    pod-policies.kyverno.io/autogen-controllers: none
+spec:
+  admission: true
+  background: false
+  # Never rewrite live objects: Flux is authoritative and would fight it.
+  # Existing workloads pick the mutation up on their next Flux apply.
+  mutateExistingOnPolicyUpdate: false
+  # Fail-closed on purpose: an Ignore here would let a Kyverno outage silently
+  # admit an UNPINNED controller, which is worse than a blocked deploy. The
+  # `mutate.kyverno.svc-fail` webhook already carries apps/* and batch/* rules
+  # today, so this does not widen the existing blast radius.
+  failurePolicy: Fail
+  webhookTimeoutSeconds: 10
+  rules:
+    - name: pod-template
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+              selector:
+                matchLabels:
+                  placement.sargeant.co/tier: system
+      mutate:
+        # Strategic merge, not JSON6902 `op: add`: it MERGES into an existing
+        # nodeSelector map instead of replacing it, so an inline arch/hostname
+        # constraint on the workload survives.
+        patchStrategicMerge:
+          spec:
+            template:
+              spec:
+                nodeSelector:
+                  node-role.kubernetes.io/system: ""
+    - name: cronjob-template
+      match:
+        any:
+          - resources:
+              kinds:
+                - CronJob
+              selector:
+                matchLabels:
+                  placement.sargeant.co/tier: system
+      mutate:
+        patchStrategicMerge:
+          spec:
+            jobTemplate:
+              spec:
+                template:
+                  spec:
+                    nodeSelector:
+                      node-role.kubernetes.io/system: ""

@@ -1,0 +1,44 @@
+---
+# Typo guard for `placement.sargeant.co/priority`. See the sibling
+# clusterpolicy-validate-placement-tier.yaml for the reasoning, including why
+# the two rules live in two policies rather than one.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: validate-placement-priority
+  annotations:
+    policies.kyverno.io/title: placement priority label must use a known value
+    policies.kyverno.io/category: Scheduling / Priority
+    policies.kyverno.io/subject: Deployment,StatefulSet,DaemonSet,CronJob
+    policies.kyverno.io/description: >-
+      Flags a controller whose placement.sargeant.co/priority label carries a
+      value outside {critical, business, high, medium, low}, which would
+      otherwise silently skip the priorityClassName mutation.
+    pod-policies.kyverno.io/autogen-controllers: none
+spec:
+  validationFailureAction: Audit
+  admission: true
+  background: true
+  failurePolicy: Ignore
+  webhookTimeoutSeconds: 30
+  rules:
+    - name: priority-value-known
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+                - CronJob
+              selector:
+                matchExpressions:
+                  - key: placement.sargeant.co/priority
+                    operator: Exists
+      validate:
+        message: >-
+          placement.sargeant.co/priority must be one of: critical, business, high, medium, low.
+        pattern:
+          metadata:
+            labels:
+              placement.sargeant.co/priority: "critical|business|high|medium|low"
