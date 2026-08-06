@@ -63,12 +63,12 @@ This implementation sets up External Secrets Operator (ESO) on the firefly Kuber
 
 ## Files Created
 
-### Base Configuration (`kubernetes/infrastructure/controllers/stack/external-secrets/`)
+### Base Configuration (`kubernetes/infrastructure/controllers/external-secrets/`)
 - `namespace.yaml` - Defines the external-secrets namespace
 - `helmrelease.yaml` - HelmRelease for ESO chart (v0.11.x)
 - `kustomization.yaml` - Kustomize configuration for base resources
 
-### Cluster Configuration (`kubernetes/infrastructure/controllers/stack/external-secrets/`)
+### Cluster Configuration (`kubernetes/infrastructure/controllers/external-secrets/`)
 - `kustomization.yaml` - Firefly-specific patches (node selector, resource profile)
 - `secret-store.yaml` - ClusterSecretStore for OCI Vault
 - `oci-vault-secret-enc.yaml` - Template for OCI credentials (needs encryption)

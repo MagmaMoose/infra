@@ -7,5 +7,5 @@ metadata:
 resources:
   - ./base
 components:
-  - ../../../../components/resource-profiles/m.small
-  - ../../../../components/node-selectors/pi
+  - ../../../components/resource-profiles/m.small
+  - ../../../components/node-selectors/pi

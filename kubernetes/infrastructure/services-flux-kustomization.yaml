@@ -10,7 +10,7 @@ metadata:
     app.kubernetes.io/sops: enabled
 spec:
   interval: 10m
-  path: ./kubernetes/infrastructure/services/stack
+  path: ./kubernetes/infrastructure/services
   prune: true
   sourceRef:
     kind: GitRepository
