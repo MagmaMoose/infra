@@ -1,0 +1,105 @@
+---
+# Assigns `priorityClassName` from the CONTROLLER label
+# `placement.sargeant.co/priority`, whose value is the PriorityClass name.
+#
+# WHY CONTROLLER KINDS AND NEVER Pod: the kube-apiserver's in-tree `Priority`
+# admission plugin runs BEFORE MutatingAdmissionWebhook and is what resolves
+# priorityClassName into the integer `spec.priority` the scheduler reads. A
+# webhook that stamps the name onto an already-admitted Pod leaves spec.priority
+# at its old value — the field LOOKS right in `kubectl get pod -o yaml` while
+# every scheduling and preemption decision ignores it. Mutating the controller's
+# template avoids this: the Pod the controller then creates is admitted with the
+# name already present, so the in-tree plugin resolves it normally.
+#
+# NEVER DEMOTES: the precondition requires the existing priorityClassName to be
+# empty. The 23 workloads that already carry a chart- or k3s-supplied class
+# (system-cluster-critical 2000000000, system-node-critical 2000001000,
+# longhorn-critical 1000000000) therefore cannot be overwritten by our scale,
+# whose top value is 100000 — even if someone mislabels them.
+#
+# PREREQUISITE: the five PriorityClasses must already exist in the cluster. The
+# apiserver rejects a pod template naming a class that does not exist
+# ("no PriorityClass with name X was found" — reproduced against this cluster),
+# so this file must not be merged before
+# `kubernetes/infrastructure/configs/priority-classes/` is applied.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: assign-priority-class
+  annotations:
+    policies.kyverno.io/title: Assign priorityClassName from the workload label
+    policies.kyverno.io/category: Scheduling / Priority
+    policies.kyverno.io/subject: Deployment,StatefulSet,DaemonSet,CronJob
+    policies.kyverno.io/description: >-
+      Copies the value of `placement.sargeant.co/priority` into the pod
+      template's priorityClassName, for controllers only, and only when no
+      priorityClassName is set already.
+    pod-policies.kyverno.io/autogen-controllers: none
+spec:
+  admission: true
+  background: false
+  mutateExistingOnPolicyUpdate: false
+  failurePolicy: Fail
+  webhookTimeoutSeconds: 10
+  rules:
+    - name: pod-template
+      match:
+        any:
+          - resources:
+              kinds:
+                - Deployment
+                - StatefulSet
+                - DaemonSet
+              # The allowed set is enforced in the MATCH, so the mutation can
+              # never reference a class that does not exist, and a typo simply
+              # does not match (and is caught by validate-placement-priority).
+              selector:
+                matchExpressions:
+                  - key: placement.sargeant.co/priority
+                    operator: In
+                    values:
+                      - critical
+                      - business
+                      - high
+                      - medium
+                      - low
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.template.spec.priorityClassName || '' }}"
+            operator: Equals
+            value: ""
+      mutate:
+        patchStrategicMerge:
+          spec:
+            template:
+              spec:
+                priorityClassName: "{{ request.object.metadata.labels.\"placement.sargeant.co/priority\" }}"
+    - name: cronjob-template
+      match:
+        any:
+          - resources:
+              kinds:
+                - CronJob
+              selector:
+                matchExpressions:
+                  - key: placement.sargeant.co/priority
+                    operator: In
+                    values:
+                      - critical
+                      - business
+                      - high
+                      - medium
+                      - low
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.jobTemplate.spec.template.spec.priorityClassName || '' }}"
+            operator: Equals
+            value: ""
+      mutate:
+        patchStrategicMerge:
+          spec:
+            jobTemplate:
+              spec:
+                template:
+                  spec:
+                    priorityClassName: "{{ request.object.metadata.labels.\"placement.sargeant.co/priority\" }}"

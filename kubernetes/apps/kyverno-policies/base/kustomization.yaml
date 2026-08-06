@@ -12,6 +12,9 @@ resources:
   - clusterpolicy-place-worker.yaml
   - clusterpolicy-place-on-prem.yaml
   - clusterpolicy-place-cloud.yaml
+  # Priority — MUST NOT merge before the PriorityClasses exist (PR #544):
+  # the apiserver rejects a pod template naming a class that does not exist.
+  - clusterpolicy-assign-priority-class.yaml
   # Typo guards (Audit only) — without these, a misspelled tier silently skips
   # the mutation and the workload lands unpinned.
   - clusterpolicy-validate-placement-tier.yaml

@@ -4,3 +4,11 @@ resources:
   - rbac.yaml
   - configmap.yaml
   - daemonset.yaml
+labels:
+  # Priority tier — consumed by the Kyverno `assign-priority-class` policy.
+  # includeSelectors/includeTemplates false: those fields are immutable on a
+  # live controller, so writing to them would break Flux's next apply.
+  - pairs:
+      placement.sargeant.co/priority: low
+    includeSelectors: false
+    includeTemplates: false
