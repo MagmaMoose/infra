@@ -9,9 +9,29 @@ resources:
   - middleware.yaml
   - pvc.yaml
 components:
-  - ../../../components/resource-profiles/c.small
   # Migrated off ff-pi1: static hostPath pv.yaml dropped, pvc.yaml now Longhorn,
   # pinned to the worker node. (DaemonSet + worker selector => runs only on ff-vm1.)
   # hostNetwork stays — the worker (.13) is on the same /24 as the Pi (.10) so
   # mDNS still works; HomeKit/device pairings persist in the migrated /config/.storage.
   - ../../../components/node-selectors/worker-on-prem
+# Resources set explicitly; the c.small resource-profile component was removed.
+# Profiles patch containers/0 with `op: add`, which silently overwrote the measured
+# values already in the deployment — this workload reserved 250m/512Mi against a
+# node sitting at ~96% CPU requested but only ~44% real use.
+# CPU comes from measurement. Memory is deliberately NOT raised to the measured
+# figure: ff-vm1 is at ~99% memory *requested*, so an increase would stall the
+# rollout. Memory right-sizing here is gated on the Proxmox host (56GB of 59GB
+# allocated).
+#   measured memory is 612Mi; held at 512Mi because ff-vm1 is at ~99% memory requested
+patches:
+  - target:
+      kind: DaemonSet
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 10m
+            memory: 512Mi
+          limits:
+            memory: 768Mi
