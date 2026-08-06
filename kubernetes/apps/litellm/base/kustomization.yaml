@@ -11,7 +11,6 @@ resources:
   - ollama-lan-endpoints.yaml
   - ollama-lan-ingress.yaml
 components:
-  - ../../../components/resource-profiles/m.nano
   # Pinned to the mini node (ff-vm1, type=mini) instead of native-cloud (ff-oci1/2).
   # The OCI free-tier ARM workers are 2-core and run ~95% CPU-requested (~75-90m free),
   # so LiteLLM's ~200m pod-template request (150m litellm + 50m auth-proxy) no longer
@@ -19,3 +18,26 @@ components:
   # has the headroom. Public reachability is unaffected: the ingress fronts it regardless
   # of node.
   - ../../../components/node-selectors/mini
+# Resources set explicitly; the m.nano resource-profile component was removed.
+# litellm is the case where a BARE removal would be wrong: containers[0] has no
+# inline resources at all, so the profile was its only source and dropping it
+# would leave the container with no requests whatsoever.
+# CPU 150m -> 25m (KRR measured 16m; a little headroom kept because this is the
+# gateway the whole agent fleet routes through and it is latency-sensitive).
+# There is no CPU limit, so the request only governs scheduling — under
+# contention litellm is protected by its `business` priority class, not by an
+# inflated reservation. Memory held at the profile's 768Mi: ff-vm1 is at ~99%
+# memory requested, so no increase is affordable yet.
+patches:
+  - target:
+      kind: Deployment
+      name: litellm
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 25m
+            memory: 768Mi
+          limits:
+            memory: 768Mi

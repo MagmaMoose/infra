@@ -7,5 +7,24 @@ resources:
   - pvc.yaml
   - pv.yaml
 components:
-  - ../../../components/resource-profiles/c.pico
   - ../../../components/node-selectors/mini
+# Resources set explicitly; the c.pico resource-profile component was removed.
+# Profiles patch containers/0 with `op: add`, which silently overwrote the measured
+# values already in the deployment — this workload reserved 100m/256Mi against a
+# node sitting at ~96% CPU requested but only ~44% real use.
+# CPU comes from measurement. Memory is deliberately NOT raised to the measured
+# figure: ff-vm1 is at ~99% memory *requested*, so an increase would stall the
+# rollout. Memory right-sizing here is gated on the Proxmox host (56GB of 59GB
+# allocated).
+patches:
+  - target:
+      kind: Deployment
+    patch: |
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 10m
+            memory: 238Mi
+          limits:
+            memory: 238Mi
