@@ -39,6 +39,27 @@ spec:
               memory: 165Mi
           # Loki's /ready can take >1s during WAL replay / compactions —
           # default timeoutSeconds: 1 was killing the pod (368 restarts in 25h).
+          # Loki replays its write-ahead log on startup and /ready returns 503 for
+          # the whole replay. With only a livenessProbe, a replay longer than
+          # initialDelay + failureThreshold*period (60 + 5*30 = 210s) gets the
+          # container killed MID-REPLAY, so the next start has an even bigger WAL
+          # — an unbounded restart loop (observed: 244 restarts, /ready 503 x391,
+          # "failed liveness probe, will be restarted" x18).
+          #
+          # A startupProbe is the correct primitive for a slow-starting container:
+          # liveness/readiness are suspended until it first succeeds, giving replay
+          # up to 60 minutes here (the accumulated WAL measured 1.6GB after 244
+          # restarts, and a 10-minute budget was still exceeded — 61 probe failures), after which the normal 210s liveness window
+          # applies to the running process. This is the same failure the resources
+          # comment in kustomization.yaml describes, one layer up — that one fixed
+          # the OOM during replay, this one stops the probe killing the replay.
+          startupProbe:
+            httpGet:
+              path: /ready
+              port: 3100
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 360
           livenessProbe:
             httpGet:
               path: /ready
