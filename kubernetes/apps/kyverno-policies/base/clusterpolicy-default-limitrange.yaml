@@ -1,0 +1,79 @@
+---
+# Ensures every namespace has a LimitRange supplying a DEFAULT REQUEST, so no
+# container can be admitted with no resource request at all.
+#
+# WHY THIS MATTERS: a container with no CPU/memory request is scheduled as if it
+# were free. The scheduler's arithmetic then bears no relation to what the node is
+# actually running, which is precisely how ff-vm1 reached ~96% CPU *requested*
+# against ~44% real use while genuinely-sized pods could not be placed. A floor
+# does not fix bad sizing, but it stops the accounting being fictional.
+#
+# WHY defaultRequest ONLY, AND NO `default`:
+#   `default` sets the LIMIT. Applying a small default memory LIMIT to a container
+#   that declares nothing is actively dangerous — the container is very likely to
+#   exceed it and be OOM-killed, and the workloads that declare nothing are exactly
+#   the ones nobody has sized. So this sets requests and deliberately leaves limits
+#   unset. Per-workload manifests remain the place to set an honest memory limit
+#   (request == limit, per cleanup.md), and no CPU limit at all (CFS throttling).
+#
+# The values are a FLOOR, not a recommendation: 10m/64Mi is small enough that any
+# real workload overrides it. It exists to make "unset" impossible, not to size
+# anything.
+#
+# Excludes namespaces whose contents this repo does not own: k3s ships kube-system
+# already-sized, and Kyverno cannot act on its own namespace anyway (it is filtered
+# out of its own webhooks).
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: default-limitrange
+  annotations:
+    policies.kyverno.io/title: Give every namespace a default resource request
+    policies.kyverno.io/category: Scheduling / Resource Management
+    policies.kyverno.io/subject: Namespace,LimitRange
+    policies.kyverno.io/description: >-
+      Generates a LimitRange named `defaults` into every namespace, setting a
+      defaultRequest of 10m CPU / 64Mi memory so nothing is admitted with no
+      request. Deliberately sets no default limit.
+spec:
+  admission: true
+  # background: true so EXISTING namespaces get one too, not only new ones.
+  background: true
+  # Ignore, not Fail: this is a guard-rail, and a Kyverno outage must never block
+  # namespace creation — unlike the placement policies, where an unpinned workload
+  # is the worse outcome.
+  failurePolicy: Ignore
+  rules:
+    - name: generate-limitrange
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+      exclude:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              names:
+                - kube-system
+                - kube-public
+                - kube-node-lease
+                - kyverno
+                - longhorn-system
+                - flux-system
+      generate:
+        apiVersion: v1
+        kind: LimitRange
+        name: defaults
+        namespace: "{{ request.object.metadata.name }}"
+        # Keep the generated object reconciled to this spec if someone edits it,
+        # and remove it if the policy is deleted.
+        synchronize: true
+        data:
+          spec:
+            limits:
+              - type: Container
+                defaultRequest:
+                  cpu: 10m
+                  memory: 64Mi
