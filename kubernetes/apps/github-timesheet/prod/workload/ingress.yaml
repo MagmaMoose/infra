@@ -2,7 +2,7 @@
 # publishes a proxied CNAME (uren.calebsargeant.com → the firefly cloudflared
 # tunnel). NOTE: this only works because calebsargeant.com was added to
 # external-dns's domainFilters (see
-# kubernetes/infrastructure/services/stack/external-dns-cloudflare/base/helmrelease.yaml);
+# kubernetes/infrastructure/services/external-dns-cloudflare/base/helmrelease.yaml);
 # it lives in the same Magma Moose Cloudflare account as magmamoose.com. The
 # tunnel routes the hostname to the in-cluster Service — that ingress rule + the
 # Cloudflare Access gate (Caleb + Marc, email-OTP) live in

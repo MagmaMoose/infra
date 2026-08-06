@@ -23,25 +23,25 @@ spec:
                 echo "Waiting for MinIO..."
                 sleep 5
               done
-              
+
               echo "Creating buckets..."
               mc mb --ignore-existing myminio/thanos-metrics
               mc mb --ignore-existing myminio/loki-chunks
               mc mb --ignore-existing myminio/loki-ruler
               mc mb --ignore-existing myminio/postgres-backups
-              
+
               echo "Setting bucket policies to private..."
               mc anonymous set none myminio/thanos-metrics
               mc anonymous set none myminio/loki-chunks
               mc anonymous set none myminio/loki-ruler
               mc anonymous set none myminio/postgres-backups
-              
+
               echo "Creating service accounts..."
               mc admin user add myminio thanos $THANOS_PASSWORD || echo "User thanos may already exist"
               mc admin user add myminio loki $LOKI_PASSWORD || echo "User loki may already exist"
               mc admin user add myminio postgres $POSTGRES_PASSWORD || echo "User postgres may already exist"
               mc admin user add myminio backup $BACKUP_PASSWORD || echo "User backup may already exist"
-              
+
               echo "Creating policies..."
               cat > /tmp/thanos-policy.json <<EOF
               {
@@ -55,7 +55,7 @@ spec:
                 ]
               }
               EOF
-              
+
               cat > /tmp/loki-policy.json <<EOF
               {
                 "Version": "2012-10-17",
@@ -64,7 +64,7 @@ spec:
                     "Effect": "Allow",
                     "Action": ["s3:*"],
                     "Resource": [
-                      "arn:aws:s3:::loki-chunks", 
+                      "arn:aws:s3:::loki-chunks",
                       "arn:aws:s3:::loki-chunks/*",
                       "arn:aws:s3:::loki-ruler",
                       "arn:aws:s3:::loki-ruler/*"
@@ -73,7 +73,7 @@ spec:
                 ]
               }
               EOF
-              
+
               cat > /tmp/postgres-policy.json <<EOF
               {
                 "Version": "2012-10-17",
@@ -86,7 +86,7 @@ spec:
                 ]
               }
               EOF
-              
+
               cat > /tmp/backup-policy.json <<EOF
               {
                 "Version": "2012-10-17",
@@ -120,7 +120,7 @@ spec:
               mc admin policy attach myminio loki-policy --user loki
               mc admin policy attach myminio postgres-policy --user postgres
               mc admin policy attach myminio backup-policy --user backup
-              
+
               echo "MinIO setup complete!"
           env:
             - name: MINIO_ROOT_PASSWORD

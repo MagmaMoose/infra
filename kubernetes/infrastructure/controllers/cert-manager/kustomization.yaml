@@ -5,5 +5,5 @@ metadata:
 resources:
   - ./base
 components:
-  - ../../../../components/resource-profiles/t.nano
-  - ../../../../components/node-selectors/pi
+  - ../../../components/resource-profiles/t.nano
+  - ../../../components/node-selectors/pi

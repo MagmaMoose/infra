@@ -96,7 +96,7 @@ spec:
       # locationHint given at bucket creation (weur) is a placement preference,
       # not something a request signs against.
       #
-      # Not the in-cluster minio (infrastructure/services/stack/minio): that
+      # Not the in-cluster minio (infrastructure/services/minio): that
       # StatefulSet is a single replica on the Pi's local disk, sized for
       # Thanos/Loki chunks and Postgres backups, with no replication, and it has
       # restarted 560 times in 24 days. Plate images are the product and grow

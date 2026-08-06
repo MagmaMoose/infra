@@ -12,7 +12,7 @@ kind: Component
 # CAUTION: this Component patches Deployment/StatefulSet/DaemonSet/HelmRelease
 # pod templates only. It does NOT target the CNPG Cluster CR — pin a CNPG
 # cluster via the Cluster's own spec.affinity.nodeSelector instead (see
-# kubernetes/infrastructure/services/stack/postgres-oci/).
+# kubernetes/infrastructure/services/postgres-oci/).
 patches:
   # Deployments
   - target:

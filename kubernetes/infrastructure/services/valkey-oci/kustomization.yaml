@@ -8,4 +8,4 @@ components:
   # Pin to the OCI native-cloud tier (ff-oci1/ff-oci2) — same tier as
   # postgres-oci. Patches the StatefulSet's nodeSelector with
   # topology.sargeant.co/tier: native-cloud.
-  - ../../../../components/node-selectors/native-cloud
+  - ../../../components/node-selectors/native-cloud

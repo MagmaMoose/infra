@@ -41,7 +41,7 @@ spec:
     postgresServer: postgres-rw.database.svc.cluster.local
 
     # ── Celery broker: SHARED in-cluster Valkey ──────────────────────────────
-    # Use the consolidated broker tier (infrastructure/services/stack/valkey,
+    # Use the consolidated broker tier (infrastructure/services/valkey,
     # database ns) instead of a bundled per-app Valkey — same rationale as the
     # shared CNPG postgres. Authless internal ClusterIP; DefectDojo builds the
     # broker URL redis://<redisServer>:<redisPort> from these top-level keys.

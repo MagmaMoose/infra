@@ -13,4 +13,4 @@ components:
   # and added a CPU limit. Dropped in favour of inline sizing.
   # Migrated off ff-pi1: static hostPath pv.yaml dropped, pvc.yaml now Longhorn,
   # pinned to the worker node instead of the Pi (system node).
-  - ../../../../components/node-selectors/worker
+  - ../../../components/node-selectors/worker

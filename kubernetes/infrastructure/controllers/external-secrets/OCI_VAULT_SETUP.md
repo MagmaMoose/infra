@@ -78,7 +78,7 @@ This guide walks you through setting up OCI Vault and configuring it for use wit
      Allow user [YOUR_USER_EMAIL] to read secret-family in compartment [COMPARTMENT_NAME]
      Allow user [YOUR_USER_EMAIL] to read vaults in compartment [COMPARTMENT_NAME]
      ```
-     
+
      Or if using a group:
      ```
      Allow group firefly-admins to read secret-family in compartment [COMPARTMENT_NAME]
@@ -102,7 +102,7 @@ If this works, your permissions are correctly configured.
 
 ### 4.1 Update secret-store.yaml
 
-Edit `kubernetes/infrastructure/controllers/stack/external-secrets/secret-store.yaml`:
+Edit `kubernetes/infrastructure/controllers/external-secrets/secret-store.yaml`:
 
 ```yaml
 apiVersion: external-secrets.io/v1beta1
@@ -135,7 +135,7 @@ spec:
 
 1. Open the private key file you downloaded in Part 2.3
 2. Copy its entire contents (including BEGIN/END lines)
-3. Edit `kubernetes/infrastructure/controllers/stack/external-secrets/oci-vault-secret-enc.yaml`:
+3. Edit `kubernetes/infrastructure/controllers/external-secrets/oci-vault-secret-enc.yaml`:
 
 ```yaml
 apiVersion: v1
@@ -156,7 +156,7 @@ stringData:
 ### 4.3 Encrypt the Secret
 
 ```bash
-cd kubernetes/infrastructure/controllers/stack/external-secrets
+cd kubernetes/infrastructure/controllers/external-secrets
 sops -e -i oci-vault-secret-enc.yaml
 ```
 

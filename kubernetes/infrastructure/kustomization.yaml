@@ -1,10 +1,15 @@
-# Infrastructure tier — rendered by the cluster-level `apps` Flux
-# Kustomization (kubernetes/clusters/firefly → ../../infrastructure).
-# Emits the three per-tier Flux Kustomization CRs; the actual manifests
-# under each <tier>/stack are applied by those CRs (path → <tier>/stack).
+# Infrastructure tier — rendered by the cluster-level `apps` Flux Kustomization
+# (kubernetes/clusters/firefly → ../../infrastructure).
+#
+# Emits the per-tier Flux Kustomization CRs. Each CR's `path:` targets its tier
+# directory directly; the CR files themselves live HERE, one level above, so a
+# CR is never rendered as a resource of its own target — that separation is why
+# the old `<tier>/stack` level existed, and moving the CRs up removes the need
+# for it. configs/ keeps its own holder because it has two CRs targeting two
+# different subdirectories (namespaces/ and rbac/).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ./configs
-  - ./controllers
-  - ./services
+  - ./controllers-flux-kustomization.yaml
+  - ./services-flux-kustomization.yaml

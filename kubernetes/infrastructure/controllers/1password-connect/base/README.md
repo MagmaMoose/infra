@@ -20,7 +20,7 @@ Before deploying, you need to:
    - Generate and save an access token
 
 2. **Prepare the credential files**:
-   
+
    Create a temporary file `1password-credentials-secret.yaml` (unencrypted):
    ```yaml
    apiVersion: v1
@@ -47,9 +47,9 @@ Before deploying, you need to:
    ```
 
 3. **Encrypt the credentials using SOPS**:
-   
+
    You need to have SOPS installed and configured with the age key used in this repository.
-   
+
    ```bash
    # Encrypt the credentials file
    sops --encrypt \
@@ -65,7 +65,7 @@ Before deploying, you need to:
    ```
 
 4. **Replace the placeholder files**:
-   
+
    Copy the encrypted files to this directory:
    ```bash
    cp 1password-credentials-secret.enc.yaml kubernetes/_base/core/1password-connect/
@@ -73,7 +73,7 @@ Before deploying, you need to:
    ```
 
 5. **Clean up temporary files**:
-   
+
    ```bash
    # Delete the unencrypted temporary files (IMPORTANT!)
    rm 1password-credentials-secret.yaml
