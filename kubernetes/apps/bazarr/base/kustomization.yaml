@@ -7,8 +7,6 @@ resources:
   - ingress.yaml
   - pvc.yaml
   - pv.yaml
-components:
-  - ../../../components/node-selectors/mini
 # Resources set explicitly; the c.pico resource-profile component was removed.
 # Profiles patch containers/0 with `op: add`, which silently overwrote the measured
 # values already in the deployment — this workload reserved 100m/256Mi against a
@@ -29,3 +27,12 @@ patches:
             memory: 238Mi
           limits:
             memory: 238Mi
+labels:
+  # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/mini.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: on-prem
+    includeSelectors: false
+    includeTemplates: false

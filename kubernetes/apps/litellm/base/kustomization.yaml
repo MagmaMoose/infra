@@ -10,14 +10,12 @@ resources:
   - ollama-lan-service.yaml
   - ollama-lan-endpoints.yaml
   - ollama-lan-ingress.yaml
-components:
-  # Pinned to the mini node (ff-vm1, type=mini) instead of native-cloud (ff-oci1/2).
-  # The OCI free-tier ARM workers are 2-core and run ~95% CPU-requested (~75-90m free),
-  # so LiteLLM's ~200m pod-template request (150m litellm + 50m auth-proxy) no longer
-  # schedules there — a restart left the git-desired pod stuck Pending. ff-vm1 (8-core)
-  # has the headroom. Public reachability is unaffected: the ingress fronts it regardless
-  # of node.
-  - ../../../components/node-selectors/mini
+# Pinned to the mini node (ff-vm1, type=mini) instead of native-cloud (ff-oci1/2).
+# The OCI free-tier ARM workers are 2-core and run ~95% CPU-requested (~75-90m free),
+# so LiteLLM's ~200m pod-template request (150m litellm + 50m auth-proxy) no longer
+# schedules there — a restart left the git-desired pod stuck Pending. ff-vm1 (8-core)
+# has the headroom. Public reachability is unaffected: the ingress fronts it regardless
+# of node.
 # Resources set explicitly; the m.nano resource-profile component was removed.
 # litellm is the case where a BARE removal would be wrong: containers[0] has no
 # inline resources at all, so the profile was its only source and dropping it
@@ -41,3 +39,12 @@ patches:
             memory: 768Mi
           limits:
             memory: 768Mi
+labels:
+  # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/mini.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: on-prem
+    includeSelectors: false
+    includeTemplates: false

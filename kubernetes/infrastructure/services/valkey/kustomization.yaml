@@ -4,7 +4,14 @@ metadata:
   name: valkey
 resources:
   - ./base
-components:
-  # Pin to the worker node (k3s agent, ff-vm1) — same as the other shared data
-  # services (postgres/mariadb). Patches the StatefulSet's nodeSelector.
-  - ../../../components/node-selectors/worker
+# Pin to the worker node (k3s agent, ff-vm1) — same as the other shared data
+# services (postgres/mariadb). Patches the StatefulSet's nodeSelector.
+labels:
+  # Placement tier — consumed by the Kyverno `place-worker` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/worker.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: worker
+    includeSelectors: false
+    includeTemplates: false

@@ -8,7 +8,14 @@ resources:
   - middleware.yaml
   - pvc.yaml
   - pv.yaml
-components:
-  # resources set explicitly inline in deployment.yaml (right-sized from live usage);
-  # c.nano resource-profile removed — it op:add-overrode the inline block.
-  - ../../../components/node-selectors/native-cloud
+# resources set explicitly inline in deployment.yaml (right-sized from live usage);
+# c.nano resource-profile removed — it op:add-overrode the inline block.
+labels:
+  # Placement tier — consumed by the Kyverno `place-cloud` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/native-cloud.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: cloud
+    includeSelectors: false
+    includeTemplates: false

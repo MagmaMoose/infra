@@ -9,7 +9,6 @@ components:
   - ../../../components/resource-profiles/c.pico
   # Migrated off ff-pi1: hostPath persistence replaced with the Longhorn PVC in
   # pvc.yaml (referenced from configmap values), pinned to the worker node.
-  - ../../../components/node-selectors/worker-on-prem
   - ../../../components/ingress-standards/sargeant.co
   - ../../../components/helm-release-standards/configmap-values
 
@@ -35,3 +34,12 @@ patches:
       - op: replace
         path: /spec/values/ingress/main/tls/0/secretName
         value: homebridge-tls
+labels:
+  # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/worker-on-prem.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: on-prem
+    includeSelectors: false
+    includeTemplates: false

@@ -8,6 +8,13 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
-components:
-  # agent-canvas is multi-arch and this workload needs the native-cloud capacity.
-  - ../../../components/node-selectors/native-cloud
+# agent-canvas is multi-arch and this workload needs the native-cloud capacity.
+labels:
+  # Placement tier — consumed by the Kyverno `place-cloud` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/native-cloud.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: cloud
+    includeSelectors: false
+    includeTemplates: false

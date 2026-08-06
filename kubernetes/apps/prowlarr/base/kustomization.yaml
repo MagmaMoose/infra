@@ -11,7 +11,6 @@ resources:
   - externalsecret.yaml
 components:
   - ../../../components/pod-gateway-client
-  - ../../../components/node-selectors/native-cloud
 # NOTE: the c.pico resource-profile component was removed here on 2026-08-06.
 # Every profile patches `containers/0/resources` with `op: add`, which SILENTLY
 # overwrites the measured values already set inline in deployment.yaml — this
@@ -20,3 +19,12 @@ components:
 # nievah (business tier) Pending on "Insufficient cpu" with only ~30m free
 # across the whole tier. Requests now come from measurement (KRR), per
 # cleanup.md: profiles are a floor for NEW workloads, not the steady-state value.
+labels:
+  # Placement tier — consumed by the Kyverno `place-cloud` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/native-cloud.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: cloud
+    includeSelectors: false
+    includeTemplates: false

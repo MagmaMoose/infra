@@ -7,6 +7,13 @@ resources:
   # No Ingress — the MCP is served at the /mcp path on the existing
   # n8n.magmamoose.com host (DNS + cert already published by the n8n Ingress);
   # the firefly tunnel routes ^/mcp here (zero-trust/.../tunnels.tf).
-components:
-  # Run on the worker node (k3s agent, amd64) — co-located with n8n, off the Pi.
-  - ../../../components/node-selectors/worker
+# Run on the worker node (k3s agent, amd64) — co-located with n8n, off the Pi.
+labels:
+  # Placement tier — consumed by the Kyverno `place-worker` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/worker.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: worker
+    includeSelectors: false
+    includeTemplates: false

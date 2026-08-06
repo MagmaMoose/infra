@@ -6,7 +6,14 @@ resources:
   - ingress.yaml
   - pvc.yaml
   - namespace.yaml
-components:
-  # Migrated off ff-pi1: static hostPath pv.yaml dropped, pvc.yaml now Longhorn,
-  # pinned to the worker node (k3s agent) instead of the Pi (system node).
-  - ../../../components/node-selectors/worker
+# Migrated off ff-pi1: static hostPath pv.yaml dropped, pvc.yaml now Longhorn,
+# pinned to the worker node (k3s agent) instead of the Pi (system node).
+labels:
+  # Placement tier — consumed by the Kyverno `place-worker` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/worker.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: worker
+    includeSelectors: false
+    includeTemplates: false

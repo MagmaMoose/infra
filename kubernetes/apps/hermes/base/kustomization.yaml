@@ -7,9 +7,16 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
-components:
-  # Pin to the ON-PREM worker (ff-vm1, amd64), not native-cloud: the upstream
-  # nousresearch/hermes-agent image is amd64-only, so on the arm64 OCI nodes it
-  # CrashLoops with an OCI-runtime exec error. State is on Longhorn, so it's not
-  # pinned to ff-pi1 either.
-  - ../../../components/node-selectors/worker-on-prem
+# Pin to the ON-PREM worker (ff-vm1, amd64), not native-cloud: the upstream
+# nousresearch/hermes-agent image is amd64-only, so on the arm64 OCI nodes it
+# CrashLoops with an OCI-runtime exec error. State is on Longhorn, so it's not
+# pinned to ff-pi1 either.
+labels:
+  # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/worker-on-prem.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: on-prem
+    includeSelectors: false
+    includeTemplates: false

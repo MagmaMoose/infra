@@ -8,12 +8,10 @@ resources:
   - ingress.yaml
   - middleware.yaml
   - pvc.yaml
-components:
-  # Migrated off ff-pi1: static hostPath pv.yaml dropped, pvc.yaml now Longhorn,
-  # pinned to the worker node. (DaemonSet + worker selector => runs only on ff-vm1.)
-  # hostNetwork stays — the worker (.13) is on the same /24 as the Pi (.10) so
-  # mDNS still works; HomeKit/device pairings persist in the migrated /config/.storage.
-  - ../../../components/node-selectors/worker-on-prem
+# Migrated off ff-pi1: static hostPath pv.yaml dropped, pvc.yaml now Longhorn,
+# pinned to the worker node. (DaemonSet + worker selector => runs only on ff-vm1.)
+# hostNetwork stays — the worker (.13) is on the same /24 as the Pi (.10) so
+# mDNS still works; HomeKit/device pairings persist in the migrated /config/.storage.
 # Resources set explicitly; the c.small resource-profile component was removed.
 # Profiles patch containers/0 with `op: add`, which silently overwrote the measured
 # values already in the deployment — this workload reserved 250m/512Mi against a
@@ -35,3 +33,12 @@ patches:
             memory: 512Mi
           limits:
             memory: 768Mi
+labels:
+  # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/worker-on-prem.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: on-prem
+    includeSelectors: false
+    includeTemplates: false

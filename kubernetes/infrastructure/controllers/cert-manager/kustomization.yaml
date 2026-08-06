@@ -6,4 +6,12 @@ resources:
   - ./base
 components:
   - ../../../components/resource-profiles/t.nano
-  - ../../../components/node-selectors/pi
+labels:
+  # Placement tier — consumed by the Kyverno `place-system` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/pi.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: system
+    includeSelectors: false
+    includeTemplates: false
