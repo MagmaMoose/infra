@@ -1,0 +1,29 @@
+---
+# Image automation for this app, folded out of
+# kubernetes/infrastructure/flux/image-automation.yaml so the policy lives with
+# the workload it bumps. Objects stay in the flux-system namespace, which is what
+# the `{"$imagepolicy": "flux-system:plex"}` markers in the deployment resolve against.
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: plex
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: plex
+  filterTags:
+    pattern: ^[0-9]+\.[0-9]+\.[0-9]+$
+    extract: $0
+  policy:
+    semver:
+      range: '>=1.0.0 <2.0.0'
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: plex
+  namespace: flux-system
+spec:
+  image: lscr.io/linuxserver/plex
+  interval: 1h

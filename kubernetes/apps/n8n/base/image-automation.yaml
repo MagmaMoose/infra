@@ -1,0 +1,29 @@
+---
+# Image automation for this app, folded out of
+# kubernetes/infrastructure/flux/image-automation.yaml so the policy lives with
+# the workload it bumps. Objects stay in the flux-system namespace, which is what
+# the `{"$imagepolicy": "flux-system:n8n"}` markers in the deployment resolve against.
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: n8n
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: n8n
+  filterTags:
+    pattern: ^[0-9]+\.[0-9]+\.[0-9]+$
+    extract: $0
+  policy:
+    semver:
+      range: '>=2.0.0 <3.0.0'
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: n8n
+  namespace: flux-system
+spec:
+  image: n8nio/n8n
+  interval: 1h
