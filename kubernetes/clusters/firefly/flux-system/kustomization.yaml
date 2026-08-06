@@ -11,8 +11,28 @@ resources:
   # Kustomization, just sourced from their new locations.
   - ../apps.yaml                  # meta `apps` Kustomization (builds clusters/firefly/)
   - ../../../infrastructure/flux  # HelmRepositories, registry/Git auth secrets, notifications
-components:
-  - ../../../components/node-selectors/pi
 # Note: Removed t.nano resource profile - flux controllers need more resources
 # source-controller needs ~300Mi, kustomize-controller needs ~250Mi
 # Using default flux resources from gotk-components.yaml
+# Flux controller placement, inlined rather than via a Kyverno policy: this is the
+# BOOTSTRAP Kustomization and Flux installs Kyverno, so on a cold rebuild these
+# controllers are admitted before any ClusterPolicy exists.
+# Replaces components/node-selectors/pi, with two deliberate differences:
+#   - `node-role.kubernetes.io/system` instead of legacy `type: pi` (both select
+#     exactly ff-pi1, so node-set-neutral)
+#   - patchStrategicMerge instead of the component's JSON6902 `op: add`, which
+#     REPLACED the whole nodeSelector and silently dropped `kubernetes.io/os: linux`
+patches:
+  - target:
+      kind: Deployment
+      namespace: flux-system
+    patch: |
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ignored
+      spec:
+        template:
+          spec:
+            nodeSelector:
+              node-role.kubernetes.io/system: ""

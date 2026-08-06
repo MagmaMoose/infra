@@ -8,4 +8,5 @@ resources:
   - dashboard-app-logs.yaml
   - ingress-grafana-lan.yaml
 components:
-  - ../../../components/node-selectors/mini
+# node-selectors component removed: verified NO-OP here (no controller for it to
+# patch — placement comes from helm values / the CNPG Cluster's spec.affinity).

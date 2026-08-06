@@ -8,4 +8,5 @@ resources:
   - ./base
 components:
   - ../../../components/resource-profiles/m.small
-  - ../../../components/node-selectors/pi
+# node-selectors component removed: verified NO-OP here (no controller for it to
+# patch — placement comes from helm values / the CNPG Cluster's spec.affinity).
