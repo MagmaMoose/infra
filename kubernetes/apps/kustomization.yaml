@@ -88,7 +88,6 @@ resources:
   - ./defectdojo
   - ./dependency-track
   - ./falco
-  - ./gatekeeper
   - ./kubescape
   - ./kyverno-policies
   - ./security-integrations

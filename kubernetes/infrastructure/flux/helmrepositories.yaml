@@ -109,15 +109,6 @@ spec:
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
-  name: gatekeeper
-  namespace: flux-system
-spec:
-  interval: 1h
-  url: https://open-policy-agent.github.io/gatekeeper/charts
----
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
-metadata:
   name: longhorn
   namespace: flux-system
 spec:
