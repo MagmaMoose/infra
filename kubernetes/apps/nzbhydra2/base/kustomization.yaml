@@ -5,5 +5,12 @@ resources:
   - ingress.yaml
 components:
   - ../../../components/pod-gateway-client
-  - ../../../components/resource-profiles/c.micro
   - ../../../components/node-selectors/native-cloud
+# NOTE: the c.micro resource-profile component was removed here on 2026-08-06.
+# Every profile patches `containers/0/resources` with `op: add`, which SILENTLY
+# overwrites the measured values already set inline in deployment.yaml — this
+# workload was reserving 200m CPU / 512Mi while actually needing 10m CPU / 710Mi.
+# The two OCI nodes were at 99% CPU *requested* as a result, which left
+# nievah (business tier) Pending on "Insufficient cpu" with only ~30m free
+# across the whole tier. Requests now come from measurement (KRR), per
+# cleanup.md: profiles are a floor for NEW workloads, not the steady-state value.
