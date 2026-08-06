@@ -1,0 +1,29 @@
+---
+# Image automation for this app, folded out of
+# kubernetes/infrastructure/flux/image-automation.yaml so the policy lives with
+# the workload it bumps. Objects stay in the flux-system namespace, which is what
+# the `{"$imagepolicy": "flux-system:nzbhydra2"}` markers in the deployment resolve against.
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: nzbhydra2
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: nzbhydra2
+  filterTags:
+    pattern: ^[0-9]+\.[0-9]+\.[0-9]+$
+    extract: $0
+  policy:
+    semver:
+      range: '>=8.0.0 <9.0.0'
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: nzbhydra2
+  namespace: flux-system
+spec:
+  image: linuxserver/nzbhydra2
+  interval: 1h
