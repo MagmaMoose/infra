@@ -71,3 +71,44 @@ spec:
           path: /spec/jobTemplate/spec/template/spec/nodeSelector
           value:
             topology.sargeant.co/tier: native-cloud
+  # Cloud-tier apps must use the CLOUD-tier cache. The app repos hardcode
+  # REDIS_URL=valkey.database.svc, which is the valkey instance pinned to ff-vm1
+  # (on-prem) — so these OCI pods reach back across the site-to-site VPN for every
+  # cache op. caldrith crash-looped 813 times on
+  # "redis.exceptions.TimeoutError: Timeout connecting to server" doing exactly
+  # that, and it makes the one tier that CAN survive a node failure depend on the
+  # node most likely to have one. valkey-oci already exists on this tier.
+  # Overridden here rather than in the app repos because which backing instance a
+  # workload talks to is a placement decision, same as the nodeSelector patch above.
+    - target:
+        kind: Deployment
+        name: nievah
+      patch: |
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: nievah
+        spec:
+          template:
+            spec:
+              containers:
+                - name: nievah
+                  env:
+                    - name: REDIS_URL
+                      value: redis://valkey-oci.database.svc.cluster.local:6379
+    - target:
+        kind: Deployment
+        name: nievah-worker
+      patch: |
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: nievah-worker
+        spec:
+          template:
+            spec:
+              containers:
+                - name: nievah-worker
+                  env:
+                    - name: REDIS_URL
+                      value: redis://valkey-oci.database.svc.cluster.local:6379
