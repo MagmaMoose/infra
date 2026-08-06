@@ -461,18 +461,24 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "firefly" {
     # per-IP brute-force limiter collapses into a single bucket keyed on the
     # intermediate pod's IP.
     #
-    # !! THIS HOSTNAME WAS OCCUPIED, and applying this rule alone does nothing.
-    # !! api.dunmir.magmamoose.com was a Workers Custom Domain on the legacy
-    # !! open-source control plane (the `dunmir` Worker on the `minder` D1
-    # !! database) — the deployment the dunmir repo consolidated and replaced. A
-    # !! Custom Domain owns its DNS record, so external-dns cannot publish over
-    # !! it. Order:
-    # !!   1. apply THIS rule — inert while nothing resolves to the tunnel;
-    # !!   2. release the Custom Domain from the legacy `dunmir` Worker;
-    # !!   3. let external-dns publish the proxied CNAME from the k8s Ingress
-    # !!      (dunmir repo: k8s/base/ingress.yaml → target=<firefly tunnel>).
-    # !! Doing 3 before 2 publishes nothing. Doing 2 before 1 costs a 404 window
-    # !! on a hostname nothing points at yet. Terraform cannot enforce this.
+    # !! TWO LABELS DEEP, so this hostname is NOT covered by the zone's Universal
+    # !! SSL certificate (magmamoose.com + *.magmamoose.com, one label). It is
+    # !! served by a dedicated pack whose SANs are magmamoose.com,
+    # !! dunmir.magmamoose.com and *.dunmir.magmamoose.com — the same arrangement
+    # !! api.platform2.magmamoose.com above has.
+    # !!
+    # !! That matters because a name at this depth with no pack does not 404 or
+    # !! 502 — it fails IN THE TLS HANDSHAKE, before a byte of HTTP:
+    # !!   error:1404B410:SSL routines:ST_CONNECT:sslv3 alert handshake failure
+    # !! which resembles nothing else in this file. It happened during the
+    # !! cutover for a mundane reason: the pack had not finished provisioning.
+    # !! Coverage appeared within the hour. If a NEW name at this depth refuses
+    # !! to handshake, WAIT and re-check before concluding it cannot work — the
+    # !! first response here was to rename around it, and that was wrong.
+    # !!
+    # !! The pack is a separate object from Universal SSL with its own expiry,
+    # !! and it does not renew alongside the zone. Nothing in Terraform manages
+    # !! it, and no Cloudflare API token in this estate can even read it.
     #
     # No Access gate: this is a public product surface. Operators sign in with
     # password + TOTP, agents authenticate with Bearer dunmir_ tokens, both
