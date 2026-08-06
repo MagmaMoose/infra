@@ -53,7 +53,9 @@ spec:
       exclude:
         any:
           - resources:
-              namespaces:
+              kinds:
+                - Namespace
+              names:
                 - kube-system
                 - kube-public
                 - kube-node-lease
