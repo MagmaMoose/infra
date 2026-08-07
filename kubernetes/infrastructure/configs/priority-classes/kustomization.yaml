@@ -1,0 +1,54 @@
+# Cluster-wide scheduling priority. Higher value = scheduled sooner, preempted
+# and evicted later. One object per file, matching the namespaces/ house style
+# (the repo's file-quality hook parses YAML single-document, so multi-doc files
+# fail lint even though kustomize and the API server both accept them).
+#
+# WHERE THIS SITS relative to classes that already exist in the cluster:
+#
+#   system-node-critical     2000001000  built-in   - the node breaks without it
+#   system-cluster-critical  2000000000  built-in   - the cluster breaks without it
+#   longhorn-critical        1000000000  chart      - storage outranks its consumers
+#   critical                     100000  ours
+#   business                      50000  ours
+#   high                          10000  ours
+#   medium                         1000  ours
+#   low                             100  ours
+#
+# Three deliberate choices worth not "fixing" later:
+#
+#  1. The whole custom scale sits BELOW longhorn-critical. If the storage layer
+#     loses a scheduling race, every stateful workload above it fails anyway, so
+#     storage must win.
+#  2. `business` sits below `critical`, not above it. Business apps run ON the
+#     secrets / TLS / admission / data planes, so an app that outranks those
+#     wins the race and then fails for want of a secret. The corollary rule is
+#     that nothing may outrank its own dependencies - which is why litellm and
+#     the valkey instances carry `business` alongside the apps that call them.
+#  3. NOTHING is globalDefault yet, on purpose. globalDefault applies only to
+#     pods admitted AFTER it is set, while already-running pods stay at priority
+#     0. On this cluster (ff-vm1 ~94% CPU / ~99% memory requested, the OCI pair
+#     91-96% CPU) that asymmetry lets a routine rollout preempt running
+#     workloads that simply had not been recreated yet. Flip `medium` to
+#     globalDefault: true only after the explicit assignments have rolled out.
+#
+# Names must NOT begin with `system-`: the API server rejects those outright
+# ("priority class names with 'system-' prefix are reserved for system use only").
+#
+# Do NOT assign these to workloads that already carry a built-in or chart class
+# (coredns, traefik, metrics-server, local-path-provisioner, svclb-traefik,
+# node-tuning, oci-node-firewall, the flux controllers, anything Longhorn) -
+# doing so DEMOTES them by ~4 orders of magnitude.
+#
+# Assigning them to workloads must target the CONTROLLER pod template, not bare
+# Pods: the in-tree Priority admission plugin resolves priorityClassName into
+# spec.priority before any mutating webhook runs, so a webhook that stamps the
+# name onto an admitted Pod leaves spec.priority untouched and the setting is
+# cosmetic. See cleanup.md.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - critical.yaml
+  - business.yaml
+  - high.yaml
+  - medium.yaml
+  - low.yaml

@@ -1,0 +1,11 @@
+# Scheduling priority tier "critical" (100000). See kustomization.yaml for the full scale
+# and the rationale behind where this sits.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: critical
+  labels:
+    app.kubernetes.io/part-of: priority-classes
+value: 100000
+globalDefault: false
+description: "Loss breaks OTHER workloads or risks data: secrets, certs, storage, databases, admission control. Not merely 'important'."

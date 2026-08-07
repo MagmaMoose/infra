@@ -1,0 +1,23 @@
+---
+# Cluster-scoped PriorityClass objects. Kept in their own Kustomization (rather
+# than folded into infrastructure-configs/namespaces) for the same reason rbac
+# is separate: each CR targets exactly one path, so a shared holder would render
+# the CRs as resources of their own target.
+#
+# These must exist BEFORE any pod references one — a pod naming a PriorityClass
+# that does not exist is rejected at admission. Nothing references them yet, so
+# applying this on its own is inert; the workload assignments land separately.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infrastructure-priority-classes
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./kubernetes/infrastructure/configs/priority-classes
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  timeout: 2m
+  wait: true
