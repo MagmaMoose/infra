@@ -19,7 +19,7 @@ resources:
   # (cloudflare/dns/prod/terragrunt.hcl etc) authenticate. SOPS-bootstrap —
   # this key itself auths OCI Vault, so it can't live there (chicken+egg),
   # same as kubernetes/infrastructure/controllers/external-secrets/oci-vault-secret-enc.yaml.
-  - oci-cli-secret-enc.yaml
+  - externalsecret-atlantis-oci-cli.yaml
   # The Secret 'atlantis' is materialized by externalsecret.yaml from OCI
   # Vault keys: atlantis-github-app-id, atlantis-github-app-private-key,
   # atlantis-github-webhook-secret. See README.md for App creation steps.
