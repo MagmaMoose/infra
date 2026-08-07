@@ -118,8 +118,23 @@ spec:
         timeoutSeconds: 10
         failureThreshold: 6
         successThreshold: 1
+    # reportsController DISABLED. It writes a PolicyReport per matched resource and keeps
+    # them reconciled, which is a continuous etcd write stream — and on this cluster that
+    # lands on ff-pi1, the same 4-core/8Gi node running the k3s server and etcd itself
+    # (global.nodeSelector above pins every kyverno controller there).
+    #
+    # That was tolerable at one ClusterPolicy. It was not at nine: shortly after the
+    # placement, priority and LimitRange policies took effect, the control plane began
+    # failing readyz with `[-]etcd failed` and TLS handshake timeouts, with the reports
+    # controller at 122 restarts.
+    #
+    # Nothing consumes the reports — no policy-reporter, no Grafana panel, no alert reads
+    # them, and policyReportsCleanup is already disabled below. Admission-time enforcement
+    # is unaffected: the placement mutations and the validate policies all run in the
+    # admission controller, not here. This trades after-the-fact reporting nobody was
+    # reading for a datastore that stays up.
     reportsController:
-      replicas: 1
+      enabled: false
     # Disable PolicyReports cleanup — not needed for our use case.
     policyReportsCleanup:
       enabled: false
