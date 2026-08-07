@@ -7,6 +7,28 @@ metadata:
 spec:
   instances: 3
 
+  # `critical` (100000) — set HERE rather than via the placement label, because the
+  # Kyverno assign-priority-class policy matches Deployment/StatefulSet/DaemonSet and
+  # CronJob only. A CNPG `Cluster` is none of those: the operator builds the instance
+  # pods itself, so no label on this object would ever reach them and Postgres would
+  # silently stay at priority 0.
+  #
+  # Priority 0 is not neutral once everything else is classed. The apps that depend on
+  # this database now carry medium (1000) through business (50000), so under memory
+  # pressure on ff-vm1 the scheduler preempts the DATABASE first to make room for the
+  # very workloads that need it — inverting the rule the priority scale is built on,
+  # that nothing may outrank its own dependencies.
+  #
+  # This is the scheduling-layer form of the failure the `resources` comment below
+  # already describes: an evicted or OOM-killed Postgres is an unclean shutdown, which
+  # is how instances came back wedged in WAL replay and had to be re-bootstrapped by
+  # hand (postgres-2 on 2026-07-31, postgres-4 on 2026-08-05).
+  #
+  # critical, not business: per the scale, `critical` is the planes everything else
+  # runs on, and this is the data plane. It stays below longhorn-critical, because if
+  # storage loses a scheduling race the database fails anyway.
+  priorityClassName: critical
+
   # Pin all instances to the on-prem worker (ff-vm1) and OFF the control-plane node
   # ff-pi1. CNPG's default required pod-anti-affinity was spreading instances across
   # nodes, sending postgres-3 to ff-pi1 where it sat Pending (the Pi is a pure
