@@ -5,10 +5,18 @@
 # `onprem`) is silent: the workload is simply not mutated and lands wherever the
 # scheduler puts it. This rule makes that loud.
 #
-# Ships as Audit, matching the house scaffold pattern in
-# clusterpolicy-verify-images.yaml. Flip `validationFailureAction` to Enforce
-# once the migration is complete and the report is clean:
-#   kubectl --context=ember get cpolr | grep validate-placement-tier
+# ENFORCE. It shipped as Audit until the migration finished; the migration is
+# finished, and Audit has since become worse than useless here — the reports
+# controller was disabled to take etcd write load off the control-plane node
+# (#563), so an Audit-mode violation is now written precisely nowhere. The policy
+# was inert.
+#
+# Enforcing is safe because the value set is closed and already clean: every
+# placement.sargeant.co/tier in the repo is one of system/worker/on-prem/cloud,
+# and no live controller carries anything else — both checked before flipping.
+#
+# What it costs: a typo now REJECTS the apply instead of silently landing the
+# workload unpinned. That is the trade this policy exists to make.
 #
 # failurePolicy is Ignore on purpose: this guards against a typo, not an
 # attacker, so it must never be the thing that blocks a deploy during a Kyverno
@@ -32,7 +40,7 @@ metadata:
       skip the placement mutation.
     pod-policies.kyverno.io/autogen-controllers: none
 spec:
-  validationFailureAction: Audit
+  validationFailureAction: Enforce
   admission: true
   background: true
   failurePolicy: Ignore

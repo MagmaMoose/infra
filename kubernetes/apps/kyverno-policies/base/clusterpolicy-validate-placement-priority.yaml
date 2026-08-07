@@ -16,7 +16,11 @@ metadata:
       otherwise silently skip the priorityClassName mutation.
     pod-policies.kyverno.io/autogen-controllers: none
 spec:
-  validationFailureAction: Audit
+  # ENFORCE — same reasoning as validate-placement-tier: Audit writes to a report
+  # that no longer exists since the reports controller was disabled (#563), so the
+  # policy was inert. The priority value set is closed and verified clean
+  # (critical/business/high/medium/low) in both the repo and the live cluster.
+  validationFailureAction: Enforce
   admission: true
   background: true
   failurePolicy: Ignore
