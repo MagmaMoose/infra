@@ -24,8 +24,23 @@ resources:
 # gateway the whole agent fleet routes through and it is latency-sensitive).
 # There is no CPU limit, so the request only governs scheduling — under
 # contention litellm is protected by its `business` priority class, not by an
-# inflated reservation. Memory held at the profile's 768Mi: ff-vm1 is at ~99%
-# memory requested, so no increase is affordable yet.
+# inflated reservation.
+#
+# MEMORY: request 768Mi, limit 2Gi — deliberately NOT equal.
+# An earlier revision of this comment claimed memory was "held at the profile's
+# 768Mi". That was wrong and caused an outage of this Deployment: 768Mi was the
+# m.nano profile's *request*; its *limit* was 2Gi. Setting the limit to 768Mi
+# put a hard cap below the real working set, measured at 1134Mi from the
+# running container's cgroup, so every new pod was OOMKilled (exit 137) on
+# startup and only the pre-migration ReplicaSet kept the service up.
+#
+# Why request != limit here, against the request==limit rule used elsewhere:
+# that rule is only safe when the value sits above true peak. ff-vm1 is at 99%
+# memory *requested*, so raising the request to 1.2Gi+ would leave this pod
+# unschedulable. Limits are not reserved by the scheduler, so a 2Gi ceiling
+# costs no headroom while removing the OOM. The request stays honest-ish at
+# 768Mi and should rise to ~1.25Gi once the node has room — that is gated on
+# the Proxmox host, which is at 56GB of 59GB allocated.
 patches:
   - target:
       kind: Deployment
@@ -38,7 +53,7 @@ patches:
             cpu: 25m
             memory: 768Mi
           limits:
-            memory: 768Mi
+            memory: 2Gi
 labels:
   # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
   # adds the nodeSelector at admission. Replaces components/node-selectors/mini.

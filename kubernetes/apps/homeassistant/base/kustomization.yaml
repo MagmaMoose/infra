@@ -31,8 +31,15 @@ patches:
           requests:
             cpu: 10m
             memory: 512Mi
+          # 1536Mi, not the 768Mi this was narrowed to from the c.small profile's
+          # 2Gi. Measured 497Mi in use, so 768Mi is only ~1.5x the steady state —
+          # thin for a workload with periodic recorder purges and integration
+          # reloads. Precautionary: this one has not OOMKilled, unlike litellm.
+          # Limits are not scheduler-reserved, so the ceiling is free on a node at
+          # 99% memory requested; the 512Mi request is what remains gated on the
+          # Proxmox host having room.
           limits:
-            memory: 768Mi
+            memory: 1536Mi
 labels:
   # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
   # adds the nodeSelector at admission. Replaces components/node-selectors/worker-on-prem.
