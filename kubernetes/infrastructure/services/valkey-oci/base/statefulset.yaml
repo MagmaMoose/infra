@@ -23,6 +23,15 @@ spec:
         fsGroup: 999
         seccompProfile:
           type: RuntimeDefault
+      # `critical` (100000). Set DIRECTLY rather than via the placement label:
+      # this is the data plane, and it must not depend on the Kyverno admission
+      # webhook being healthy in order to avoid being preempted. The label
+      # mechanism is admission-time only, so a pod admitted while Kyverno is down
+      # (failurePolicy is Ignore) would land at priority 0 — which is precisely
+      # the state that makes a datastore the scheduler's first eviction victim.
+      # The CNPG Clusters set it directly for a related reason (their kind is not
+      # matchable at all), so the whole data plane is consistent.
+      priorityClassName: critical
       containers:
         - name: valkey
           # Redis-compatible cache pinned to the OCI native-cloud tier

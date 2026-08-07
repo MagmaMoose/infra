@@ -19,6 +19,14 @@ spec:
   # because CNPG replicates at the database layer.
   instances: 2
 
+  # `critical` (100000), set here for the same reason the affinity below is: a CNPG
+  # Cluster is not a Deployment/StatefulSet, so the Kyverno assign-priority-class
+  # policy cannot reach it and a placement label on this object would be inert.
+  # Left unset, this database sits at priority 0 while the cloud-tier apps that
+  # depend on it carry medium through business — so the scheduler would evict the
+  # database to make room for its own consumers.
+  priorityClassName: critical
+
   # Pin to the OCI tier. CRITICAL: a CNPG Cluster is NOT a Deployment/StatefulSet,
   # so the kustomize node-selectors component does NOT reach it — placement MUST
   # be set here in spec.affinity. nodeSelector keeps every instance on an OCI
