@@ -79,12 +79,33 @@
 > 2026-06-10. `thanos-metrics` holds up to a year of downsampled history that exists nowhere else
 > (Prometheus keeps 7d). Making the mirror current would blow ~6x past the OCI Always Free tier.
 >
+> **5a. What the authentik migration actually needs (established 2026-08-07).** Its blueprint system
+> works — 28 stock instances, all `successful` — and the chart discovers ConfigMaps labelled
+> `blueprints.goauthentik.io/instantiate: "true"`, so providers and applications can be
+> GitOps-managed rather than clicked in. The real gap is identity, not config: the ONLY source is
+> `authentik Built-in`, while both remaining oauth2-proxies run `--provider=google` (defectdojo
+> restricted by `--email-domain=magmamoose.com`, headlamp by an `authenticated-emails-file`). So a
+> cutover starts with a Google OAuth Source in authentik, using the client credentials already in
+> the `security/oauth2-proxy` and `misc/oauth2-proxy` Secrets — reaching the blueprint via env from
+> an ExternalSecret, never inlined, since a blueprint lives in a ConfigMap in a PUBLIC repo.
+> Order: Google source -> Proxy Provider + Application per app -> bind to the embedded outpost ->
+> repoint the Traefik middlewares -> only then delete oauth2-proxy and headlamp's auth-redirect
+> shim. Do NOT delete either proxy before the outpost answers, or both services become unreachable.
+>
 > **5. authentik is healthy but EMPTY, so the oauth2-proxy migration has no target.** The
 > crashloop stopped on its own (~08:00Z, peaked at 325 restarts, reason `Error`/exit 1, never
 > OOMKilled; root cause undeterminable — the pods are gone and Loki has zero lines for the
 > namespace). But the API reports **0 providers, 0 applications**, and an embedded outpost with
 > `providers: []`. cleanup.md's stated blocker ("blocked on authentik being healthy") is the wrong
 > blocker: it is blocked on authentik never having been configured.
+>
+> **6a. The terragrunt backend is NOT broken — a personal credential is.** The audit reported GCS
+> auth as a blocker. Retested with the `atlantis@magmamoose-terraform` service-account key already
+> present in `automation/atlantis-gcp`: it reads the state fine, and terragrunt runs all the way to
+> the OCI provider before failing on `401-NotAuthenticated` against Identity. So the state backend is
+> healthy and only the local `gcloud` token is stale — plans belong in Atlantis, which holds the OCI
+> credentials. The `longhorn-backups` bucket added to the backups leaf will plan there, and needs an
+> `import`: the bucket and its policy statement were created out of band to get backups working.
 >
 > **6. The atlantis -> GitHub Actions replacement cannot run.** The appendix workflow targets
 > `[self-hosted, Linux, samenlevingszaken]`; no such runner exists. The only org runner is
