@@ -150,7 +150,7 @@ Modules live under `terraform/<provider>/modules/` (e.g., `terraform/oci/modules
 ### Kubernetes Namespaces
 
 Namespaces live in `kubernetes/infrastructure/configs/namespaces/`. Mapping:
-- `core/` → networking, secrets, DNS (1password-connect, cloudflared, external-dns)
+- `general-system/` → networking, secrets, DNS (1password-connect, cloudflared, external-dns)
 - `database/` → postgres, stateful systems
 - `media/` → media apps (sonarr, radarr, etc. w/ gluetun sidecars)
 - `automation/` → Atlantis, n8n, workflow engines

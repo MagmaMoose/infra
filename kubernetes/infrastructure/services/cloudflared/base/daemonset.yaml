@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: cloudflared
-  namespace: core
+  namespace: general-system
 spec:
   selector:
     matchLabels:

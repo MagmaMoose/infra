@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: minio-backup
-  namespace: core
+  namespace: general-system
   labels:
     app.kubernetes.io/name: minio-backup
 spec:

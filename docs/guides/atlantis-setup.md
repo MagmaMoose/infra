@@ -280,7 +280,7 @@ Note: `kubectl exec` into the init container is **not** an option — init conta
 ### Webhook events not arriving
 
 1. App webhook URL points at `https://atlantis.sargeant.co/events` (note the path).
-2. Cloudflare Tunnel is healthy: `kubectl get ds cloudflared -n core` shows desired = ready.
+2. Cloudflare Tunnel is healthy: `kubectl get ds cloudflared -n general-system` shows desired = ready.
 3. Ingress route exists: `kubectl get ingress atlantis -n automation`.
 4. Check **Recent Deliveries** on the App's Advanced page — GitHub logs each webhook attempt with the response code.
 

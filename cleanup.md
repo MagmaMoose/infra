@@ -3,28 +3,30 @@
 ## General
 
 
-> **IMPLEMENTATION STATUS — 2026-08-07.** The cluster incident that blocked this is RESOLVED
-> (postgres 3/3, backups succeeding, 0 Pending, all business apps up). Work is now staged in
-> four PRs, **none of which can merge**: no `.github/workflows/*` run has been created since
-> 09:09 on 2026-08-06 — repo-wide, not check-specific — so the required `chargate`/`diatreme`
-> status contexts never report. `gh pr merge --admin` does NOT bypass a ruleset. This needs the
-> GitHub web UI (Settings → Actions, and the ruleset's bypass list).
+> **IMPLEMENTATION STATUS — 2026-08-07 (rewritten).** The earlier version of this block
+> claimed four PRs were blocked by a repo-wide CI outage. That outage cleared on its own at
+> ~23:18 on 2026-08-06 and every one of those PRs merged; the block was left asserting the
+> opposite of reality for hours, which is why it is dated now.
 >
-> | PR | item | state |
-> |----|------|-------|
-> | [#544](https://github.com/MagmaMoose/infra/pull/544) | PriorityClass objects + plan corrections | blocked |
-> | [#545](https://github.com/MagmaMoose/infra/pull/545) | resource-profiles override fix (cloud tier) | blocked, **applied live** |
-> | [#546](https://github.com/MagmaMoose/infra/pull/546) | cloud apps → cloud cache | blocked, **applied live (caldrith)** |
-> | [#547](https://github.com/MagmaMoose/infra/pull/547) | per-tier Kyverno placement policies | blocked |
+> **Landed:** the five PriorityClasses; per-tier Kyverno placement policies and ~38 workloads
+> migrated onto `placement.sargeant.co/tier`; priority assignment; a default LimitRange per
+> namespace; gatekeeper removed; the `stack/` level flattened; `components/node-selectors` and
+> `components/resource-profiles` both deleted; the cloud-tier cache repoint; loki's startupProbe;
+> the data plane given `priorityClassName: critical`; the business apps given `business`; PDBs and
+> topology spread; this namespace rename.
 >
-> **Live drift**: `prod-nzbhydra2`, `prod-prowlarr`, `prod-caldrith` are SUSPENDED with hand-patched
-> values so the cluster stays healthy. `flux resume kustomization <name> -n flux-system` ONLY after
-> the matching PR merges, or Flux reverts and the outage returns.
+> **Two outages happened during the work and both are worth reading:** ff-vm1's kubelet was
+> starved by an NFS commit stall on the Proxmox host, and ff-pi1's control plane later failed with
+> `[-]etcd failed` because every Kyverno controller — including the reports controller, which
+> writes a PolicyReport per resource — is pinned to the same node that runs etcd. The reports
+> controller is now disabled. **Moving Kyverno off ff-pi1 entirely is the real fix and has not
+> been done**, because it changes webhook latency across the site-to-site VPN.
 >
-> **Sequencing that cannot be short-circuited**: the ~40-app migration onto
-> `placement.sargeant.co/tier` requires #547 merged FIRST (a labelled workload with no policy lands
-> unpinned); priority-class assignment requires #544 merged FIRST (a pod naming a non-existent
-> PriorityClass is REJECTED outright — verified).
+> **Known-incomplete, deliberately:** ~29 workloads carry a priority label but will not have a
+> `priorityClassName` until they next restart, because the mutation is admission-time only —
+> do NOT fix this with `mutateExistingOnPolicyUpdate`, which would roll all of them at once on a
+> node at 99% memory. The node labels are re-applied by `ansible/firefly-node-labels.yaml` rather
+> than being durable, because the kubelet may not self-register `node-role.kubernetes.io/*`.
 
 > **RESOLVED 2026-08-06 23:13** *(kept for the causal chain — it explains several oddities below).*
 > ff-vm1's kubelet was unreachable from the API server (`502` to the apiserver proxy). Root cause was
@@ -90,7 +92,8 @@ I want to follow best practices and industry standards. The below is a list of t
 - [ ] Under `infrastructure > controllers`, the "stack" folder needs to be removed. The items within the folder need to be put directly within the controllers folder. The stack folder is not needed and overcomplicates things. The same goes for `infrastructure > services > stack`.
 - [ ] Under `infrastructure > flux`, the individual YAMLs need to be folded into the individual apps, or placed within infrastructure `configs`, `controllers`, or `services` where applicable.
 - [x] ~~what is `node-tuning`?~~ A DaemonSet (`kubernetes/apps/node-tuning/base/daemonset.yaml`) that durably raises the kernel's per-user inotify limits on every node — the 128 default for `fs.inotify.max_user_instances` starved watch-heavy controllers, and gatekeeper's cert-rotation fsnotify was crashing with "too many open files" on ff-vm1. A privileged init container writes the sysctls in the host namespace; a `pause` container holds the pod Running so kubelet re-runs the init on every restart, which is what survives a reboot. Keep it. (Note `oci-node-firewall` ships from this same app directory — see the cloud section.)
-- [ ] rename `core` namespace to `magmamoose-system`. Not bare `system` — that word already names the ff-pi1 *pinning tier* both here and in `docs/reference/cluster-topology.md`, and the tier spans far more namespaces than this one (`flux-system`, `cert-manager`, `kyverno`, `longhorn-system`, `external-secrets`, `kube-system`, …). The `<vendor>-system` suffix is the established k8s convention for "this product's own components" — `flux-system`, `longhorn-system`, `flagger-system`, `trivy-system`, `cattle-system` are all already in the cluster — so `magmamoose-system` reads as "our own platform components" and stays unambiguous. Avoid `platform-system`, which collides with the existing `platform2` namespace.
+- [x] ~~rename `core` namespace to `general-system`.~~ **DONE.** Not bare `system` — that word already names the ff-pi1 *pinning tier* both here and in `docs/reference/cluster-topology.md`, and the tier spans far more namespaces than this one (`flux-system`, `cert-manager`, `kyverno`, `longhorn-system`, `external-secrets`, `kube-system`, …). The `<something>-system` suffix is the established k8s convention for "this product's own components" — `flux-system`, `longhorn-system`, `flagger-system`, `trivy-system`, `cattle-system` are all already in the cluster. `magmamoose-system` was the original proposal; `general-system` was chosen instead, and reads the same way without tying the namespace to a brand name. Avoid `platform-system`, which collides with the existing `platform2` namespace.
+  - The rename is NOT a find-and-replace. Three references are invisible to grep or actively misleading: Loki's entire config is one SOPS-encrypted blob containing `endpoint: minio.core.svc.cluster.local:9000`; the two 1password-connect secrets carry `namespace:` in cleartext but MAC-covered, so a text edit breaks decryption and they must go through `sops`; and `net.core.rmem_max`, `monitoring.coreos.com/v1`, `oci_core_*` (~137 in terraform), `kubernetes.core.k8s` and `coredns` are all substring false positives a `sed` would corrupt. The `vpn-gateway.core.svc` references in `components/vpn-routed-proxy` were left alone deliberately — that service left this namespace long ago, so they were already broken and rewriting them would only hide it.
 - [ ] migrate `minio` to `seaweedfs`.
 - [ ] any workload that has a persistent volume (except databases) must be moved to longhorn
 - [ ] figure out an easier way to apply resource requests and limits to workloads in code. The industry-standard shape is four separate concerns — don't solve them with one mechanism:

@@ -2,7 +2,7 @@ apiVersion: helm.toolkit.fluxcd.io/v2beta2
 kind: HelmRelease
 metadata:
   name: external-dns-mikrotik
-  namespace: core
+  namespace: general-system
   labels:
     app.kubernetes.io/name: external-dns-mikrotik
 spec:
@@ -40,7 +40,7 @@ spec:
 
     # Extra arguments for webhook provider
     extraArgs:
-      webhook-provider-url: http://external-dns-mikrotik-webhook.core.svc.cluster.local:8888
+      webhook-provider-url: http://external-dns-mikrotik-webhook.general-system.svc.cluster.local:8888
 
     # Domain filter - configure for your local domain
     domainFilters:

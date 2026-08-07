@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: minio-setup
-  namespace: core
+  namespace: general-system
   labels:
     app.kubernetes.io/name: minio-setup
 spec:

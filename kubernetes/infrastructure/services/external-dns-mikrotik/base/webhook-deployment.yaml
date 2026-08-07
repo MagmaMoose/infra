@@ -2,7 +2,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: external-dns-mikrotik-webhook
-  namespace: core
+  namespace: general-system
   labels:
     app.kubernetes.io/name: external-dns-mikrotik-webhook
 spec:
@@ -19,7 +19,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: external-dns-mikrotik-webhook
-  namespace: core
+  namespace: general-system
   labels:
     app.kubernetes.io/name: external-dns-mikrotik-webhook
 spec:
