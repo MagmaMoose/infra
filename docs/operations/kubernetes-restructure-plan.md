@@ -134,9 +134,9 @@ Files moved (now in `.old/work-private/`):
 
 ```bash
 # From a host with cluster reach (LAN or VPN):
-kubectl logs ds/cloudflared -n core --previous --tail=200
-kubectl describe pod -n core -l app=cloudflared | grep -A 5 "Last State\|Reason"
-kubectl get events -n core --sort-by=.lastTimestamp | tail -30
+kubectl logs ds/cloudflared -n general-system --previous --tail=200
+kubectl describe pod -n general-system -l app=cloudflared | grep -A 5 "Last State\|Reason"
+kubectl get events -n general-system --sort-by=.lastTimestamp | tail -30
 ```
 
 If logs show "Unauthorized" / "tunnel not found" → rotate the token (Cloudflare Zero Trust dashboard → existing tunnel → token), re-encrypt, redeploy.

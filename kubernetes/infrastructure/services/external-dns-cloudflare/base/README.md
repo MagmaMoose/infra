@@ -50,7 +50,7 @@ spec:
 ### Check External-DNS Logs
 
 ```bash
-kubectl logs -n core -l app.kubernetes.io/name=external-dns-cloudflare
+kubectl logs -n general-system -l app.kubernetes.io/name=external-dns-cloudflare
 ```
 
 ## References
