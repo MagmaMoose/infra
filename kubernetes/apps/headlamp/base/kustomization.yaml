@@ -28,12 +28,27 @@ patches:
       - op: replace
         path: /metadata/name
         value: headlamp
-labels:
-  # Placement tier — consumed by the Kyverno `place-cloud` ClusterPolicy, which
-  # adds the nodeSelector at admission. Replaces components/node-selectors/native-cloud.
-  # includeSelectors/includeTemplates false: these fields are immutable on a live
-  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
-  - pairs:
-      placement.sargeant.co/tier: cloud
-    includeSelectors: false
-    includeTemplates: false
+# DELIBERATELY NOT LABELLED with placement.sargeant.co/tier. Please do not "restore" it.
+#
+# The node-selectors/native-cloud component above has been commented out for a long
+# time, so nothing here was ever pinned to the cloud tier. The placement migration
+# added a tier label to "replace" that component — which should therefore have been a
+# no-op, and was not. A kustomize `labels:` block applies to EVERY resource in the
+# kustomization, and this one holds two different kinds of thing:
+#
+#   headlamp itself   a HelmRelease. The label lands on the HelmRelease object, not on
+#                     the Deployment the chart renders, so it is inert. The one target
+#                     that was actually intended is the one that did not get it.
+#
+#   oauth2-proxy      plain Deployments, already carrying nodeSelector
+#   auth-redirect     node-role.kubernetes.io/worker. These DID pick the label up, so
+#                     Kyverno adds topology.sargeant.co/tier=native-cloud on top,
+#                     narrowing them from "any worker" to "OCI only".
+#
+# That splits the auth chain across the site-to-site VPN: every authenticated request
+# to headlamp makes a forward-auth subrequest to oauth2-proxy, so pinning the proxy to
+# OCI while Traefik and headlamp stay on-prem puts the VPN in the path of each one.
+#
+# If headlamp should genuinely move to the cloud tier, it has to go through the chart's
+# own values (a nodeSelector under the HelmRelease), not a kustomize label — and
+# oauth2-proxy/auth-redirect should move WITH it rather than ahead of it.
