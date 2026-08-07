@@ -21,6 +21,18 @@ spec:
   wait: true
   dependsOn:
     - name: infrastructure-configs
+    # The PriorityClasses must exist before anything that names one is applied. The
+    # data-plane workloads under infrastructure/services set priorityClassName:
+    # critical directly (postgres, postgres-oci, mariadb, valkey-oci, minio), and a
+    # pod naming a class that does not exist is REJECTED at admission — not
+    # defaulted, not warned about.
+    #
+    # infrastructure-priority-classes is its own Kustomization with no dependents, so
+    # nothing ordered it against this tree. The ordering held only because the pull
+    # requests happened to merge in sequence; a cluster rebuild had no such guarantee.
+    # Declared here rather than on services because services depends on controllers,
+    # so this covers both.
+    - name: infrastructure-priority-classes
   decryption:
     provider: sops
     secretRef:
