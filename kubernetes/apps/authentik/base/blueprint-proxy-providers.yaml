@@ -160,6 +160,13 @@ data:
           # change here needs a restart of authentik-server (the embedded outpost
           # runs inside it) before it takes effect.
           config:
+            # BOTH must be the PUBLIC url. It is tempting to point authentik_host at
+            # the internal Service so the outpost's own API calls do not hairpin out
+            # through Cloudflare — that is correct for a SEPARATE outpost, and wrong
+            # for the EMBEDDED one. Tested: with authentik_host set to
+            # http://authentik-server.authentik.svc.cluster.local the browser was
+            # redirected to that cluster-internal name, which no browser can resolve.
+            # authentik_host_browser did NOT override it. Reverted after measuring.
             authentik_host: https://authentik.magmamoose.com
             authentik_host_browser: https://authentik.magmamoose.com
             authentik_host_insecure: false
