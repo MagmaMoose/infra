@@ -1,0 +1,86 @@
+---
+# ADOPTED FROM UNMANAGED DRIFT, 2026-08-07.
+#
+# This Helm release was installed by hand on 2026-07-27 and existed nowhere in
+# this repo: no Flux ownership labels, no manifest, not in any Kustomization's
+# inventory. On a GitOps cluster that means it survives only as long as nobody
+# touches the namespace, and it is not reproducible if the cluster is rebuilt.
+#
+# It was found because cleanup.md's desired-state table lists it (line 153, as
+# `external-dns-mikrotik-internal`, noting it "is currently called
+# external-dns-ember-private") — the row had no corresponding manifest.
+#
+# TWO IN-FLIGHT CHANGES WOULD HAVE BROKEN IT, which is why it is adopted now
+# rather than left alone:
+#   - the core -> general-system namespace rename would DELETE it outright, since
+#     deleting a namespace cascades to everything inside it, managed or not
+#   - retiring the legacy `type: pi` node label would leave it unschedulable
+#
+# The values below were captured from the live release with `helm get values`
+# before anything touched it, then adjusted for exactly those two changes:
+# the webhook URL follows the namespace rename, and the nodeSelector moves to
+# node-role.kubernetes.io/system, which selects the same node (ff-pi1).
+#
+# releaseName pins the EXISTING release name so Flux adopts this release in
+# place rather than creating a second one. cleanup.md wants it renamed to
+# external-dns-mikrotik-internal; that is a Helm uninstall/reinstall and should
+# be a deliberate, separate step, not a side effect of bringing it into git.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: external-dns-ember-private
+  namespace: general-system
+  labels:
+    app.kubernetes.io/name: external-dns-ember-private
+spec:
+  interval: 1h
+  releaseName: external-dns-ember-private
+  chart:
+    spec:
+      chart: external-dns
+      version: "8.0.*"
+      sourceRef:
+        kind: HelmRepository
+        name: bitnami
+        namespace: flux-system
+      interval: 1h
+  install:
+    createNamespace: false
+    remediation:
+      retries: 5
+  upgrade:
+    remediation:
+      retries: 5
+  values:
+    # Serves the private-visibility records for whyf.uk, via the same RouterOS
+    # webhook provider the public mikrotik instance uses.
+    annotationFilter: dns.sargeant.co/visibility=private
+    domainFilters:
+      - whyf.uk
+    extraArgs:
+      webhook-provider-url: http://external-dns-mikrotik-webhook.general-system.svc.cluster.local:8888
+    image:
+      registry: registry.k8s.io
+      repository: external-dns/external-dns
+      tag: v0.20.0
+    logFormat: json
+    logLevel: info
+    # Was `type: pi`, which is being retired. node-role.kubernetes.io/system
+    # selects the same node (ff-pi1) and is what clusterpolicy-place-system uses.
+    nodeSelector:
+      node-role.kubernetes.io/system: ""
+    # `medium` per the desired-state table: internal DNS. Records persist in
+    # RouterOS, so an outage here delays reconciliation rather than breaking
+    # resolution. Set in chart values because a placement label cannot reach a
+    # chart-rendered Deployment.
+    priorityClassName: medium
+    policy: sync
+    provider: webhook
+    registry: txt
+    resources:
+      limits:
+        cpu: 200m
+        memory: 128Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
