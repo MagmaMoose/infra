@@ -3,7 +3,8 @@ kind: Kustomization
 resources:
   - pv.yaml
   - pvc.yaml
-  - daemonset.yaml
+  - statefulset.yaml
+  - service.yaml
 # Inlined from the former clusters/firefly/backup/timemachine overlay.
 # Resources set explicitly; the t.small resource-profile component was removed.
 # Profiles patch containers/0 with `op: add`, which silently overwrote the measured
@@ -15,8 +16,14 @@ resources:
 # allocated).
 #   measured memory is 1157Mi; held at 256Mi for the same reason — this workload stays eviction-prone until ff-vm1 gets RAM
 patches:
+  # kind MUST track the workload kind. This targeted DaemonSet, and converting the
+  # workload to a StatefulSet silently orphaned the patch — kustomize does not warn
+  # when a patch target matches nothing. The effect was invisible in the diff and
+  # loud in the cluster: the memory REQUEST jumped from the 256Mi below to the
+  # 1157Mi inline in the manifest, on a node already at ~99% memory requested,
+  # which is how a pod ends up Pending forever.
   - target:
-      kind: DaemonSet
+      kind: StatefulSet
     patch: |
       - op: replace
         path: /spec/template/spec/containers/0/resources
