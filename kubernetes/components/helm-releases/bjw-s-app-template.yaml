@@ -17,6 +17,12 @@ spec:
   values:
     controllers:
       main:
+        pod:
+          # Priority class, per the desired-state table in cleanup.md.
+          # Set in chart values because the Kyverno assign-priority-class policy
+          # cannot reach a chart-rendered workload — the placement label lands on
+          # the HelmRelease, not the Deployment the chart renders.
+          priorityClassName: medium
         containers:
           main: {}
     defaultPodOptions:
