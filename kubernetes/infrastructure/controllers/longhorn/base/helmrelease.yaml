@@ -30,6 +30,27 @@ spec:
       defaultClass: false
       defaultClassReplicaCount: 2
       reclaimPolicy: Retain
+      # MUST be set here, not only under defaultSettings below.
+      #
+      # defaultSettings.defaultDataLocality is the GLOBAL default, but the chart's
+      # StorageClass template writes its own `dataLocality` parameter from THIS key,
+      # falling back to "disabled" when it is unset — and a StorageClass parameter
+      # overrides the global setting for every volume provisioned through it. So the
+      # cluster read `defaultDataLocality: best-effort` globally while every actual
+      # volume ran with dataLocality "disabled". The comment below said "keep a
+      # replica local to the pod's node" and had never once done so.
+      #
+      # The cost was not theoretical. Nine volumes ended up with the pod on an OCI
+      # node and BOTH replicas on-prem, so every write crossed the site-to-site VPN
+      # synchronously. That is what killed dependency-track: its boot writes could
+      # not finish inside the 310s startup probe window, giving 892 restarts.
+      #
+      # NOTE FOR THE UPGRADE: StorageClass parameters are immutable, so helm cannot
+      # patch the existing `longhorn` class in place. If the HelmRelease fails with
+      # an immutable-field error, delete the StorageClass first and let the chart
+      # recreate it — safe, because deleting a StorageClass does not touch existing
+      # PVs or PVCs, only future provisioning.
+      defaultDataLocality: best-effort
     defaultSettings:
       # 2-node cluster: one replica per node for redundancy / fast failover
       defaultReplicaCount: 2
