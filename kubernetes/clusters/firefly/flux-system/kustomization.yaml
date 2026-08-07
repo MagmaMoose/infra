@@ -30,7 +30,7 @@ patches:
       apiVersion: apps/v1
       kind: Deployment
       metadata:
-        name: ignored
+        name: ignored  # name is irrelevant; target: selector above drives matching
       spec:
         template:
           spec:
