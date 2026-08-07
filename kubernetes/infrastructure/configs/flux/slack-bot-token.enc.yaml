@@ -1,3 +1,7 @@
+# kics-scan disable=b9c83569-459b-4110-8f79-6305aa33cb37
+# SOPS-encrypted Secret — stringData values are ciphertext managed by the age key pair.
+# The "External secret storage is not in use" finding is a false positive; the values
+# are encrypted at rest in this file and decrypted only by flux at apply time.
 apiVersion: v1
 kind: Secret
 metadata:
