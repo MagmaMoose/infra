@@ -93,6 +93,48 @@ data:
           meta_description: Kubernetes dashboard for the firefly cluster.
           policy_engine_mode: any
 
+      # --- The access gate --------------------------------------------------
+      # REPRODUCES THE oauth2-proxy ALLOWLIST. Without this the migration is a
+      # security REGRESSION, not a like-for-like swap: the Google source has an
+      # enrollment flow, so any Google account whatsoever could self-register and
+      # then reach both applications. What it replaces:
+      #   security/oauth2-proxy  --email-domain=magmamoose.com
+      #   misc/oauth2-proxy      --authenticated-emails-file (one @magmamoose.com address)
+      # Both reduce to the same rule, so one policy covers both.
+      #
+      # Bound to the APPLICATION rather than the source, so it is enforced on
+      # every authorization regardless of how the user authenticated.
+      - model: authentik_policies_expression.expressionpolicy
+        id: policy-email-domain
+        identifiers:
+          name: email-domain-magmamoose
+        attrs:
+          execution_logging: true
+          expression: |
+            return request.user.email.lower().endswith("@magmamoose.com")
+
+      - model: authentik_policies.policybinding
+        identifiers:
+          policy: !KeyOf policy-email-domain
+          target: !KeyOf app-defectdojo
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+          failure_result: false
+
+      - model: authentik_policies.policybinding
+        identifiers:
+          policy: !KeyOf policy-email-domain
+          target: !KeyOf app-headlamp
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+          failure_result: false
+
       # --- Bind both to the embedded outpost --------------------------------
       # Without this the providers exist but nothing serves them: the outpost
       # answers /outpost.goauthentik.io/auth/traefik with a 404 for any host it
