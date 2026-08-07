@@ -6,3 +6,4 @@ kind: Kustomization
 resources:
   - flux-kustomization.yaml
   - rbac-flux-kustomization.yaml
+  - priority-classes-flux-kustomization.yaml

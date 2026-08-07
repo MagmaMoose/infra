@@ -52,7 +52,7 @@ I want to follow best practices and industry standards. The below is a list of t
   - `critical`
   - `business`
   - `high`
-  - `medium` (`globalDefault: true` — see appendix; anything unlabelled lands here instead of at priority `0`)
+  - `medium` (NOT `globalDefault` — see appendix; unlabelled pods stay at priority `0` on purpose)
   - `low`
   - [ ] **`business` sits between `high` and `critical` deliberately.** It encodes a different axis from the rest of the scale — the others rank by *blast radius* ("what else breaks?"), this one ranks by *revenue impact* ("who is affected?"). Mixing axes in one ordinal scale is only safe under a single rule, below. Business apps rank **below** `critical` on purpose: the secrets, TLS, admission and data planes are what they run on, so a business app that outranks them wins a scheduling race and then fails anyway.
   - [ ] **Rule: nothing may outrank its own dependencies.** Otherwise under contention an app preempts the very thing it needs and takes itself down — a self-inflicted outage that looks like a mystery. Verified against live pod env today:
@@ -269,7 +269,7 @@ Where these sit relative to what is already installed in the cluster:
 | **`critical`** | **100000** | ours — the planes everything else runs on |
 | **`business`** | **50000** | ours — revenue-bearing apps *and their serving path* |
 | **`high`** | **10000** | ours |
-| **`medium`** | **1000** | ours — `globalDefault`, so nothing sits at `0` |
+| **`medium`** | **1000** | ours — assigned explicitly, never as a global default |
 | **`low`** | **100** | ours |
 
 Names must **not** start with `system-`; the API server rejects those outright. Values are spaced 10× apart so a tier can be inserted later without renumbering, and all of them sit below `longhorn-critical` on purpose: if storage loses a scheduling race, everything stateful above it fails anyway.
@@ -277,9 +277,10 @@ Names must **not** start with `system-`; the API server rejects those outright. 
 ```yaml
 # Priority Classes
 # Higher value = higher priority: scheduled sooner, preempted/evicted later.
-# Unlabelled pods default to 0; `medium` below is globalDefault so they land at
-# 1000 instead. NOTE globalDefault only applies to pods admitted AFTER it is
-# created — existing pods keep priority 0 until they are recreated.
+# Unlabelled pods stay at priority 0. NONE of these is globalDefault, on
+# purpose: a global default silently promotes every unlabelled pod above the
+# things that have no class at all, which on this cluster includes system
+# add-ons. Priority is assigned explicitly via the placement label instead.
 
 ---
 apiVersion: scheduling.k8s.io/v1
@@ -314,7 +315,7 @@ kind: PriorityClass
 metadata:
   name: medium
 value: 1000
-globalDefault: true  # anything unlabelled lands here rather than at 0
+globalDefault: false
 description: "Default for normal workloads. Evictable under genuine pressure."
 
 ---

@@ -1,0 +1,11 @@
+# Scheduling priority tier "medium" (1000). See kustomization.yaml for the full scale
+# and the rationale behind where this sits.
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: medium
+  labels:
+    app.kubernetes.io/part-of: priority-classes
+value: 1000
+globalDefault: false
+description: "Default tier for normal workloads. Evictable under genuine pressure. NOT globalDefault yet - see kustomization.yaml."
