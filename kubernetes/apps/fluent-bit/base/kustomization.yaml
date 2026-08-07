@@ -28,6 +28,8 @@ labels:
   # includeSelectors/includeTemplates false: those fields are immutable on a
   # live controller, so writing to them would break Flux's next apply.
   - pairs:
-      placement.sargeant.co/priority: medium
+      # low, per the desired-state table: log shipping. A gap in shipped logs is
+      # lost visibility, not an outage — it should yield to anything serving traffic.
+      placement.sargeant.co/priority: low
     includeSelectors: false
     includeTemplates: false

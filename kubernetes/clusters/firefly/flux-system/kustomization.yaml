@@ -35,6 +35,22 @@ patches:
         value:
           kubernetes.io/os: linux
           node-role.kubernetes.io/system: ""
+
+  # Priority for the three peripheral controllers. helm-, kustomize- and
+  # source-controller are deliberately untouched: the Flux chart already gives them
+  # system-cluster-critical (2000000000), far above this scale, so folding them into
+  # it would be a four-order-of-magnitude demotion.
+  #
+  # These three are leader-elected and asynchronous — their failure delays image
+  # bumps or alerts rather than stopping reconciliation — so medium is right, and
+  # leaves them well below the three that must not lose a scheduling race.
+  - target:
+      kind: Deployment
+      name: "^(image-automation-controller|image-reflector-controller|notification-controller)$"
+    patch: |-
+      - op: add
+        path: /spec/template/spec/priorityClassName
+        value: medium
 # Note: Removed t.nano resource profile - flux controllers need more resources
 # source-controller needs ~300Mi, kustomize-controller needs ~250Mi
 # Using default flux resources from gotk-components.yaml
