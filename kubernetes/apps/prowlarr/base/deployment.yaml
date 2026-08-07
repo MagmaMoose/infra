@@ -22,7 +22,15 @@ spec:
               memory: "100Mi"
               cpu: "11m"
             limits:
-              memory: "100Mi"
+              # 512Mi, the ceiling the c.pico profile gave this before it was removed —
+              # NOT the 100Mi measured figure. A memory limit set equal to the measured
+              # working set is a hard cap at the steady state, so the first indexer sync
+              # that allocates above average is an OOMKill, and the container dies before
+              # it can log why (exit 137, empty logs). litellm shipped exactly this and
+              # was OOMKilled on every start until the limit was restored.
+              # The request stays at the measured 100Mi so scheduling stays honest;
+              # limits are not scheduler-reserved, so the headroom costs no capacity.
+              memory: "512Mi"
           ports:
             - containerPort: 9696 # Prowlarr web interface
           env:
