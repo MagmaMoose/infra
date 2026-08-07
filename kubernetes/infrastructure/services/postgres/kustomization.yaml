@@ -6,6 +6,8 @@ metadata:
     app.kubernetes.io/sops: enabled
 resources:
   - ./base
-components:
-  - ../../../components/resource-profiles/m.small
-  - ../../../components/node-selectors/pi
+# No components. The m.small resource-profile was removed as a no-op: profiles patch
+# containers/0/resources on Deployment/StatefulSet/DaemonSet, and this kustomization
+# emits a CNPG `Cluster` — the operator builds the instance pods itself, so the patch
+# matched nothing. The instance resources are set on the Cluster spec in base/, which
+# is the only place that reaches them.
