@@ -1,0 +1,86 @@
+---
+# Reapplies the firefly placement labels that the Kyverno placement policies
+# select on.
+#
+# WHY THIS EXISTS: the kubelet is not permitted to self-register labels under
+# `node-role.kubernetes.io/*`, so these cannot be put in k3s's `node-label:`
+# config the way `type=` can — k3s would be rejected at registration. They have
+# to be applied against the API with admin credentials instead, which means they
+# are NOT recreated automatically if a Node object is ever deleted and re-added.
+# They do survive reboots, because they live in etcd rather than on the host.
+#
+# The exposure is real: `kubernetes/apps/kyverno-policies` pins the system tier
+# to `node-role.kubernetes.io/system`, and the Flux controllers are in that tier.
+# If ff-pi1 were re-registered without the label, Flux itself would go Pending
+# and could not reconcile its own fix. Run this playbook after any node rebuild,
+# before assuming the cluster will self-heal.
+#
+# Idempotent: `kubectl label --overwrite` is a no-op when the value already
+# matches, so this reports changed only when it actually put a label back.
+#
+#   ansible-playbook -i hosts.yaml firefly-node-labels.yaml --check
+#   ansible-playbook -i hosts.yaml firefly-node-labels.yaml
+- name: Reapply firefly node placement labels
+  hosts: firefly
+  gather_facts: false
+  become: true
+  vars:
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    # Two orthogonal axes, deliberately:
+    #   node-role.kubernetes.io/*  — what the node IS (system / worker, and the
+    #                                on-prem vs cloud location)
+    #   topology.sargeant.co/tier  — the scheduling tier the policies select on
+    # `type=` is the legacy key and is kept because older manifests still use it.
+    node_labels:
+      ff-pi1:
+        - node-role.kubernetes.io/system=
+        - node-role.kubernetes.io/on-prem=
+        - node-role.kubernetes.io/pi=true
+        - topology.sargeant.co/tier=on-prem
+        - type=pi
+      ff-vm1:
+        - node-role.kubernetes.io/worker=
+        - node-role.kubernetes.io/on-prem=
+        - node-role.kubernetes.io/mini=
+        - topology.sargeant.co/tier=on-prem
+        - type=mini
+      ff-oci1:
+        - node-role.kubernetes.io/worker=
+        - node-role.kubernetes.io/cloud=
+        - topology.sargeant.co/tier=native-cloud
+      ff-oci2:
+        - node-role.kubernetes.io/worker=
+        - node-role.kubernetes.io/cloud=
+        - topology.sargeant.co/tier=native-cloud
+
+  tasks:
+    - name: Read the nodes that actually exist
+      # Labelling a node that is not registered should be a clear skip, not a
+      # confusing kubectl error part-way through the loop.
+      ansible.builtin.command:
+        cmd: k3s kubectl get nodes -o name
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      register: existing_nodes
+      changed_when: false
+
+    - name: Reapply placement labels
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl label node {{ item.0.key }} {{ item.1 }} --overwrite
+      environment:
+        KUBECONFIG: "{{ kubeconfig }}"
+      loop: "{{ node_labels | dict2items | subelements('value') }}"
+      loop_control:
+        label: "{{ item.0.key }} {{ item.1 }}"
+      when: "'node/' + item.0.key in existing_nodes.stdout_lines"
+      register: labelled
+      changed_when: "'not labeled' not in labelled.stdout"
+
+    - name: Report nodes in the inventory that are not registered
+      ansible.builtin.debug:
+        msg: >-
+          {{ item }} is in this playbook but not registered in the cluster —
+          skipped. Rebuild it, or remove it here if it is gone for good.
+      loop: "{{ node_labels.keys() | list }}"
+      when: "'node/' + item not in existing_nodes.stdout_lines"
