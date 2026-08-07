@@ -61,6 +61,11 @@ spec:
     controllers:
       webhook:
         pod:
+          # Priority class, per the desired-state table in cleanup.md.
+          # Set in chart values because the Kyverno assign-priority-class policy
+          # cannot reach a chart-rendered workload — the placement label lands on
+          # the HelmRelease, not the Deployment the chart renders.
+          priorityClassName: medium
           nodeSelector:
             node-role.kubernetes.io/worker: ""
             topology.sargeant.co/tier: on-prem
@@ -69,6 +74,11 @@ spec:
         # webhook picked it up via its explicit override), so the gateway kept landing
         # on the control-plane node ff-pi1. Pin it explicitly, like the webhook.
         pod:
+          # Priority class, per the desired-state table in cleanup.md.
+          # Set in chart values because the Kyverno assign-priority-class policy
+          # cannot reach a chart-rendered workload — the placement label lands on
+          # the HelmRelease, not the Deployment the chart renders.
+          priorityClassName: high
           nodeSelector:
             node-role.kubernetes.io/worker: ""
             topology.sargeant.co/tier: on-prem

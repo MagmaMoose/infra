@@ -19,6 +19,11 @@ spec:
   install:
     createNamespace: false
   values:
+    # Priority class, per the desired-state table in cleanup.md.
+    # Set in chart values because the Kyverno assign-priority-class policy
+    # cannot reach a chart-rendered workload — the placement label lands on
+    # the HelmRelease, not the Deployment the chart renders.
+    priorityClassName: high
     # Use kubernetes-sigs image for better ARM64 support
     image:
       registry: registry.k8s.io
