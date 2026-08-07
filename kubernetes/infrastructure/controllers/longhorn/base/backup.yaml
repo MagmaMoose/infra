@@ -1,3 +1,7 @@
+# KICS 3e2d3b2f "hardcoded secret key" is a false positive: `secretKey` values are
+# ExternalSecret field NAMES mapped to OCI Vault entries, and `credentialSecret` is a
+# Kubernetes secret reference name — no secret value is hardcoded in source.
+# kics-scan disable=3e2d3b2f-c22a-4df1-9cc6-a7a0aebb0c99
 ---
 # Longhorn backup configuration, added 2026-08-07.
 #
@@ -33,11 +37,11 @@ spec:
         AWS_REGION: eu-amsterdam-1
         AWS_ENDPOINTS: https://axn3gwpaabzc.compat.objectstorage.eu-amsterdam-1.oraclecloud.com
   data:
-    - secretKey: access_key
+    - secretKey: access_key # kics-scan ignore-line - ESO secretKey is a field name, not a hardcoded value
       remoteRef:
         key: backup-oci-s3-credentials
         property: access_key
-    - secretKey: secret_key
+    - secretKey: secret_key # kics-scan ignore-line - ESO secretKey is a field name, not a hardcoded value
       remoteRef:
         key: backup-oci-s3-credentials
         property: secret_key
@@ -53,7 +57,7 @@ spec:
   # Longhorn's S3 driver even against OCI, which derives the real endpoint from
   # AWS_ENDPOINTS in the credential secret above.
   backupTargetURL: s3://longhorn-backups@eu-amsterdam-1/
-  credentialSecret: longhorn-backup-oci
+  credentialSecret: longhorn-backup-oci # kics-scan ignore-line - reference name, not a hardcoded secret
   pollInterval: 5m0s
 
 ---
