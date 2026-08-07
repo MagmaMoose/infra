@@ -1,0 +1,95 @@
+---
+# Renamed from `external-dns-ember-private`, 2026-08-07, per cleanup.md's
+# desired-state table. `ember` is the cluster's admin kubeconfig context, not a
+# DNS provider — the name said nothing about what this release does. It is the
+# second RouterOS external-dns instance: same webhook provider as
+# `external-dns-mikrotik`, different visibility scope.
+#
+# A Helm releaseName is immutable, so this is an uninstall/reinstall rather than
+# an upgrade. That is safe here specifically because `txtOwnerId` and `txtPrefix`
+# are unchanged: RouterOS keeps the records and their ownership TXT entries
+# across the gap, and the new release adopts them on its first sync instead of
+# treating them as foreign and (under `policy: sync`) deleting them.
+#
+# This release was CRASHLOOPING when it was adopted, and the rename fixes it.
+# Root cause, confirmed with `kubectl auth can-i` rather than inferred: the
+# chart's own generated ClusterRole
+# (`external-dns-ember-private-general-system`) grants core `endpoints` but NOT
+# `discovery.k8s.io/endpointslices`. external-dns v0.20.0 watches EndpointSlices,
+# so it died on `failed to sync *v1.EndpointSlice: context deadline exceeded`
+# exactly 60s into every start. `external-dns-mikrotik` and
+# `external-dns-cloudflare` never hit this because both decline the chart's RBAC
+# and ship their own ClusterRole, which does include endpointslices. This one now
+# does the same — see rbac.yaml — which is also why serviceAccount.create is
+# false below.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: external-dns-mikrotik-internal
+  namespace: general-system
+  labels:
+    app.kubernetes.io/name: external-dns-mikrotik-internal
+spec:
+  interval: 1h
+  releaseName: external-dns-mikrotik-internal
+  chart:
+    spec:
+      chart: external-dns
+      version: "8.0.*"
+      sourceRef:
+        kind: HelmRepository
+        name: bitnami
+        namespace: flux-system
+      interval: 1h
+  install:
+    createNamespace: false
+    remediation:
+      retries: 5
+  upgrade:
+    remediation:
+      retries: 5
+  values:
+    # Serves the private-visibility records for whyf.uk, via the same RouterOS
+    # webhook provider the public mikrotik instance uses.
+    annotationFilter: dns.sargeant.co/visibility=private
+    domainFilters:
+      - whyf.uk
+    extraArgs:
+      webhook-provider-url: http://external-dns-mikrotik-webhook.general-system.svc.cluster.local:8888
+    image:
+      registry: registry.k8s.io
+      repository: external-dns/external-dns
+      tag: v0.20.0
+    logFormat: json
+    logLevel: info
+    # Declining the chart's RBAC — see the crashloop note above. rbac.yaml
+    # supplies a ClusterRole that actually includes endpointslices.
+    serviceAccount:
+      create: false
+      name: external-dns-mikrotik-internal
+    rbac:
+      create: false
+    # Was `type: pi`, which is being retired. node-role.kubernetes.io/system
+    # selects the same node (ff-pi1) and is what clusterpolicy-place-system uses.
+    nodeSelector:
+      node-role.kubernetes.io/system: ""
+    # `medium` per the desired-state table: internal DNS. Records persist in
+    # RouterOS, so an outage here delays reconciliation rather than breaking
+    # resolution. Set in chart values because a placement label cannot reach a
+    # chart-rendered Deployment.
+    priorityClassName: medium
+    policy: sync
+    provider: webhook
+    registry: txt
+    # DELIBERATELY UNCHANGED by the rename — these two are what tie this instance
+    # to the records it already owns in RouterOS. Editing either would orphan
+    # every existing record, and `policy: sync` would then delete them.
+    txtOwnerId: firefly-private
+    txtPrefix: externaldns-private-
+    resources:
+      limits:
+        cpu: 200m
+        memory: 128Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
