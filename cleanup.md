@@ -41,6 +41,68 @@
 > VM's 28 GB is the actual remedy. Secondary: `nvme0` logged a WRITE timeout on 2026-08-04.
 
 
+> **AUDIT — 2026-08-07. Every remaining item in the deletion/replacement list was checked
+> against the live cluster by 49 agents. Findings that change the plan:**
+>
+> **1. ff-vm1 cannot be right-sized. It needs RAM.** Measured from Prometheus, not a snapshot:
+> its 72 pods have a combined **7-day peak of 40,355Mi against 28,042Mi allocatable — 144%**.
+> Current requests already sit at 100% and are *understated* relative to real peaks; the peaks
+> simply do not coincide. Applying an honest `peak x 1.3` rule frees **222Mi in total**. There
+> is no reclaimable slack, so **PR #502's premise ("ff-vm1 memory back under capacity") does not
+> hold** — an instantaneous `kubectl top` reading makes idle workloads look over-provisioned when
+> their peaks are not. The Proxmox Windows11 VM's 28 GB is the only remedy, and it now gates:
+> defectdojo-django and the trivy scan jobs (both `Pending: Insufficient memory`), honest requests
+> for authentik, the ARC cutover, a MinIO/SeaweedFS parallel run, and item 3 below.
+>
+> **2. DO NOT migrate flannel -> Cilium. It would brick the cluster.** ff-pi1's kernel has no BTF:
+> `/sys/kernel/btf/vmlinux` does not exist and `CONFIG_DEBUG_INFO_BTF` is absent from
+> `/boot/config-6.12.93+rpt-rpi-2712`. Cilium's CO-RE BPF datapath requires it. Compounding:
+> no BMC/IPMI/serial console on any node, no OCI Instance Console Connection provisioned, and
+> **no backups at all** — the Longhorn BackupTarget has an empty URL and `available: false`, there
+> are zero recurringjobs, and no Velero. A failed CNI swap on ff-pi1 takes the apiserver with it
+> and there is no way back in. Strike this item, or precede it with an out-of-band console.
+>
+> **3. Nine Longhorn volumes are cross-site**, i.e. a cloud-tier pod writing synchronously to
+> on-prem replicas over the site-to-site VPN: `database/mariadb`, `database/valkey`,
+> `nextcloud/nextcloud-config`, `wordpress/wordpress-data`, `syncthing/syncthing-data`,
+> `automation/atlantis`, `automation/n8n`, `observability/...-grafana`, and
+> `security/data-dependency-track-api-server-0`. Cause: `node-role.kubernetes.io/worker` spans
+> ff-vm1 **and** both OCI nodes under the orthogonal-axes taxonomy, so workloads whose comments say
+> "worker (ff-vm1)" drift to the cloud. This predates the placement work (the dependency-track
+> selector dates to #394, 2026-06-15). It is what caused dependency-track's **892** startup-probe
+> kills: its boot writes crossed the VPN and could never finish inside the 310s window. Fixing it
+> means pinning them back to ff-vm1 — which is blocked on item 1.
+>
+> **4. Backups are effectively absent, which matters more than any item below.** No Longhorn
+> backup target, no recurring jobs, no Velero, across 45 volumes. The offsite MinIO mirror covers
+> **1.2GiB of the 62GiB `thanos-metrics` bucket and last ran 2026-07-08**; the loki side stopped
+> 2026-06-10. `thanos-metrics` holds up to a year of downsampled history that exists nowhere else
+> (Prometheus keeps 7d). Making the mirror current would blow ~6x past the OCI Always Free tier.
+>
+> **5. authentik is healthy but EMPTY, so the oauth2-proxy migration has no target.** The
+> crashloop stopped on its own (~08:00Z, peaked at 325 restarts, reason `Error`/exit 1, never
+> OOMKilled; root cause undeterminable — the pods are gone and Loki has zero lines for the
+> namespace). But the API reports **0 providers, 0 applications**, and an embedded outpost with
+> `providers: []`. cleanup.md's stated blocker ("blocked on authentik being healthy") is the wrong
+> blocker: it is blocked on authentik never having been configured.
+>
+> **6. The atlantis -> GitHub Actions replacement cannot run.** The appendix workflow targets
+> `[self-hosted, Linux, samenlevingszaken]`; no such runner exists. The only org runner is
+> `firefly-0`, in a group with `allows_public_repositories: false` — and this repo is public. Also
+> missing: `vars.SELFHOSTED_GITHUB_RUNNER`, the `all/deploy` environment, and
+> `secrets.MS_TEAMS_WEBHOOK_URL`. All are GitHub settings changes only the owner can make.
+>
+> **7. mariadb -> Heatwave is blocked on credentials, not design.** The OCI DB System exists but is
+> `INACTIVE`; `OCI_MYSQL_ADMIN_PASSWORD` is unset so the terragrunt leaf fails at HCL parse time for
+> *every* command; and the GCS backend auth is expired, so no plan can be run at all. Note
+> `mysql_version` is pinned to 9.6.0, the live system reports 26.7.0, and 9.6.0 is no longer
+> offered — with `prevent_destroy = false`, a plan run blind could force-replace the DB System.
+>
+> **8. PV -> Longhorn is impossible as written.** 20.9 TiB of bulk-media PVCs (`media/movies`
+> 10.24 TiB, `media/series` 6.42 TiB, `backup/timemachine-share` 2.87 TiB, ...) exceed Longhorn's
+> entire schedulable budget many times over, and two of them are RWX with 7-8 concurrent mounters.
+> The item needs rewording to "non-media PVCs", or dropping.
+
 I want to follow best practices and industry standards. The below is a list of things I want to do to clean up the codebase and make it more maintainable and aligned with best practices and industry standards.
 
 - [~] simplify labels for node-pinning. **New labels APPLIED to the live nodes 2026-08-07** — additive, nothing selects them yet. The insight that makes the taxonomy work: **role and location are orthogonal axes**, which dissolves the old complaint that `worker` spans both tiers. Verified resolution against the live cluster:
