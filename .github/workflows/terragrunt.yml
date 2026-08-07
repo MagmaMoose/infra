@@ -54,7 +54,7 @@ jobs:
       matrix: ${{ steps.stacks.outputs.matrix }}
       has_stacks: ${{ steps.stacks.outputs.has_stacks }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {fetch-depth: 0}
 
       - name: Discover affected stacks
@@ -89,7 +89,7 @@ jobs:
       max-parallel: 1
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Are the OCI credentials configured at all? Every leaf's provider block reads
       # them from the environment (terraform/root.hcl), so without them terragrunt
@@ -185,7 +185,7 @@ jobs:
       max-parallel: 1
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Write the OCI private key
         shell: bash
