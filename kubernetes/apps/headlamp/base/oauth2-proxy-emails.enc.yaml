@@ -10,20 +10,11 @@ sops:
     age:
         - enc: |
             -----BEGIN AGE ENCRYPTED FILE-----
-            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBpa0VyUlNBZ0xuSUNObUFP
-            aGlNalE5b2d6NUZyYXkwc1V1VVFyVVh4RVM0CnhtMlcrNzBybVdrcE5KZk9YNnNR
-            TG9kL3NTeHZRY1daVHY1d2ZwVkdSUDgKLS0tIEVMRDFlY3RvMTlXSlBydUZCQ0FY
-            QVZvYlJ0UldLM2JycXRBbktIbEZjSHMK55KDuQqCN6G4MLOQCe7gHsqMQMD7aOPC
-            9EJL2dbs9Zel37O1J4cMqZmrGlQS6+2oTfyTtQFXhQ2Agfcr+4gZrw==
-            -----END AGE ENCRYPTED FILE-----
-          recipient: age1yj3wdeleng98w9rv46yh40ettc78r9k4r4wgnx7ja5zxmyt8qe7snjg0a0
-        - enc: |
-            -----BEGIN AGE ENCRYPTED FILE-----
-            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBuY1F0a1hQWEJJUEhhSGlG
-            dGxucHFHQ3hrTVZ2cm4vSTVUT0R3SVlRUGkwCmlLRHZFSmNkWUFNb2hYMHNEMThr
-            ZVc4dWp3dlc0Q094S0FraGo1bEN6bkEKLS0tIGhxVVR6SEJUS01qdnJqRTZ4bVJ1
-            WmUyQkJyaEVML2JlYVZ1SlhqQ1o3MEkK+CPX0Im8ocgd1Eege/KT82CzXyzIpfEW
-            8TOMtw7HQ79ND78J5SPAbgSdPAAjaQLxRNMAVqreFXp2Ik9KLa2t0w==
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSArWml5ZjgrVVNBTlNiS1hY
+            MlRJL2NzYVptaFRWUnBmSEVaVEtlRmpQZ1NNCmZ4UGhTNXNUQ3FtSWg1N0wxU214
+            Z3RyVjBGSGdGb2F6M3dHQjFxRWdZdUkKLS0tIHcxOERiN2tvSEMrYjJHVjVZbTFM
+            NEhwQVdIcm90Q1FNMnMwanJzOFRWYWcKGLLpjiER68gYO5mDDHe5XTdjgmqQd5kI
+            FLjVCNMKLBqW4bGG5fkCILEVW3MaGkg4QOSAEVow6agDIcamMW/Diw==
             -----END AGE ENCRYPTED FILE-----
           recipient: age1c5k0q4adlrst6t003whpek86c87ymkdh9num9ha22uhwftvanyds6v2ctc
     encrypted_regex: ^(data|stringData)$

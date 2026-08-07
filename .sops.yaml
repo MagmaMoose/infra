@@ -1,18 +1,13 @@
 creation_rules:
   - path_regex: \.ya?ml$
     encrypted_regex: ^(data|stringData)$
-    # Rotation in progress (phase 1 of 2). Both recipients are listed so every
-    # .enc.yaml carries two age stanzas and either private key can decrypt it.
-    #   age1yj3w… — outgoing key, still the one most laptops/CI have
-    #   age1c5k0… — incoming key
-    # The cluster's flux-system/sops-keys Secret already holds BOTH private keys,
-    # so Flux keeps decrypting across the whole rotation with no window where the
-    # cluster cannot read its own secrets.
+    # Rotation COMPLETE (phase 2 of 2), 2026-08-07. Only the incoming key remains.
+    # age1yj3w… was dropped after confirming the two things that make that safe:
+    # the cluster's flux-system/sops-keys Secret already carried BOTH private keys,
+    # and no CI workflow references an age key at all (0 matches for SOPS_AGE/AGE_KEY
+    # across .github/workflows), so flux and one laptop were the only consumers.
     #
-    # Phase 2 (drop the outgoing recipient, re-run `sops updatekeys`, prune the old
-    # private key from sops-keys) is gated on every consumer having the incoming
-    # key — do not remove age1yj3w… until that is true, because a `sops updatekeys`
-    # run cannot be undone by anyone who no longer holds a listed key.
-    age: >-
-      age1yj3wdeleng98w9rv46yh40ettc78r9k4r4wgnx7ja5zxmyt8qe7snjg0a0,
-      age1c5k0q4adlrst6t003whpek86c87ymkdh9num9ha22uhwftvanyds6v2ctc
+    # Anything still holding only age1yj3w… can no longer decrypt this repo. That is
+    # the point of the rotation, but it means an offline copy of the old key is now
+    # useless rather than merely stale — replace it with the new one.
+    age: age1c5k0q4adlrst6t003whpek86c87ymkdh9num9ha22uhwftvanyds6v2ctc

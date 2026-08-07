@@ -15,7 +15,7 @@
 # Set environment variable for the age key file (can be put in zshrc or bashrc)
 # export SOPS_AGE_KEY_FILE=/Users/calebsargeant/age.agekey
 # Encrypt the secret with sops and the age key
-# sops --encrypt --age age1yj3wdeleng98w9rv46yh40ettc78r9k4r4wgnx7ja5zxmyt8qe7snjg0a0 --encrypted-regex '^(data|stringData)$' -i cloudflare-secret-enc.yaml
+# sops --encrypt --age age1c5k0q4adlrst6t003whpek86c87ymkdh9num9ha22uhwftvanyds6v2ctc --encrypted-regex '^(data|stringData)$' -i cloudflare-secret-enc.yaml
 # Decrypt the secret with sops
 # sops -d cloudflare-secret-enc.yaml
 # The key called "sops-keys" is created in the flux-system namespace with the age key as the value (see playbook below)
@@ -36,7 +36,7 @@
 # I'm not sure if .sops.yaml is needed inside of the cert-manager directory. I think it is not needed:
 # creation_rules:
 #  - encrypted_regex: '^(data)$'
-#    age: "age1yj3wdeleng98w9rv46yh40ettc78r9k4r4wgnx7ja5zxmyt8qe7snjg0a0"
+#    age: "age1c5k0q4adlrst6t003whpek86c87ymkdh9num9ha22uhwftvanyds6v2ctc"
 
 
 #- name: Apply Kubernetes Secret
