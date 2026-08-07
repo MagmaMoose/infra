@@ -1,0 +1,46 @@
+---
+# Mirrors external-dns-mikrotik/base/rbac.yaml. The chart can generate all three
+# of these itself, but its ClusterRole omits `discovery.k8s.io/endpointslices`,
+# which external-dns v0.20.0 watches unconditionally when `service` is a source —
+# without it the process fatals 60s into every start. Both sibling instances
+# already decline the chart's RBAC for this reason; this one now matches them.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: external-dns-mikrotik-internal
+  namespace: general-system
+  labels:
+    app.kubernetes.io/name: external-dns-mikrotik-internal
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: external-dns-mikrotik-internal
+  labels:
+    app.kubernetes.io/name: external-dns-mikrotik-internal
+rules:
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "pods", "nodes"]
+    verbs: ["get", "watch", "list"]
+  - apiGroups: ["extensions", "networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "watch", "list"]
+  # The rule the chart's own ClusterRole is missing.
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "watch", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: external-dns-mikrotik-internal
+  labels:
+    app.kubernetes.io/name: external-dns-mikrotik-internal
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: external-dns-mikrotik-internal
+subjects:
+  - kind: ServiceAccount
+    name: external-dns-mikrotik-internal
+    namespace: general-system
