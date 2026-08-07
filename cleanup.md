@@ -153,7 +153,7 @@ Consequences worth being explicit about:
 - cloudnativepg, `1`, `high` — operator, not the database. Existing clusters keep serving; what stops is reconciliation and failover
 - external-dns-cloudflare, `1`, `high` — public DNS; existing records persist, so failure is eventual rather than immediate
 - external-dns-mikrotik, `1`, `medium` — internal DNS; records persist in RouterOS
-- external-dns-mikrotik-internal, `1`, `medium` (is currently called "external-dns-ember-private")
+- [x] ~~external-dns-mikrotik-internal, `1`, `medium` (is currently called "external-dns-ember-private")~~ — **DONE.** Renamed via Helm uninstall/reinstall (`releaseName` is immutable). Safe because `txtOwnerId`/`txtPrefix` are unchanged, so RouterOS keeps the records and the new release adopts rather than deletes them. The rename also fixed a crashloop that predates it: the Bitnami chart's generated ClusterRole omits `discovery.k8s.io/endpointslices`, which external-dns v0.20.0 requires — it now ships its own RBAC like both sibling instances.
 - external-dns-mikrotik-webhook, `1`, `medium` — the webhook-provider shim external-dns needs because RouterOS isn't a native external-dns provider; ships inside the `external-dns-mikrotik` stack (`base/webhook-deployment.yaml`), so it isn't independently deployable and shares that tier
 - flagger, `1`, `medium` — progressive delivery; if it is down, rollouts stall rather than break (currently 0/1 ready)
 - ~~coredns~~ — leave as-is: k3s-managed, already `system-cluster-critical` (and already has a `topologySpreadConstraint`)

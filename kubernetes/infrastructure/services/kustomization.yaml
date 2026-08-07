@@ -5,8 +5,9 @@ resources:
   - minio
   - external-dns-cloudflare
   - external-dns-mikrotik
-  # Adopted from an unmanaged hand-installed Helm release; see its helmrelease.yaml.
-  - external-dns-ember-private
+  # Adopted from an unmanaged hand-installed Helm release, then renamed off its
+  # original `external-dns-ember-private`; see its helmrelease.yaml.
+  - external-dns-mikrotik-internal
   - postgres
   # Second CNPG cluster pinned to the OCI native-cloud tier (ff-oci1/ff-oci2).
   - postgres-oci
