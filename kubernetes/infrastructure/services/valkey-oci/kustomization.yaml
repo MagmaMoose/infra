@@ -14,6 +14,6 @@ labels:
   # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
   - pairs:
       placement.sargeant.co/tier: cloud
-      placement.sargeant.co/priority: business
+      # priority label removed — dead: the policy precondition requires an empty priorityClassName, and one is set inline.
     includeSelectors: false
     includeTemplates: false

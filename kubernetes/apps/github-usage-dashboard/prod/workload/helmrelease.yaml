@@ -24,6 +24,22 @@ spec:
   upgrade:
     remediation:
       retries: 3
+  # Priority class via a postRenderer, NOT chart values.
+  #
+  # This chart renders no priorityClassName field at all, so a values key would be
+  # silently ignored — Helm accepts unknown keys without error, which would leave
+  # this workload at priority 0 while the manifest claimed otherwise. That silent
+  # no-op is the failure this whole migration kept tripping over, so the class is
+  # patched onto the rendered output instead, where it cannot be ignored.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+            patch: |
+              - op: add
+                path: /spec/template/spec/priorityClassName
+                value: low
   values:
     image:
       repository: ghcr.io/magmamoose/github-usage

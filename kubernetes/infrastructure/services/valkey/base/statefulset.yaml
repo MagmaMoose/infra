@@ -23,6 +23,23 @@ spec:
         fsGroup: 999
         seccompProfile:
           type: RuntimeDefault
+      # `critical`, matching valkey-oci. #565 gave every other datastore an inline
+      # class (postgres, postgres-oci, mariadb, minio, valkey-oci) and missed this
+      # one, leaving the pair split: its twin critical, this one relying on a label.
+      #
+      # This diverges from cleanup.md's "after the repoint, drop valkey back to
+      # high". That line predates #565's data-plane rule and the repoint only moved
+      # nievah and caldrith off this instance — authentik still consumes it, and
+      # authentik is `high`. A cache at `high` serving a consumer at `high` breaks
+      # the rule the scale is built on, that nothing may outrank its dependencies.
+      # critical keeps it above every consumer, consistent with the rest of the
+      # data plane.
+      #
+      # Inline rather than by label for the same reason as the rest of the data
+      # plane: the label mechanism is admission-time only, so with failurePolicy
+      # Ignore a pod admitted during a Kyverno outage would land at priority 0 —
+      # exactly the state that makes a datastore the first eviction victim.
+      priorityClassName: critical
       containers:
         - name: valkey
           # Shared in-cluster cache / Celery broker (Redis-compatible). Internal

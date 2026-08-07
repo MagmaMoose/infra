@@ -13,6 +13,6 @@ labels:
   # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
   - pairs:
       placement.sargeant.co/tier: worker
-      placement.sargeant.co/priority: business
+      # priority label removed — superseded by the inline class above.
     includeSelectors: false
     includeTemplates: false
