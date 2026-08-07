@@ -37,8 +37,12 @@ metadata:
       request. Deliberately sets no default limit.
 spec:
   admission: true
-  # background: true so EXISTING namespaces get one too, not only new ones.
   background: true
+  # generateExisting is what actually BACKFILLS namespaces that already exist.
+  # `background: true` alone only covers subsequent changes — verified the hard
+  # way: with background alone the policy went Ready and generated nothing for
+  # the 40+ namespaces already present.
+  generateExisting: true
   # Ignore, not Fail: this is a guard-rail, and a Kyverno outage must never block
   # namespace creation — unlike the placement policies, where an unpinned workload
   # is the worse outcome.
