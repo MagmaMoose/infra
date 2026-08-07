@@ -1,4 +1,18 @@
 creation_rules:
   - path_regex: \.ya?ml$
     encrypted_regex: ^(data|stringData)$
-    age: age1yj3wdeleng98w9rv46yh40ettc78r9k4r4wgnx7ja5zxmyt8qe7snjg0a0
+    # Rotation in progress (phase 1 of 2). Both recipients are listed so every
+    # .enc.yaml carries two age stanzas and either private key can decrypt it.
+    #   age1yj3w… — outgoing key, still the one most laptops/CI have
+    #   age1c5k0… — incoming key
+    # The cluster's flux-system/sops-keys Secret already holds BOTH private keys,
+    # so Flux keeps decrypting across the whole rotation with no window where the
+    # cluster cannot read its own secrets.
+    #
+    # Phase 2 (drop the outgoing recipient, re-run `sops updatekeys`, prune the old
+    # private key from sops-keys) is gated on every consumer having the incoming
+    # key — do not remove age1yj3w… until that is true, because a `sops updatekeys`
+    # run cannot be undone by anyone who no longer holds a listed key.
+    age: >-
+      age1yj3wdeleng98w9rv46yh40ettc78r9k4r4wgnx7ja5zxmyt8qe7snjg0a0,
+      age1c5k0q4adlrst6t003whpek86c87ymkdh9num9ha22uhwftvanyds6v2ctc

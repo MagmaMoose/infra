@@ -1,26 +1,28 @@
-apiVersion: v1
-kind: Secret
-metadata:
-    name: slack-bot-token
-    namespace: flux-system
-stringData:
-    address: ENC[AES256_GCM,data:SfgocLH2I+asSWhYJBsstzCfJDke85/EuKtIZUdtYn+ljD58DAU=,iv:qXPTWJ2NFkGFoQV6Apx51kFDPaEPViKP3Va8z+V2G/o=,tag:IgPtJo22FLKjGF17JB4WfA==,type:str]
-    token: ENC[AES256_GCM,data:d7PgUbV7RlYHP+sd8Zsm/Y7IWKDFscE4WWOKMyYK6yfKgG9uh+u5D6yDC9ZCM/CMgMggtw4Wu9P9,iv:vhN68pimtGQ8p1o7UsiWjePH1f0TWOPSTh+c5vFc+ns=,tag:yWj3I+KoXMRY1FrueS73Xw==,type:str]
-sops:
-    age:
-        - recipient: age1yj3wdeleng98w9rv46yh40ettc78r9k4r4wgnx7ja5zxmyt8qe7snjg0a0
-          enc: |
-            -----BEGIN AGE ENCRYPTED FILE-----
-            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBlc3ZFVTBSQ2c2MGxxQVhM
-            VDhTd1F3ZGgva2pLcmUxR21uSmJsbDN3QVRnClJibGx5ZVdub1pxSU1LdFcwTW9v
-            SW9MaEhxSnpObjJIbDgxZlJnejVGdEkKLS0tIDF6NHkzUE1wYzVsSk8xOVJhK2d0
-            ak5BeUkxZyswZXZ6bWMwQkZTOTVvN2sK7Sqz5dRCexAqTXwdmyMEsdH3DF7vLXct
-            GWvapq+hwDTuqSLUq8bdyZW/83UBX7bB0qZAh4jV7iLOcYTKMdCrGw==
-            -----END AGE ENCRYPTED FILE-----
-    lastmodified: "2026-01-19T22:38:10Z"
-    mac: ENC[AES256_GCM,data:p9LcNpXV3hiKP8ktzwkzlV7uTPM5xsf4faGXpHgLWv9/3PSH92KHFLPwPwk3mws0YhYbD/h22Ivo+5N0QzJZ5a1CareVPArVtsoenJJ/F4eq7SO+T9KiwnQhUO7BY1O75RZ6NEI2OPZkanMMY2VVk6tI0IKYk57xs989+8ESHTE=,iv:8vg5YV74r8V6gkAuWw3uQOfEWM1kt/3/s0T4QsvAf6U=,tag:YUlSfHKvtFLME7bKtp3qQA==,type:str]
-    encrypted_regex: ^(data|stringData)$
-    version: 3.11.0
+# Flux notification wiring. NO ciphertext lives here any more — the only encrypted
+# value in this stack is the Slack bot token, now in slack-bot-token.enc.yaml.
+#
+# Split out 2026-08-07, because this file was undecryptable by the sops CLI while
+# still working perfectly under flux. Two separate causes, both worth knowing:
+#
+#   1. The Provider and Alert documents below carried `sops:` blocks that encrypted
+#      NOTHING — `encrypted_regex: ^(data|stringData)$` matches no field on those
+#      kinds — and all five sops blocks shared one MAC covering the whole file. So
+#      no single document could be extracted and rekeyed on its own.
+#   2. `github-webhook-token` below holds a PLAINTEXT `stringData.token`. The sops
+#      CLI walks every document, sees a field matching encrypted_regex that is not
+#      ciphertext, and aborts the whole file: `Input string ... does not match sops'
+#      data format`. flux's kustomize-controller instead decrypts per-document and
+#      skips documents with no sops metadata, which is why production never noticed.
+#
+# That divergence is how the 2026-08 rotation nearly lost the Slack token: a
+# `sops updatekeys` pass silently mangled this file rather than rekeying it, and
+# phase 2 (dropping the old recipient) would then have orphaned it permanently.
+# Ciphertext now lives in single-document files, where the CLI and flux agree.
+#
+# NOTE: github-webhook-token is a non-functional placeholder
+# (`ghp_YOUR_GITHUB_TOKEN_HERE`), confirmed against the live Secret — the
+# github-deployment-notifications Alert has never been able to authenticate. Left
+# as-is here rather than fixed silently inside a key-rotation change.
 ---
 apiVersion: notification.toolkit.fluxcd.io/v1beta3
 kind: Provider
@@ -32,21 +34,7 @@ spec:
     channel: engineering-info
     secretRef:
         name: slack-bot-token
-sops:
-    age:
-        - recipient: age1yj3wdeleng98w9rv46yh40ettc78r9k4r4wgnx7ja5zxmyt8qe7snjg0a0
-          enc: |
-            -----BEGIN AGE ENCRYPTED FILE-----
-            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBlc3ZFVTBSQ2c2MGxxQVhM
-            VDhTd1F3ZGgva2pLcmUxR21uSmJsbDN3QVRnClJibGx5ZVdub1pxSU1LdFcwTW9v
-            SW9MaEhxSnpObjJIbDgxZlJnejVGdEkKLS0tIDF6NHkzUE1wYzVsSk8xOVJhK2d0
-            ak5BeUkxZyswZXZ6bWMwQkZTOTVvN2sK7Sqz5dRCexAqTXwdmyMEsdH3DF7vLXct
-            GWvapq+hwDTuqSLUq8bdyZW/83UBX7bB0qZAh4jV7iLOcYTKMdCrGw==
-            -----END AGE ENCRYPTED FILE-----
-    lastmodified: "2026-01-19T22:38:10Z"
-    mac: ENC[AES256_GCM,data:p9LcNpXV3hiKP8ktzwkzlV7uTPM5xsf4faGXpHgLWv9/3PSH92KHFLPwPwk3mws0YhYbD/h22Ivo+5N0QzJZ5a1CareVPArVtsoenJJ/F4eq7SO+T9KiwnQhUO7BY1O75RZ6NEI2OPZkanMMY2VVk6tI0IKYk57xs989+8ESHTE=,iv:8vg5YV74r8V6gkAuWw3uQOfEWM1kt/3/s0T4QsvAf6U=,tag:YUlSfHKvtFLME7bKtp3qQA==,type:str]
-    encrypted_regex: ^(data|stringData)$
-    version: 3.11.0
+
 ---
 apiVersion: notification.toolkit.fluxcd.io/v1beta3
 kind: Provider
@@ -58,21 +46,7 @@ spec:
     channel: engineering-alerts
     secretRef:
         name: slack-bot-token
-sops:
-    age:
-        - recipient: age1yj3wdeleng98w9rv46yh40ettc78r9k4r4wgnx7ja5zxmyt8qe7snjg0a0
-          enc: |
-            -----BEGIN AGE ENCRYPTED FILE-----
-            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBlc3ZFVTBSQ2c2MGxxQVhM
-            VDhTd1F3ZGgva2pLcmUxR21uSmJsbDN3QVRnClJibGx5ZVdub1pxSU1LdFcwTW9v
-            SW9MaEhxSnpObjJIbDgxZlJnejVGdEkKLS0tIDF6NHkzUE1wYzVsSk8xOVJhK2d0
-            ak5BeUkxZyswZXZ6bWMwQkZTOTVvN2sK7Sqz5dRCexAqTXwdmyMEsdH3DF7vLXct
-            GWvapq+hwDTuqSLUq8bdyZW/83UBX7bB0qZAh4jV7iLOcYTKMdCrGw==
-            -----END AGE ENCRYPTED FILE-----
-    lastmodified: "2026-01-19T22:38:10Z"
-    mac: ENC[AES256_GCM,data:p9LcNpXV3hiKP8ktzwkzlV7uTPM5xsf4faGXpHgLWv9/3PSH92KHFLPwPwk3mws0YhYbD/h22Ivo+5N0QzJZ5a1CareVPArVtsoenJJ/F4eq7SO+T9KiwnQhUO7BY1O75RZ6NEI2OPZkanMMY2VVk6tI0IKYk57xs989+8ESHTE=,iv:8vg5YV74r8V6gkAuWw3uQOfEWM1kt/3/s0T4QsvAf6U=,tag:YUlSfHKvtFLME7bKtp3qQA==,type:str]
-    encrypted_regex: ^(data|stringData)$
-    version: 3.11.0
+
 ---
 apiVersion: notification.toolkit.fluxcd.io/v1beta3
 kind: Alert
@@ -94,21 +68,7 @@ spec:
         - ^Helm install succeeded.*
         - ^Helm upgrade succeeded.*
     suspend: false
-sops:
-    age:
-        - recipient: age1yj3wdeleng98w9rv46yh40ettc78r9k4r4wgnx7ja5zxmyt8qe7snjg0a0
-          enc: |
-            -----BEGIN AGE ENCRYPTED FILE-----
-            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBlc3ZFVTBSQ2c2MGxxQVhM
-            VDhTd1F3ZGgva2pLcmUxR21uSmJsbDN3QVRnClJibGx5ZVdub1pxSU1LdFcwTW9v
-            SW9MaEhxSnpObjJIbDgxZlJnejVGdEkKLS0tIDF6NHkzUE1wYzVsSk8xOVJhK2d0
-            ak5BeUkxZyswZXZ6bWMwQkZTOTVvN2sK7Sqz5dRCexAqTXwdmyMEsdH3DF7vLXct
-            GWvapq+hwDTuqSLUq8bdyZW/83UBX7bB0qZAh4jV7iLOcYTKMdCrGw==
-            -----END AGE ENCRYPTED FILE-----
-    lastmodified: "2026-01-19T22:38:10Z"
-    mac: ENC[AES256_GCM,data:p9LcNpXV3hiKP8ktzwkzlV7uTPM5xsf4faGXpHgLWv9/3PSH92KHFLPwPwk3mws0YhYbD/h22Ivo+5N0QzJZ5a1CareVPArVtsoenJJ/F4eq7SO+T9KiwnQhUO7BY1O75RZ6NEI2OPZkanMMY2VVk6tI0IKYk57xs989+8ESHTE=,iv:8vg5YV74r8V6gkAuWw3uQOfEWM1kt/3/s0T4QsvAf6U=,tag:YUlSfHKvtFLME7bKtp3qQA==,type:str]
-    encrypted_regex: ^(data|stringData)$
-    version: 3.11.0
+
 ---
 apiVersion: notification.toolkit.fluxcd.io/v1beta3
 kind: Alert
@@ -125,21 +85,7 @@ spec:
         - kind: HelmRelease
           name: '*'
     suspend: false
-sops:
-    age:
-        - recipient: age1yj3wdeleng98w9rv46yh40ettc78r9k4r4wgnx7ja5zxmyt8qe7snjg0a0
-          enc: |
-            -----BEGIN AGE ENCRYPTED FILE-----
-            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBlc3ZFVTBSQ2c2MGxxQVhM
-            VDhTd1F3ZGgva2pLcmUxR21uSmJsbDN3QVRnClJibGx5ZVdub1pxSU1LdFcwTW9v
-            SW9MaEhxSnpObjJIbDgxZlJnejVGdEkKLS0tIDF6NHkzUE1wYzVsSk8xOVJhK2d0
-            ak5BeUkxZyswZXZ6bWMwQkZTOTVvN2sK7Sqz5dRCexAqTXwdmyMEsdH3DF7vLXct
-            GWvapq+hwDTuqSLUq8bdyZW/83UBX7bB0qZAh4jV7iLOcYTKMdCrGw==
-            -----END AGE ENCRYPTED FILE-----
-    lastmodified: "2026-01-19T22:38:10Z"
-    mac: ENC[AES256_GCM,data:p9LcNpXV3hiKP8ktzwkzlV7uTPM5xsf4faGXpHgLWv9/3PSH92KHFLPwPwk3mws0YhYbD/h22Ivo+5N0QzJZ5a1CareVPArVtsoenJJ/F4eq7SO+T9KiwnQhUO7BY1O75RZ6NEI2OPZkanMMY2VVk6tI0IKYk57xs989+8ESHTE=,iv:8vg5YV74r8V6gkAuWw3uQOfEWM1kt/3/s0T4QsvAf6U=,tag:YUlSfHKvtFLME7bKtp3qQA==,type:str]
-    encrypted_regex: ^(data|stringData)$
-    version: 3.11.0
+
 ---
 apiVersion: notification.toolkit.fluxcd.io/v1beta3
 kind: Provider
@@ -151,6 +97,7 @@ spec:
     address: https://github.com/CalebSargeant/infra
     secretRef:
         name: github-webhook-token
+
 ---
 apiVersion: v1
 kind: Secret
@@ -159,6 +106,7 @@ metadata:
     namespace: flux-system
 stringData:
     token: ghp_YOUR_GITHUB_TOKEN_HERE  # needs repo scope
+
 ---
 apiVersion: notification.toolkit.fluxcd.io/v1beta3
 kind: Alert
