@@ -1,0 +1,170 @@
+---
+# Proxy Providers + Applications for the two services migrating off oauth2-proxy,
+# plus the embedded-outpost binding that actually makes them serve.
+#
+# HOW THIS IS DISCOVERED, because an earlier attempt got it wrong. authentik does
+# NOT pick up a ConfigMap because it carries
+# `blueprints.goauthentik.io/instantiate: "true"` — that label is inert here. The
+# chart mounts blueprints only from ConfigMaps NAMED in `blueprints.configMaps`
+# (see the helmrelease), which it mounts under /blueprints/mounted. A labelled
+# ConfigMap that is not in that list is silently ignored: 28 stock blueprints keep
+# running, the new one never appears, and nothing logs a complaint.
+#
+# Only keys ending in `.yaml` are read, hence the data key below.
+#
+# WHY forward_single AND NOT forward_domain. authentik is on
+# authentik.magmamoose.com, defectdojo on defectdojo.magmamoose.com, headlamp on
+# headlamp.sargeant.co — a DIFFERENT apex. Domain-level forward auth requires the
+# outpost and the app to share a cookie domain, which headlamp cannot do. Each
+# provider therefore terminates its own auth on its own host.
+#
+# NO SECRETS HERE. This is a ConfigMap in a PUBLIC repo. The Google OAuth Source
+# that backs these providers carries a client secret and is deliberately NOT in
+# this file — see the note in helmrelease.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: authentik-blueprint-proxy-providers
+  namespace: authentik
+data:
+  proxy-providers.yaml: |
+    version: 1
+    metadata:
+      name: oauth2-proxy-replacement
+      labels:
+        blueprints.goauthentik.io/description: |
+          Proxy providers replacing misc/oauth2-proxy and security/oauth2-proxy.
+    entries:
+      # --- DefectDojo -------------------------------------------------------
+      # skip_path_regex reproduces oauth2-proxy's two --skip-auth-route rules.
+      # Dropping them would put authentication in front of the REST API and the
+      # inbound webhook endpoint, breaking every API client and every integration
+      # that posts findings in — a silent break, since both return a redirect to a
+      # login page rather than an error.
+      - model: authentik_providers_proxy.proxyprovider
+        id: provider-defectdojo
+        identifiers:
+          name: defectdojo
+        attrs:
+          authorization_flow:
+            !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow:
+            !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          external_host: https://defectdojo.magmamoose.com
+          mode: forward_single
+          access_token_validity: hours=24
+          skip_path_regex: |-
+            ^/api/v2
+            ^/webhook
+
+      - model: authentik_core.application
+        id: app-defectdojo
+        identifiers:
+          slug: defectdojo
+        attrs:
+          name: DefectDojo
+          provider: !KeyOf provider-defectdojo
+          meta_launch_url: https://defectdojo.magmamoose.com
+          meta_description: Vulnerability management and finding aggregation.
+          policy_engine_mode: any
+
+      # --- Headlamp ---------------------------------------------------------
+      - model: authentik_providers_proxy.proxyprovider
+        id: provider-headlamp
+        identifiers:
+          name: headlamp
+        attrs:
+          authorization_flow:
+            !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+          invalidation_flow:
+            !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+          external_host: https://headlamp.sargeant.co
+          mode: forward_single
+          access_token_validity: hours=24
+
+      - model: authentik_core.application
+        id: app-headlamp
+        identifiers:
+          slug: headlamp
+        attrs:
+          name: Headlamp
+          provider: !KeyOf provider-headlamp
+          meta_launch_url: https://headlamp.sargeant.co
+          meta_description: Kubernetes dashboard for the firefly cluster.
+          policy_engine_mode: any
+
+      # --- The access gate --------------------------------------------------
+      # REPRODUCES THE oauth2-proxy ALLOWLIST. Without this the migration is a
+      # security REGRESSION, not a like-for-like swap: the Google source has an
+      # enrollment flow, so any Google account whatsoever could self-register and
+      # then reach both applications. What it replaces:
+      #   security/oauth2-proxy  --email-domain=magmamoose.com
+      #   misc/oauth2-proxy      --authenticated-emails-file (one @magmamoose.com address)
+      # Both reduce to the same rule, so one policy covers both.
+      #
+      # Bound to the APPLICATION rather than the source, so it is enforced on
+      # every authorization regardless of how the user authenticated.
+      - model: authentik_policies_expression.expressionpolicy
+        id: policy-email-domain
+        identifiers:
+          name: email-domain-magmamoose
+        attrs:
+          execution_logging: true
+          expression: |
+            return request.user.email.lower().endswith("@magmamoose.com")
+
+      - model: authentik_policies.policybinding
+        identifiers:
+          policy: !KeyOf policy-email-domain
+          target: !KeyOf app-defectdojo
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+          failure_result: false
+
+      - model: authentik_policies.policybinding
+        identifiers:
+          policy: !KeyOf policy-email-domain
+          target: !KeyOf app-headlamp
+        attrs:
+          order: 0
+          enabled: true
+          negate: false
+          timeout: 30
+          failure_result: false
+
+      # --- Bind both to the embedded outpost --------------------------------
+      # Without this the providers exist but nothing serves them: the outpost
+      # answers /outpost.goauthentik.io/auth/traefik with a 404 for any host it
+      # does not own, which during a cutover reads as "auth is broken" rather
+      # than "the provider is not attached".
+      - model: authentik_outposts.outpost
+        identifiers:
+          name: authentik Embedded Outpost
+        attrs:
+          type: proxy
+          # authentik_host IS REQUIRED and ships EMPTY. With it unset the outpost
+          # builds its authorize redirect against `http://localhost`, so a browser
+          # arriving at defectdojo or headlamp is bounced to
+          # http://localhost/application/o/authorize/ and the login dead-ends.
+          #
+          # This is invisible until a real browser tries it: the forward-auth
+          # endpoint still returns a correct-looking 302, and the redirect_uri
+          # inside it is right (that comes from the provider's external_host) —
+          # only the authorize ORIGIN is wrong. Verified by reading the Location
+          # header, not by checking the status code.
+          #
+          # The outpost caches this config and refreshes every 5 minutes, so a
+          # change here needs a restart of authentik-server (the embedded outpost
+          # runs inside it) before it takes effect.
+          config:
+            authentik_host: https://authentik.magmamoose.com
+            authentik_host_browser: https://authentik.magmamoose.com
+            authentik_host_insecure: false
+            log_level: info
+            object_naming_template: ak-outpost-%(name)s
+          providers:
+            - !KeyOf provider-defectdojo
+            - !KeyOf provider-headlamp

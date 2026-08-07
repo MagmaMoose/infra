@@ -53,6 +53,15 @@ spec:
         enabled: false
     postgresql:
       enabled: false
+    # Blueprints are mounted from ConfigMaps NAMED here — the chart mounts each
+    # one under /blueprints/mounted and the worker applies every *.yaml key it
+    # finds. Labelling a ConfigMap `blueprints.goauthentik.io/instantiate: "true"`
+    # does NOT work on its own and fails silently: the stock blueprints keep
+    # running, the new one simply never appears, and nothing logs a complaint.
+    # That cost an afternoon; see blueprint-proxy-providers.yaml.
+    blueprints:
+      configMaps:
+        - authentik-blueprint-proxy-providers
     server:
       # Priority class, per the desired-state table in cleanup.md.
       # Set in chart values because the Kyverno assign-priority-class policy
