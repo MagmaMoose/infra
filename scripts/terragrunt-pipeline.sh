@@ -113,7 +113,7 @@ run_stack() {
 redact() {
   sed -E \
     -e 's/(password|secret|token|private_key|api_key|access_key|client_secret|admin_password)([^=:]*)([=:][[:space:]]*)"[^"]*"/\1\2\3"[REDACTED]"/Ig' \
-    -e 's/(-----BEGIN [A-Z ]*PRIVATE KEY-----)/[REDACTED PRIVATE KEY]/g' \
+    -e '/-----BEGIN [A-Z ]*PRIVATE KEY-----/,/-----END [A-Z ]*PRIVATE KEY-----/c\[REDACTED PRIVATE KEY]' \
     -e 's/ocid1\.(customersecretkey|apikey)\.[A-Za-z0-9.-]+/[REDACTED OCID]/g' \
     "$1"
 }
