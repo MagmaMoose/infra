@@ -11,7 +11,7 @@ resources:
 # Resources set explicitly in deployment.yaml (raw, per repo convention) —
 # the c.small profile was overriding the inline values up to 512Mi.
 # Migrated off ff-pi1: hostPath pv.yaml dropped, pvc.yaml now Longhorn,
-# pinned to the worker node (k3s agent) instead of the Pi (system node).
+# pinned to the native-cloud tier (ff-oci1/ff-oci2).
 labels:
   # Placement tier — consumed by the Kyverno `place-cloud` ClusterPolicy, which
   # adds the nodeSelector at admission. Replaces components/node-selectors/native-cloud.
