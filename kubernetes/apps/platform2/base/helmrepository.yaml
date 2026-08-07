@@ -2,14 +2,14 @@
 # Chart source for both Platform2 releases. The charts are published as OCI
 # artifacts from tengen-systems/platform2 — there is no chart index to fetch and
 # no HTTP repository to add, so this is the repo's FIRST `type: oci`
-# HelmRepository (every entry in infrastructure/flux/helmrepositories.yaml is a
+# HelmRepository (every entry in infrastructure/configs/flux/helmrepositories.yaml is a
 # classic index). HelmRepository rather than OCIRepository on purpose: a
 # HelmRelease pointed at an OCIRepository has to name one immutable artifact
 # revision, while this shape keeps the `chart` + semver `version` range that
 # every other HelmRelease in this repo uses (see mikrotik-minder), so a chart
 # release is picked up without a commit here.
 #
-# It lives in this app's dir rather than in infrastructure/flux/ because it is
+# It lives in this app's dir rather than in infrastructure/configs/flux/ because it is
 # app-scoped and needs an app-scoped credential — same reasoning as the
 # per-app GitRepository sources under caldrith/ and github-usage-dashboard/.
 apiVersion: source.toolkit.fluxcd.io/v1

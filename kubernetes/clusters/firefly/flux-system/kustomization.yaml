@@ -9,7 +9,7 @@ resources:
   # refs, so nothing re-parents: the exact same objects, applied by the exact
   # same Kustomization, just sourced from their new locations.
   - ../apps.yaml                  # meta `apps` Kustomization (builds clusters/firefly/)
-  - ../../../infrastructure/flux  # HelmRepositories, registry/Git auth secrets, notifications
+  - ../../../infrastructure/configs/flux  # HelmRepositories, registry/Git auth secrets, notifications
 
 # Flux's own controllers are pinned INLINE — not by the placement label the rest of
 # the cluster uses, and no longer by the deleted node-selectors component.
