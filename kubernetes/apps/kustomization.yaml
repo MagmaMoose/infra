@@ -94,7 +94,6 @@ resources:
   - ./defectdojo
   - ./dependency-track
   - ./falco
-  - ./kubescape
   - ./kyverno-policies
   - ./security-integrations
   - ./sonarqube
