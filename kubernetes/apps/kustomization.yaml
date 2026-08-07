@@ -8,7 +8,13 @@ resources:
   - ./hermes
   - ./homeassistant
   - ./homebridge
-  - ./git-pull-request-dashboard
+  # git-pull-request-dashboard removed 2026-08-07 per cleanup.md — GitHub's own PR
+  # views cover it. Its Flux Kustomization owned six objects, all in `automation`:
+  # the dashboard Deployment/Service, its github-oauth ExternalSecret, AND the
+  # oauth2-proxy Deployment/Service/ExternalSecret that fronted it. So this single
+  # removal also retires the `automation/oauth2-proxy` instance that cleanup.md
+  # lists separately for migration to authentik — there is nothing left for it to
+  # front, which makes it a deletion rather than a migration.
   - ./litellm
   # PARKED — fleet-shared memory (mem0 on shared CNPG pgvector, via LiteLLM). The Database
   # CR + pgvector bootstrap Job are safe to reconcile early; the mem0 pod ImagePullBackOffs
