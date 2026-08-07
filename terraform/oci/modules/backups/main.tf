@@ -93,6 +93,33 @@ resource "oci_identity_policy" "backup_writers" {
   ]
 }
 
+# The Object Storage SERVICE PRINCIPAL needs its own grant before any lifecycle
+# policy can run. Without it every oci_objectstorage_object_lifecycle_policy above
+# fails at apply with:
+#
+#   400-InsufficientServicePermissions, Permissions granted to the object storage
+#   service principal "objectstorage-<region>" to this bucket are insufficient.
+#
+# This was missing entirely, so the lifecycle rules had NEVER been applied to any
+# of the four buckets — verified against the live tenancy, where no policy
+# mentioned the service principal at all. That matters because those rules are the
+# only thing purging non-current versions: with versioning Enabled and nothing
+# reclaiming them, every object Barman or `mc mirror` "deletes" has been retained
+# forever as a non-current version. That is precisely the unbounded Object Storage
+# growth the comment on the lifecycle resource warns about, and it has been
+# happening the whole time rather than being prevented.
+#
+# Separate from backup_writers above because that policy grants a GROUP; this
+# grants an OCI service. They cannot be combined.
+resource "oci_identity_policy" "objectstorage_lifecycle" {
+  compartment_id = var.compartment_ocid
+  name           = "objectstorage-lifecycle"
+  description    = "Let the Object Storage service run lifecycle rules on the backup buckets"
+  statements = [
+    "Allow service objectstorage-${var.region} to manage object-family in compartment id ${var.compartment_ocid} where any {${local.bucket_match}}",
+  ]
+}
+
 # S3-compatible credentials: .id = Access Key ID, .key = Secret (creation-only)
 resource "oci_identity_customer_secret_key" "backup_writer" {
   display_name = "backup-writer-s3"
