@@ -6,11 +6,18 @@ metadata:
     app.kubernetes.io/sops: enabled
 resources:
   - ./base
-components:
-  # Resources are set explicitly inline in base/statefulset.yaml (192Mi req /
-  # 512Mi limit, sized from live `kubectl top` ~82Mi) per repo convention —
-  # the m.pico resource-profile over-reserved 512Mi req / 1Gi limit on ff-pi1
-  # and added a CPU limit. Dropped in favour of inline sizing.
-  # Migrated off ff-pi1: static hostPath pv.yaml dropped, pvc.yaml now Longhorn,
-  # pinned to the worker node instead of the Pi (system node).
-  - ../../../components/node-selectors/worker
+# Resources are set explicitly inline in base/statefulset.yaml (192Mi req /
+# 512Mi limit, sized from live `kubectl top` ~82Mi) per repo convention —
+# the m.pico resource-profile over-reserved 512Mi req / 1Gi limit on ff-pi1
+# and added a CPU limit. Dropped in favour of inline sizing.
+# Migrated off ff-pi1: static hostPath pv.yaml dropped, pvc.yaml now Longhorn,
+# pinned to the worker node instead of the Pi (system node).
+labels:
+  # Placement tier — consumed by the Kyverno `place-worker` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/worker.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: worker
+    includeSelectors: false
+    includeTemplates: false

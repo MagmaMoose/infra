@@ -5,5 +5,12 @@ resources:
   - service.yaml
   - configmap.yaml
   - probe.yaml
-components:
-  - ../../../components/node-selectors/mini
+labels:
+  # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/mini.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: on-prem
+    includeSelectors: false
+    includeTemplates: false

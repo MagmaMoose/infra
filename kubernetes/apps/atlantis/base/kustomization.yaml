@@ -30,9 +30,16 @@ resources:
   # them from the secret-*.yaml.template files via SOPS, then uncomment:
   # - secret-aws.enc.yaml
   # - secret-azure.enc.yaml
-components:
-  # Resources are set explicitly in deployment.yaml (raw, per repo convention)
-  # rather than via a resource-profile t-shirt component — see the rationale
-  # comment there: ~55Mi idle, request trimmed to 256Mi, 2Gi limit kept for
-  # terragrunt plan spikes, no CPU limit.
-  - ../../../components/node-selectors/native-cloud
+# Resources are set explicitly in deployment.yaml (raw, per repo convention)
+# rather than via a resource-profile t-shirt component — see the rationale
+# comment there: ~55Mi idle, request trimmed to 256Mi, 2Gi limit kept for
+# terragrunt plan spikes, no CPU limit.
+labels:
+  # Placement tier — consumed by the Kyverno `place-cloud` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/native-cloud.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: cloud
+    includeSelectors: false
+    includeTemplates: false

@@ -5,7 +5,14 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
-components:
-  # resources set explicitly inline in deployment.yaml (right-sized from live usage);
-  # c.micro resource-profile removed — it op:add-overrode the inline block.
-  - ../../../components/node-selectors/mini
+# resources set explicitly inline in deployment.yaml (right-sized from live usage);
+# c.micro resource-profile removed — it op:add-overrode the inline block.
+labels:
+  # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/mini.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: on-prem
+    includeSelectors: false
+    includeTemplates: false

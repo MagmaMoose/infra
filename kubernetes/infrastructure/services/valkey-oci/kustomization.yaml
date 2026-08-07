@@ -4,8 +4,15 @@ metadata:
   name: valkey-oci
 resources:
   - ./base
-components:
-  # Pin to the OCI native-cloud tier (ff-oci1/ff-oci2) — same tier as
-  # postgres-oci. Patches the StatefulSet's nodeSelector with
-  # topology.sargeant.co/tier: native-cloud.
-  - ../../../components/node-selectors/native-cloud
+# Pin to the OCI native-cloud tier (ff-oci1/ff-oci2) — same tier as
+# postgres-oci. Patches the StatefulSet's nodeSelector with
+# topology.sargeant.co/tier: native-cloud.
+labels:
+  # Placement tier — consumed by the Kyverno `place-cloud` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/native-cloud.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: cloud
+    includeSelectors: false
+    includeTemplates: false

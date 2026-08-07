@@ -7,8 +7,15 @@ resources:
   - externalsecret.yaml
   - configmap.yaml
   - statefulset.yaml
-components:
-  # Pin to ff-vm1 (the only amd64 node, 32 GiB) — the actions-runner + MegaLinter
-  # images are amd64 and need multi-GB RAM. worker-on-prem selects the worker role
-  # AND the on-prem tier so the pod never drifts onto the arm64 OCI workers.
-  - ../../../components/node-selectors/worker-on-prem
+# Pin to ff-vm1 (the only amd64 node, 32 GiB) — the actions-runner + MegaLinter
+# images are amd64 and need multi-GB RAM. worker-on-prem selects the worker role
+# AND the on-prem tier so the pod never drifts onto the arm64 OCI workers.
+labels:
+  # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/worker-on-prem.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: on-prem
+    includeSelectors: false
+    includeTemplates: false

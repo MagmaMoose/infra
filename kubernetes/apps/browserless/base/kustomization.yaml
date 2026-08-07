@@ -5,6 +5,13 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
-components:
-  # Pin to ff-vm1 (type=mini, amd64) — Chromium is heavy; keep it off the Pi.
-  - ../../../components/node-selectors/mini
+# Pin to ff-vm1 (type=mini, amd64) — Chromium is heavy; keep it off the Pi.
+labels:
+  # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/mini.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: on-prem
+    includeSelectors: false
+    includeTemplates: false

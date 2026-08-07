@@ -27,6 +27,13 @@ data:
     defaultPodOptions:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
+      # Placement set explicitly, NOT via the Kyverno place-on-prem policy:
+      # homebridge is rendered by Helm (bjw-s app-template), so the kustomize
+      # `labels:` lands on the HelmRelease, not on the DaemonSet Helm produces.
+      # A label-selector policy cannot see it and the workload would land UNPINNED.
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+        topology.sargeant.co/tier: on-prem
 
     service:
       main:

@@ -3,8 +3,6 @@ kind: Kustomization
 resources:
   - statefulset.yaml
   - service.yaml
-components:
-  - ../../../components/node-selectors/mini
 patches:
   # Homelab runs a single Thanos Store replica (base declares 2 for HA; one is
   # enough to serve long-term blocks from MinIO on this 2-node cluster). Was 0,
@@ -16,3 +14,12 @@ patches:
     target:
       kind: StatefulSet
       labelSelector: "app.kubernetes.io/name=thanos-store"
+labels:
+  # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/mini.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: on-prem
+    includeSelectors: false
+    includeTemplates: false

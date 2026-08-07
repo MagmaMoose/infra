@@ -4,8 +4,6 @@ resources:
   - configmap.enc.yaml
   - statefulset.yaml
   - service.yaml
-components:
-  - ../../../components/node-selectors/mini
 patches:
   # Loki resources. Steady-state is ~224Mi, but a too-tight limit OOMKilled the pod
   # (exit 137) during WAL replay, and each OOM grew the next replay — a vicious
@@ -27,3 +25,12 @@ patches:
     target:
       kind: StatefulSet
       labelSelector: "app.kubernetes.io/name=loki"
+labels:
+  # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/mini.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: on-prem
+    includeSelectors: false
+    includeTemplates: false

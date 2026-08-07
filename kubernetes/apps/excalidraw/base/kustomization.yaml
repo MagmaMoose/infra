@@ -6,6 +6,13 @@ resources:
   - service.yaml
   - middleware.yaml
   - ingress.yaml
-components:
-  # Stateless app — belongs on a worker node, not the Pi (system role).
-  - ../../../components/node-selectors/native-cloud
+# Stateless app — belongs on a worker node, not the Pi (system role).
+labels:
+  # Placement tier — consumed by the Kyverno `place-cloud` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/native-cloud.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  - pairs:
+      placement.sargeant.co/tier: cloud
+    includeSelectors: false
+    includeTemplates: false
