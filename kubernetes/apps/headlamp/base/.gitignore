@@ -1,4 +1,10 @@
 # Temporary kubeconfig files (contain sensitive tokens)
+#
+# NOTE: this is an ALLOWLIST — `*.yaml` ignores everything and each manifest must
+# be un-ignored by name below. A new file added to this directory is therefore
+# skipped SILENTLY by `git add`, with no warning, and the first sign of trouble is
+# Flux failing to build because kustomization.yaml references a file that was
+# never pushed. If you add a manifest here, add its negation too.
 *.yaml
 !kustomization.yaml
 !configmap.yaml
@@ -12,6 +18,7 @@
 !middleware-oauth2.yaml
 !middleware-oauth2-p1.yaml
 !middleware-errors.yaml
+!middleware-authentik.yaml
 !ingressroute.yaml
 !ingressroute-p1.yaml
 !certificate.yaml
