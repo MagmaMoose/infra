@@ -1,0 +1,86 @@
+---
+# Makes the firefly placement labels survive a Node object being recreated.
+#
+# THE GAP THIS CLOSES. `firefly-node-labels.yaml` (the sibling playbook) applies
+# labels through the API with `kubectl label`. Those live in etcd, so they survive
+# reboots — but NOT the Node object being deleted and re-registered, which is what
+# happens on a rebuild, a re-join, or `kubectl delete node`. Everything pinned to
+# them, including the Flux controllers, goes Pending at that moment, and Flux
+# cannot reconcile the fix because Flux is itself one of the things that is Pending.
+#
+# WHY NOT JUST PUT ALL THE LABELS IN k3s's node-label. Because the kubelet is not
+# allowed to self-register most of them. The NodeRestriction admission plugin
+# rejects kubelet-set labels inside the `kubernetes.io`/`k8s.io` namespaces except
+# for a short allow-list, and `node-role.kubernetes.io/*` is not on it. Putting
+# those in `node-label:` does not silently no-op — registration is refused.
+#
+# So the fleet uses two axes on purpose, and only one of them can be durable:
+#
+#   node-role.kubernetes.io/*   API-applied, NOT self-registerable -> sibling playbook
+#   topology.sargeant.co/*      no restriction, self-registerable  -> THIS playbook
+#
+# The OCI pair already proves the custom prefix works: terraform passes
+# `--node-label topology.sargeant.co/tier=native-cloud` on the k3s-agent command
+# line via cloud-init, and it registers fine.
+#
+# NOTE ON WHEN THIS TAKES EFFECT. `node-label` is read at INITIAL registration only.
+# Running this against a node that is already registered changes nothing today and
+# needs no restart — that is the point. It is what makes the labels come back
+# correctly the next time the node registers.
+#
+# The long-term direction is to move the placement policies off
+# `node-role.kubernetes.io/*` and onto `topology.sargeant.co/*` entirely, at which
+# point the sibling playbook can be deleted and placement becomes durable by
+# construction. Until then both are needed.
+#
+#   ansible-playbook -i hosts.yaml firefly-node-label-durability.yaml --check --diff
+#   ansible-playbook -i hosts.yaml firefly-node-label-durability.yaml
+- name: Make firefly placement labels durable in k3s config
+  hosts: firefly_cluster
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Ensure the k3s config drop-in directory exists
+      # k3s merges every *.yaml here over /etc/rancher/k3s/config.yaml, in lexical
+      # order. A drop-in rather than an edit to config.yaml, so this cannot clobber
+      # node-ip / flannel-iface on the server or max-pods on ff-vm1.
+      ansible.builtin.file:
+        path: /etc/rancher/k3s/config.yaml.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Write the durable placement labels
+      ansible.builtin.copy:
+        dest: /etc/rancher/k3s/config.yaml.d/10-placement-labels.yaml
+        owner: root
+        group: root
+        mode: "0644"
+        # validate runs BEFORE the file is moved into place. A malformed drop-in
+        # would not break k3s until its next restart — quite possibly a reboot
+        # weeks later, with no obvious connection to this change — so it is worth
+        # refusing to write one at all.
+        validate: "python3 -c \"import yaml,sys; yaml.safe_load(open(sys.argv[1]))\" %s"
+        content: |
+          # Managed by ansible/firefly-node-label-durability.yaml — do not hand-edit.
+          #
+          # node-role.kubernetes.io/* is deliberately absent: NodeRestriction forbids
+          # a kubelet from self-registering labels in the kubernetes.io namespace, so
+          # listing them here would make k3s fail registration rather than apply them.
+          # Those are applied through the API by firefly-node-labels.yaml instead.
+          #
+          # Read at initial registration only — writing this file changes nothing on
+          # an already-registered node, and needs no restart.
+          node-label:
+            - topology.sargeant.co/role={{ k3s_role }}
+            - topology.sargeant.co/tier={{ k3s_tier }}
+
+    - name: Confirm k3s is still healthy
+      # Cheap guard: this playbook should never be able to take a node down, but
+      # asserting it beats assuming it.
+      ansible.builtin.command:
+        cmd: systemctl is-active {{ 'k3s' if k3s_role == 'system' else 'k3s-agent' }}
+      register: k3s_state
+      changed_when: false
+      failed_when: k3s_state.stdout != 'active'
