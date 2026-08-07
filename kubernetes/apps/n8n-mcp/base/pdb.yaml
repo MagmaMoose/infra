@@ -1,0 +1,21 @@
+---
+# PodDisruptionBudget for n8n-mcp (2 replicas).
+#
+# cleanup.md's rule: write PDBs ONLY for our own >=2-replica workloads, and leave the
+# 18 operator-generated ones (CNPG, Longhorn, external-dns) alone. This is one of ours.
+#
+# minAvailable: 1 against 2 replicas permits exactly one voluntary disruption at a time,
+# so a node drain or a rollout can take one pod but never both. It does NOT constrain
+# involuntary disruption (node failure, OOM kill) — a PDB only gates the eviction API.
+#
+# Tier: worker — ff-vm1 + ff-oci1 + ff-oci2, so a second replica can genuinely land elsewhere.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: n8n-mcp
+  namespace: automation
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: n8n-mcp

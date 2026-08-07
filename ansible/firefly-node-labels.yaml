@@ -35,15 +35,11 @@
       ff-pi1:
         - node-role.kubernetes.io/system=
         - node-role.kubernetes.io/on-prem=
-        - node-role.kubernetes.io/pi=true
         - topology.sargeant.co/tier=on-prem
-        - type=pi
       ff-vm1:
         - node-role.kubernetes.io/worker=
         - node-role.kubernetes.io/on-prem=
-        - node-role.kubernetes.io/mini=
         - topology.sargeant.co/tier=on-prem
-        - type=mini
       ff-oci1:
         - node-role.kubernetes.io/worker=
         - node-role.kubernetes.io/cloud=

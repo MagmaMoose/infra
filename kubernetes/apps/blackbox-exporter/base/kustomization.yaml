@@ -5,6 +5,7 @@ resources:
   - service.yaml
   - configmap.yaml
   - probe.yaml
+  - pdb.yaml
 labels:
   # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
   # adds the nodeSelector at admission. Replaces components/node-selectors/mini.

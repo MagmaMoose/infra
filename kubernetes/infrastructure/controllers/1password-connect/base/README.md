@@ -27,7 +27,7 @@ Before deploying, you need to:
    kind: Secret
    metadata:
      name: onepassword-credentials
-     namespace: core
+     namespace: general-system
    type: Opaque
    stringData:
      1password-credentials.json: |
@@ -40,7 +40,7 @@ Before deploying, you need to:
    kind: Secret
    metadata:
      name: onepassword-token
-     namespace: core
+     namespace: general-system
    type: Opaque
    stringData:
      token: <your-1password-connect-token-here>
@@ -127,32 +127,32 @@ After deployment, check the status:
 
 ```bash
 # Check the Connect server pods
-kubectl get pods -n core -l app.kubernetes.io/name=1password-connect
+kubectl get pods -n general-system -l app.kubernetes.io/name=1password-connect
 
 # Check the Operator pod
-kubectl get pods -n core -l app.kubernetes.io/name=1password-operator
+kubectl get pods -n general-system -l app.kubernetes.io/name=1password-operator
 
 # Check the HelmRelease
-kubectl get helmrelease -n core 1password-connect
+kubectl get helmrelease -n general-system 1password-connect
 ```
 
 ## Troubleshooting
 
 - **Pods not starting**: Check if secrets are properly encrypted and decrypted by SOPS
   ```bash
-  kubectl get secret -n core onepassword-credentials
-  kubectl get secret -n core onepassword-token
+  kubectl get secret -n general-system onepassword-credentials
+  kubectl get secret -n general-system onepassword-token
   ```
 
 - **Connect server logs**:
   ```bash
-  kubectl logs -n core -l app.kubernetes.io/name=connect-api
-  kubectl logs -n core -l app.kubernetes.io/name=connect-sync
+  kubectl logs -n general-system -l app.kubernetes.io/name=connect-api
+  kubectl logs -n general-system -l app.kubernetes.io/name=connect-sync
   ```
 
 - **Operator logs**:
   ```bash
-  kubectl logs -n core -l app.kubernetes.io/name=1password-operator
+  kubectl logs -n general-system -l app.kubernetes.io/name=1password-operator
   ```
 
 ## Resources

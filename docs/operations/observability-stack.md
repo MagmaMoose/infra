@@ -13,7 +13,7 @@ It's the firefly translation of an originally AWS-targeted design:
 
 | AWS design | Firefly equivalent | Notes |
 |------------|--------------------|-------|
-| S3 | **MinIO** (`minio.core.svc.cluster.local:9000`) | In-cluster object storage in the `core` namespace; buckets `thanos-metrics`, `loki-chunks`, `loki-ruler` |
+| S3 | **MinIO** (`minio.general-system.svc.cluster.local:9000`) | In-cluster object storage in the `general-system` namespace; buckets `thanos-metrics`, `loki-chunks`, `loki-ruler` |
 | AMG (Amazon Managed Grafana) | **In-cluster Grafana** | Deployed by the kube-prometheus-stack Helm chart; exposed at `grafana.magmamoose.com` via Traefik |
 | ALB | **FortiGate LB + Traefik** | FortiGate handles north-south; in-cluster apps (incl. Grafana) are fronted by Traefik |
 | EBS | **local-path PVCs** (ff-vm1) | Per-workload volumes; durability comes from the MinIO→OCI backup, not volume replication |

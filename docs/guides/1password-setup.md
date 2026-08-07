@@ -43,7 +43,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: onepassword-credentials
-  namespace: core
+  namespace: general-system
 type: Opaque
 stringData:
   1password-credentials.json: |
@@ -81,7 +81,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: onepassword-token
-  namespace: core
+  namespace: general-system
 type: Opaque
 stringData:
   token: <paste-your-access-token-here>
@@ -152,7 +152,7 @@ Check that the pods are running:
 
 ```bash
 # Check all 1Password Connect pods
-kubectl get pods -n core -l app.kubernetes.io/name=1password-connect
+kubectl get pods -n general-system -l app.kubernetes.io/name=1password-connect
 
 # Expected output:
 # NAME                                READY   STATUS    RESTARTS   AGE
@@ -164,7 +164,7 @@ kubectl get pods -n core -l app.kubernetes.io/name=1password-connect
 Check the HelmRelease status:
 
 ```bash
-kubectl get helmrelease -n core 1password-connect
+kubectl get helmrelease -n general-system 1password-connect
 
 # Expected output should show "Ready"
 ```
@@ -228,8 +228,8 @@ spec:
 Check if secrets are properly created:
 
 ```bash
-kubectl get secret -n core onepassword-credentials
-kubectl get secret -n core onepassword-token
+kubectl get secret -n general-system onepassword-credentials
+kubectl get secret -n general-system onepassword-token
 ```
 
 If the secrets don't exist, verify that SOPS decryption is working:
@@ -243,16 +243,16 @@ kubectl get kustomization -n flux-system core -o yaml
 
 ```bash
 # API server logs
-kubectl logs -n core -l app.kubernetes.io/name=connect-api
+kubectl logs -n general-system -l app.kubernetes.io/name=connect-api
 
 # Sync server logs
-kubectl logs -n core -l app.kubernetes.io/name=connect-sync
+kubectl logs -n general-system -l app.kubernetes.io/name=connect-sync
 ```
 
 ### Operator logs
 
 ```bash
-kubectl logs -n core -l app.kubernetes.io/name=1password-operator
+kubectl logs -n general-system -l app.kubernetes.io/name=1password-operator
 ```
 
 ### Common Issues

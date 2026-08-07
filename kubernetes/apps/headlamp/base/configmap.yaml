@@ -106,6 +106,15 @@ data:
       node-role.kubernetes.io/worker: ""
       topology.sargeant.co/tier: on-prem
 
+    # Priority class, per the desired-state table in cleanup.md: a cluster UI is
+    # the first thing that should yield when a node is contended.
+    #
+    # Set in the chart's values (this ConfigMap is the HelmRelease's valuesFrom
+    # source) because the Kyverno assign-priority-class policy cannot reach a
+    # chart-rendered workload — the label lands on the HelmRelease, not on the
+    # Deployment the chart renders. Same reason the nodeSelector above is here.
+    priorityClassName: low
+
     resources:
       requests:
         cpu: 10m

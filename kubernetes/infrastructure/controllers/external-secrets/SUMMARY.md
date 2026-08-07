@@ -78,7 +78,7 @@ This implementation sets up External Secrets Operator (ESO) on the firefly Kuber
 - `SUMMARY.md` - This file
 
 ### Modified Files
-- `kubernetes/infrastructure/flux/helmrepositories.yaml` - Added external-secrets Helm repo
+- `kubernetes/infrastructure/configs/flux/helmrepositories.yaml` - Added external-secrets Helm repo
 - `kubernetes/clusters/firefly/kustomization.yaml` - Added external-secrets to resources
 
 ## Features

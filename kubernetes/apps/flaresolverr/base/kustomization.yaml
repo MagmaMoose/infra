@@ -5,6 +5,7 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
+  - pdb.yaml
 # resources set explicitly inline in deployment.yaml (right-sized from live usage);
 # c.micro resource-profile removed — it op:add-overrode the inline block.
 labels:
