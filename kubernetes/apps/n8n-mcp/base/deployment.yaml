@@ -21,10 +21,10 @@ spec:
       # replica can genuinely land elsewhere.
       #
       # ScheduleAnyway, NOT DoNotSchedule, and not the required pod anti-affinity that
-      # postgres-oci uses. The cloud tier has roughly 250m of unreserved CPU across
-      # both nodes, so a hard constraint risks leaving the second replica Pending
-      # forever — trading a real outage for a theoretical one. Soft spread places one
-      # per node whenever there is room and degrades to co-location when there is not.
+      # postgres-oci uses. The worker nodes have limited spare CPU, so a hard constraint
+      # risks leaving the second replica Pending forever — trading a real outage for a
+      # theoretical one. Soft spread places one per node whenever there is room and
+      # degrades to co-location when there is not.
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
