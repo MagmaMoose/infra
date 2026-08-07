@@ -93,32 +93,11 @@ data:
         volumeMounts:
           - mountPath: /build/plugins
             name: headlamp-plugins
-      - command:
-          - /bin/sh
-          - -c
-          - |
-            set -e
-            echo "Building gatekeeper plugin from source..."
-            cd /tmp
-            apk add --no-cache git npm
-            git clone --depth 1 https://github.com/sozercan/gatekeeper-headlamp-plugin.git
-            cd gatekeeper-headlamp-plugin
-            npm install
-            npm run build
-            npx headlamp-plugin extract . /build/plugins/gatekeeper
-            chown -R 100:101 /build
-            echo "gatekeeper plugin built successfully"
-        image: node:20-alpine
-        imagePullPolicy: IfNotPresent
-        name: headlamp-plugin-gatekeeper
-        securityContext:
-          runAsNonRoot: false
-          privileged: false
-          runAsUser: 0
-          runAsGroup: 0
-        volumeMounts:
-          - mountPath: /build/plugins
-            name: headlamp-plugins
+      # The gatekeeper plugin initContainer was removed with gatekeeper itself (#553).
+      # It cloned github.com/sozercan/gatekeeper-headlamp-plugin, ran npm install and
+      # npm run build on EVERY pod start, and produced a UI plugin for a controller
+      # that no longer exists on this cluster — pure cost on a node the plan describes
+      # as CPU-starved, for a panel that could only ever render nothing.
 
     ingress:
       enabled: false
