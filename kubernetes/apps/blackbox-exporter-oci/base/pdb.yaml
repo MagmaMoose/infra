@@ -1,0 +1,21 @@
+---
+# PodDisruptionBudget for blackbox-exporter-oci (2 replicas).
+#
+# cleanup.md's rule: write PDBs ONLY for our own >=2-replica workloads, and leave the
+# 18 operator-generated ones (CNPG, Longhorn, external-dns) alone. This is one of ours.
+#
+# minAvailable: 1 against 2 replicas permits exactly one voluntary disruption at a time,
+# so a node drain or a rollout can take one pod but never both. It does NOT constrain
+# involuntary disruption (node failure, OOM kill) — a PDB only gates the eviction API.
+#
+# Tier: cloud — ff-oci1 + ff-oci2 — the only tier where a second replica survives losing a node.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: blackbox-exporter-oci
+  namespace: observability
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: blackbox-exporter-oci

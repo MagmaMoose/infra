@@ -18,6 +18,22 @@ spec:
       # explicit selector documents intent and keeps the manifest standalone.)
       nodeSelector:
         topology.sargeant.co/tier: native-cloud
+      # Two replicas on one node is not fault tolerance — they die together. This is
+      # the cloud tier (ff-oci1 + ff-oci2), one of the few where a second
+      # replica can genuinely land elsewhere.
+      #
+      # ScheduleAnyway, NOT DoNotSchedule, and not the required pod anti-affinity that
+      # postgres-oci uses. The cloud tier has roughly 250m of unreserved CPU across
+      # both nodes, so a hard constraint risks leaving the second replica Pending
+      # forever — trading a real outage for a theoretical one. Soft spread places one
+      # per node whenever there is room and degrades to co-location when there is not.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: blackbox-exporter-oci
       containers:
         - name: blackbox-exporter-exporter
           image: prom/blackbox-exporter:v0.25.0

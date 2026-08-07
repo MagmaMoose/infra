@@ -4,6 +4,7 @@ resources:
   - externalsecret.yaml
   - deployment.yaml
   - service.yaml
+  - pdb.yaml
   # No Ingress — the MCP is served at the /mcp path on the existing
   # n8n.magmamoose.com host (DNS + cert already published by the n8n Ingress);
   # the firefly tunnel routes ^/mcp here (zero-trust/.../tunnels.tf).
