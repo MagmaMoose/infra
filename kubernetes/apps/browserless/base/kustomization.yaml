@@ -13,7 +13,22 @@ labels:
   # includeSelectors/includeTemplates false: these fields are immutable on a live
   # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
   - pairs:
-      placement.sargeant.co/tier: on-prem
+      # MOVED on-prem -> cloud, 2026-08-07. cleanup.md's desired-state table has
+      # listed browserless under "### cloud" all along ("2 (one per node)"); it was
+      # pinned on-prem by inheritance from components/node-selectors/mini, and
+      # nobody re-checked when the placement tiers were introduced.
+      #
+      # Verified before moving, because either would have silently broken it:
+      #   - the image is multi-arch (amd64 + arm64), so it runs on the OCI Ampere
+      #     nodes at all. This was the real risk, not capacity.
+      #   - the pod has NO storage anchor: no hostPath, no NFS, no PVC and no
+      #     hostNetwork. Nothing ties it to ff-vm1.
+      #
+      # Not cosmetic. ff-vm1 sits at ~99% memory REQUESTED, which is what stops
+      # defectdojo-django and the trivy scan jobs scheduling at all, while the
+      # cloud tier has ~10GB unreserved. This pair returns ~2.6GB to the node
+      # that has none.
+      placement.sargeant.co/tier: cloud
       placement.sargeant.co/priority: medium
     includeSelectors: false
     includeTemplates: false
