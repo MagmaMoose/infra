@@ -1,6 +1,6 @@
 ---
 # Image automation for this app, folded out of
-# kubernetes/infrastructure/flux/image-automation.yaml so the policy lives with
+# kubernetes/infrastructure/configs/flux/image-automation.yaml so the policy lives with
 # the workload it bumps. Objects stay in the flux-system namespace, which is what
 # the `{"$imagepolicy": "flux-system:qbittorrent"}` markers in the deployment resolve against.
 ---

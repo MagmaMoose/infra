@@ -4,7 +4,7 @@
 # ImageUpdateAutomation), this app's tag lives HERE in infra
 # (prod/…/workload/helmrelease.yaml `.spec.values.image.tag`). That marker sits under
 # ./kubernetes/apps, which the shared `media` ImageUpdateAutomation
-# (infrastructure/flux/image-automation.yaml) already scans — so it does the bump and
+# (infrastructure/configs/flux/image-automation.yaml) already scans — so it does the bump and
 # push to infra's main. We only need the ImageRepository + ImagePolicy here.
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImageRepository
