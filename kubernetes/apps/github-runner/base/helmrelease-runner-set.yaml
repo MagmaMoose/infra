@@ -22,10 +22,16 @@ metadata:
   namespace: arc-runners
 spec:
   interval: 30m
-  # The scale set name is the GitHub-visible runner label, and `firefly` is deliberate:
-  # the org variable SELFHOSTED_GITHUB_RUNNER is already `firefly`, so the five workflows
-  # that say `runs-on: ${{ vars.SELFHOSTED_GITHUB_RUNNER || 'ubuntu-latest' }}`
-  # (release, security, docs, external-secrets, placement) keep working with no edit.
+  # The scale set name is what GitHub matches `runs-on` against, and `firefly` keeps
+  # continuity with the retired runner's name.
+  #
+  # It does NOT re-activate the five workflows that say
+  # `runs-on: ${{ vars.SELFHOSTED_GITHUB_RUNNER || 'ubuntu-latest' }}` (release,
+  # security, docs, external-secrets, placement). That org variable DOES NOT EXIST —
+  # confirmed 404 at both org and repo level — so all five have been resolving to
+  # `ubuntu-latest` all along, including while the old StatefulSet was up. Setting the
+  # variable to `firefly` would move them onto this scale set; until someone does, they
+  # stay on GitHub-hosted runners and nothing here changes that.
   #
   # NOTE — this is NOT the same as the old label set. An ARC scale set is addressed by
   # NAME, not by matching `[self-hosted, Linux, X64]`. The three terragrunt.yml jobs that
