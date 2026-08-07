@@ -77,6 +77,8 @@ spec:
     policy: sync
     provider: webhook
     registry: txt
+    txtOwnerId: firefly-private
+    txtPrefix: externaldns-private-
     resources:
       limits:
         cpu: 200m
