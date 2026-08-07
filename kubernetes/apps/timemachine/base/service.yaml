@@ -1,4 +1,8 @@
----
+# KICS 3ca03a61 "Service does not have a Pod port" is a false positive: the pod
+# uses hostNetwork: true and exposes port 445 directly to the LAN, so no containerPort
+# declaration is needed. The headless Service exists solely for StatefulSet DNS naming.
+# kics-scan disable=3ca03a61-3249-4c16-8427-6f8e47dda729
+#
 # Headless governing Service for the timemachine StatefulSet.
 #
 # It carries no traffic: the pod runs with hostNetwork: true and is reached
