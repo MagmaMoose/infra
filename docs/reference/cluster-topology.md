@@ -8,7 +8,7 @@ workload should run*.
 
 | Role | k3s role | Runs | Current node(s) | Planned | Labels |
 |------|----------|------|-----------------|---------|--------|
-| **system** | k3s **server** (control plane) | API server, scheduler, controller-manager, kine **plus** the cluster's system controllers (helm-controller, flux-\*, kyverno, gatekeeper, cert-manager, external-secrets, longhorn-manager, 1Password Connect, …) | **ff-pi1** (Raspberry Pi 5, arm64, 8 GiB) | ff-pi2, ff-pi3 (more Pi5s — control-plane HA / more system capacity) | `node-role.kubernetes.io/system`, legacy `type=pi` / `node-role.kubernetes.io/pi` |
+| **system** | k3s **server** (control plane) | API server, scheduler, controller-manager, kine **plus** the cluster's system controllers (helm-controller, flux-\*, kyverno, cert-manager, external-secrets, longhorn-manager, 1Password Connect, …) | **ff-pi1** (Raspberry Pi 5, arm64, 8 GiB) | ff-pi2, ff-pi3 (more Pi5s — control-plane HA / more system capacity) | `node-role.kubernetes.io/system`, legacy `type=pi` / `node-role.kubernetes.io/pi` |
 | **worker** | k3s **agent** | Application workloads | **ff-vm1** (amd64, 16 vCPU / 32 GiB); **ff-oci1** / **ff-oci2** (OCI free-tier, arm64, 2 OCPU / 12 GiB — the **native-cloud** sub-tier, see below) | ff-vm2 | `node-role.kubernetes.io/worker`, legacy `type=mini` / `node-role.kubernetes.io/mini`; native-cloud nodes also carry `topology.sargeant.co/tier=native-cloud` |
 
 ```mermaid
@@ -103,26 +103,63 @@ kubectl label node ff-oci2 node-role.kubernetes.io/worker=""  --overwrite
 ```
 
 !!! warning "Labels must persist across node re-registration"
-    `kubectl label` is imperative and is lost if a node re-registers. To make the
-    role labels durable, add them to each node's **k3s config**
-    (`node-label:` in `/etc/rancher/k3s/config.yaml` for servers,
-    `/etc/rancher/k3s/config.yaml.d/` for agents). The OCI native-cloud nodes
-    already do this for their **tier** label via cloud-init
-    (`terraform/oci/modules/server`); their `worker` **role** label still needs
-    the `kubectl` step above after any rebuild, because the kubelet may not
-    self-register `node-role.kubernetes.io/*` (NodeRestriction). The legacy
-    `type=` labels are set the same way.
+    `kubectl label` is imperative. The labels survive a reboot, because they live
+    in etcd — but **not** the Node object being deleted and re-added, which is what
+    a rebuild or re-join does. Everything pinned to them goes `Pending` at that
+    moment, and that includes the Flux controllers, so the cluster cannot
+    reconcile its own fix.
 
-### Node-selector components
+    Only **half** the labels can be made durable, and it is worth knowing which:
 
-Kustomize components apply the selector to a workload's pod template
-(`kubernetes/components/node-selectors/`):
+    | label | applied by | durable? |
+    |---|---|---|
+    | `node-role.kubernetes.io/*` | API, `ansible/firefly-node-labels.yaml` | no |
+    | `topology.sargeant.co/*` | kubelet self-registration | **yes** |
 
-| Component | Selects | Use for |
-|-----------|---------|---------|
-| `node-selectors/system` | `node-role.kubernetes.io/system` | control-plane / system controllers |
-| `node-selectors/worker` | `node-role.kubernetes.io/worker` | application workloads (any agent: ff-vm1 or ff-oci*) |
-| `node-selectors/native-cloud` | `topology.sargeant.co/tier=native-cloud` | always-online / public-facing apps pinned to the OCI tier (ff-oci1/ff-oci2) |
+    NodeRestriction rejects kubelet-set labels inside the `kubernetes.io`
+    namespace outside a short allow-list, and `node-role.kubernetes.io/*` is not on
+    it. Putting those in k3s's `node-label:` does **not** silently no-op — the node
+    refuses to register.
+
+    Run `ansible/firefly-node-label-durability.yaml` to write the self-registerable
+    labels into every node's k3s config drop-in. It takes effect at the *next*
+    registration, so it changes nothing today and needs no restart — that is the
+    point of it.
+
+### Placement labels
+
+`kubernetes/components/node-selectors/` has been **removed**. Placement is now one
+label on the workload, applied by a Kyverno mutating policy at admission
+(`kubernetes/apps/kyverno-policies/base/clusterpolicy-place-*.yaml`):
+
+| Label | Lands on | Use for |
+|-------|----------|---------|
+| `placement.sargeant.co/tier: system` | ff-pi1 | control-plane / system controllers |
+| `placement.sargeant.co/tier: on-prem` | ff-vm1 | workloads tied to on-prem storage or network |
+| `placement.sargeant.co/tier: cloud` | ff-oci1 / ff-oci2 | always-online, public-facing, or multi-arch apps |
+| `placement.sargeant.co/tier: worker` | any agent | genuinely placement-agnostic workloads |
+
+Set it in the app's `kustomization.yaml`:
+
+```yaml
+labels:
+  - pairs:
+      placement.sargeant.co/tier: cloud
+    includeSelectors: false     # immutable on a live Deployment
+    includeTemplates: false
+```
+
+!!! warning "`worker` spans both sites"
+    `node-role.kubernetes.io/worker` matches ff-vm1 **and** both OCI nodes. A
+    workload meaning "the on-prem worker" must use the `on-prem` tier — several
+    drifted to the cloud tier by selecting `worker` alone, which put their pods on
+    the far side of the site-to-site VPN from their storage.
+
+!!! warning "A placement label on a HelmRelease does nothing"
+    The Kyverno policies match `Deployment`/`StatefulSet`/`DaemonSet`/`CronJob`. A
+    label on a `HelmRelease` never reaches the pod template the chart renders — set
+    `nodeSelector` in the chart's values instead. CI enforces this
+    (`.github/actions/placement-label-guard`).
 | `node-selectors/pi` | `type=pi` | **legacy alias** for `system` |
 | `node-selectors/mini` | `type=mini` | **legacy alias** for `worker` |
 

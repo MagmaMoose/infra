@@ -61,6 +61,7 @@ nav:
       - Kubernetes Restructure Plan: operations/kubernetes-restructure-plan.md
   - Reference:
       - Cluster Topology: reference/cluster-topology.md
+      - Secrets Management: reference/secrets-management.md
       - Ansible: reference/ansible.md
       - Resource Profiles: reference/resource-profiles.md
       - Terraform (OCI): reference/terraform-oci.md
