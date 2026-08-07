@@ -73,7 +73,7 @@ spec:
 
     # Node selector
     nodeSelector:
-      type: pi
+      node-role.kubernetes.io/system: ""
 
     # Set HERE, not by the placement.sargeant.co/priority label on the
     # kustomization. That label lands on this HelmRelease object, and the Kyverno

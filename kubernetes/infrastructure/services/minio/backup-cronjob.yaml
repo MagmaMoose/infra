@@ -20,7 +20,7 @@ spec:
         spec:
           restartPolicy: OnFailure
           nodeSelector:
-            type: mini # co-locate with MinIO (hostPath on ff-vm1)
+            kubernetes.io/hostname: ff-vm1 # co-locate with MinIO, whose data is a hostPath on this node
           containers:
             - name: mc
               image: minio/mc:RELEASE.2025-08-13T08-35-41Z

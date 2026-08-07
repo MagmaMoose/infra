@@ -71,7 +71,7 @@ spec:
 
     # Node selector
     nodeSelector:
-      type: pi
+      node-role.kubernetes.io/system: ""
 
     # Log configuration
     logLevel: info

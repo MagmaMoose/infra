@@ -124,7 +124,8 @@ data:
       enabled: false
 
     nodeSelector:
-      type: mini
+      node-role.kubernetes.io/worker: ""
+      topology.sargeant.co/tier: on-prem
 
     resources:
       requests:
