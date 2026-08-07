@@ -7,5 +7,7 @@ resources:
   - externalsecret-grafana-admin.yaml
   - dashboard-app-logs.yaml
   - ingress-grafana-lan.yaml
-components:
-  - ../../../components/node-selectors/mini
+# No node-selectors component: this kustomization emits a HelmRelease and no
+# Deployment/StatefulSet/DaemonSet, so the component's patches matched nothing and
+# it was a no-op. Placement for the chart's workloads is set where it actually
+# works — nodeSelector under the HelmRelease's own spec.values.

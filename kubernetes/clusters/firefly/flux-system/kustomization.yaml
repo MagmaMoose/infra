@@ -6,13 +6,35 @@ resources:
   # Cluster orchestration + shared Flux config now live OUTSIDE flux-system/
   # (keeping this directory bootstrap-only: gotk-components + gotk-sync + this
   # file). They are still applied by THIS bootstrap Kustomization via relative
-  # refs — the same out-of-tree pattern as the node-selectors component below —
-  # so nothing re-parents: the exact same objects, applied by the exact same
-  # Kustomization, just sourced from their new locations.
+  # refs, so nothing re-parents: the exact same objects, applied by the exact
+  # same Kustomization, just sourced from their new locations.
   - ../apps.yaml                  # meta `apps` Kustomization (builds clusters/firefly/)
   - ../../../infrastructure/flux  # HelmRepositories, registry/Git auth secrets, notifications
-components:
-  - ../../../components/node-selectors/pi
+
+# Flux's own controllers are pinned INLINE — not by the placement label the rest of
+# the cluster uses, and no longer by the deleted node-selectors component.
+#
+# Inline because of bootstrap ordering: the placement label is applied by a Kyverno
+# ClusterPolicy at admission, and Flux is what installs and reconciles Kyverno. If
+# these controllers depended on that policy they would come up unpinned on any
+# cluster rebuild — and, with failurePolicy now Ignore, during any Kyverno outage
+# too, which is precisely when Flux needs to be able to repair things. Nothing that
+# installs the admission controller may depend on the admission controller.
+#
+# node-role.kubernetes.io/system is the same key clusterpolicy-place-system injects,
+# so the placement is identical to the rest of the system tier and only the mechanism
+# differs. The kubelet may not self-register that key, so it is reapplied after a node
+# rebuild by ansible/firefly-node-labels.yaml.
+patches:
+  - target:
+      kind: Deployment
+      namespace: flux-system
+    patch: |-
+      - op: add
+        path: /spec/template/spec/nodeSelector
+        value:
+          kubernetes.io/os: linux
+          node-role.kubernetes.io/system: ""
 # Note: Removed t.nano resource profile - flux controllers need more resources
 # source-controller needs ~300Mi, kustomize-controller needs ~250Mi
 # Using default flux resources from gotk-components.yaml
