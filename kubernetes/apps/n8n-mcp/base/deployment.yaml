@@ -16,6 +16,22 @@ spec:
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+      # Two replicas on one node is not fault tolerance — they die together. This is
+      # the worker tier (ff-vm1 + ff-oci1 + ff-oci2), one of the few where a second
+      # replica can genuinely land elsewhere.
+      #
+      # ScheduleAnyway, NOT DoNotSchedule, and not the required pod anti-affinity that
+      # postgres-oci uses. The cloud tier has roughly 250m of unreserved CPU across
+      # both nodes, so a hard constraint risks leaving the second replica Pending
+      # forever — trading a real outage for a theoretical one. Soft spread places one
+      # per node whenever there is room and degrades to co-location when there is not.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: n8n-mcp
       containers:
         - name: n8n-mcp
           # Remote MCP server (HTTP transport) exposing n8n's node catalogue +
