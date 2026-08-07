@@ -17,7 +17,8 @@ spec:
           restartPolicy: Never
           automountServiceAccountToken: false
           nodeSelector:
-            type: mini
+            node-role.kubernetes.io/worker: ""
+            topology.sargeant.co/tier: on-prem
           containers:
             - name: streaming-sync
               image: python:3.12-slim

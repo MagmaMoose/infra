@@ -30,7 +30,7 @@ spec:
         name: connect-api
         replicas: 1
         nodeSelector:
-          type: pi
+          node-role.kubernetes.io/system: ""
         resources:
           # KRR ~100Mi working set; trimmed from 256Mi to relieve ff-pi1
           # memory-request pressure. No CPU limit (avoid CFS throttling).
@@ -48,7 +48,7 @@ spec:
         name: connect-sync
         replicas: 1
         nodeSelector:
-          type: pi
+          node-role.kubernetes.io/system: ""
         resources:
           # KRR ~100Mi working set; trimmed from 256Mi to relieve ff-pi1
           # memory-request pressure. No CPU limit (avoid CFS throttling).
@@ -78,7 +78,7 @@ spec:
 
       # Node selector for operator
       nodeSelector:
-        type: pi
+        node-role.kubernetes.io/system: ""
 
       # Operator pod configuration
       replicas: 1
