@@ -79,6 +79,20 @@
 > 2026-06-10. `thanos-metrics` holds up to a year of downsampled history that exists nowhere else
 > (Prometheus keeps 7d). Making the mirror current would blow ~6x past the OCI Always Free tier.
 >
+> **5b. The blueprint MECHANISM is now understood — the instantiate label alone is a
+> dead end.** A ConfigMap carrying `blueprints.goauthentik.io/instantiate: "true"` is
+> silently ignored by the Helm chart. The chart MOUNTS blueprints from ConfigMaps
+> named explicitly in the `blueprints.configMaps` values key (empty by default), and
+> authentik only ever discovers what is on disk under `/blueprints`. With the label
+> but no values entry, discovery runs, logs success, and finds nothing: 28 stock
+> instances, 0 providers, no error anywhere. Adding the values entry mounts it at
+> `/blueprints/mounted/cm-<name>` and the instance count moved 28 -> 29, so the wiring
+> is confirmed rather than theorised. The blueprint BODY then reported
+> `status: error` with no detail surfaced in the worker log — most likely a bad
+> `!Find` flow slug, and `default-provider-invalidation-flow` is the first to check.
+> Draft body: `.claude/decisions/2026-08-07-authentik-proxy-providers-draft.yaml`.
+> Nothing was left applied — an erroring blueprint in git is worse than none.
+>
 > **5a. What the authentik migration actually needs (established 2026-08-07).** Its blueprint system
 > works — 28 stock instances, all `successful` — and the chart discovers ConfigMaps labelled
 > `blueprints.goauthentik.io/instantiate: "true"`, so providers and applications can be
