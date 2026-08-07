@@ -16,4 +16,6 @@ resources:
   - github-app-secret.yaml
   - github-app-magmamoose-secret.yaml
   - notifications.yaml
+  # Split out of notifications.yaml so the sops CLI can rekey it; see that file.
+  - slack-bot-token.enc.yaml
   - image-automation.yaml

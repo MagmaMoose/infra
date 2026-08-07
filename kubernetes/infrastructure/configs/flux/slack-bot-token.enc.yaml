@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Secret
+metadata:
+    name: slack-bot-token
+    namespace: flux-system
+stringData:
+    address: ENC[AES256_GCM,data:TvD3Ot77WzLBQ1drpSY9PaYleltt4nk9CEiPUSOB8KP0uWdI79I=,iv:wlbfL808+V/eNbMWnePD25Mvxog8bQA0TvYdkh0KM1w=,tag:6+iwzOKE4GsBj6ONb2EFhQ==,type:str]
+    token: ENC[AES256_GCM,data:8Zt9KxMyKDK/YrvIWmEB2HvX15a1nx3pTxWtaeg7Zwl1BGcjaP7vJruukq+0DeL+3bkRtd7oW45y,iv:6EP1ZGbfkvVRLd9tKA/NRCxm4hBgDX0RnnUoyYf1w5Q=,tag:4IVLpgsnTvz++rWvSs4omg==,type:str]
+sops:
+    age:
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBzN1RhZHhob3ZxYmVYU1Jl
+            MHhHTVRtQTBqZEdzMmZQT0wzUjVzUDNkeHpvCnRSV2IzWDZYcVNDVEJ3NG95RUxu
+            eWJOaGhlQTZtcEp4RGJITy9rSzdoUGsKLS0tIFFkZ1FjZ1JKZkN0cVhFVnQwaUlr
+            eHdvOHNwTm5HS01NYjV3UWVmcGowTmMK/KFd2EQg5Pdv+ISoxE/Vy5/Het2iSgaE
+            YqWNAZQgjRkD1uy8eiJ3Tnsp6CU7GaNbT3QrnYH7nzyByG0YvKN7ZQ==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age1yj3wdeleng98w9rv46yh40ettc78r9k4r4wgnx7ja5zxmyt8qe7snjg0a0
+        - enc: |
+            -----BEGIN AGE ENCRYPTED FILE-----
+            YWdlLWVuY3J5cHRpb24ub3JnL3YxCi0+IFgyNTUxOSBYSURPcEpKYU8zR1I4NjVz
+            VnJLVk9yRHlNWER2TEJvSWUzaW5yWWNOM1ZjCjk2a25iVlFNZytSSEYzQ05aYUNx
+            SmRvbW1wUVgrdUZXTXF3U0t1YXdhU28KLS0tIG9VYklqR3NRVm5vSURyS0VVaUNu
+            NkFqVmR1OU80SzBYWm1OaytUZWNRYncKkrudd/c78dEf7h7cPphOch6XBJwG9+4b
+            Iw8Tgpixkn9U7YtnF5RMDN+of1pYm6rNTXXxLLs/qoCfGJwwcnwbww==
+            -----END AGE ENCRYPTED FILE-----
+          recipient: age1c5k0q4adlrst6t003whpek86c87ymkdh9num9ha22uhwftvanyds6v2ctc
+    encrypted_regex: ^(data|stringData)$
+    lastmodified: "2026-08-07T10:33:41Z"
+    mac: ENC[AES256_GCM,data:TQM38saNG4yerzhY3MdkwnT6XPSnKUPuZfB2rx/CvLMOJCi25WBHOCtVTvWuaIBLpOul1pOF5RF7V+MOu6VKXA2cJ/b0JoUC6C1Zahrj3K2NSb8ayfHqNMd26mseDlxjQp/ocSXJzopRMl+ZdFskGIooQP52hbmr8VDwh77yBjI=,iv:VBaafnLjHY0BqqTVk2wX3fFC8BX3wWhaIJdbn6lXXaE=,tag:sUOUPjOwcKaerGrjLreORQ==,type:str]
+    version: 3.13.1
