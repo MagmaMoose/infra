@@ -11,10 +11,17 @@ resources:
 # Profiles patch containers/0 with `op: add`, which silently overwrote the measured
 # values already in the deployment — this workload reserved 100m/256Mi against a
 # node sitting at ~96% CPU requested but only ~44% real use.
-# CPU comes from measurement. Memory is deliberately NOT raised to the measured
-# figure: ff-vm1 is at ~99% memory *requested*, so an increase would stall the
-# rollout. Memory right-sizing here is gated on the Proxmox host (56GB of 59GB
-# allocated).
+# CPU comes from measurement. The memory *request* is deliberately NOT raised to
+# the measured figure: ff-vm1 is at ~99% memory *requested*, so an increase would
+# stall the rollout. Memory request right-sizing here is gated on the Proxmox
+# host (56GB of 59GB allocated).
+#
+# The memory LIMIT is a separate question and is set to 512Mi, the value the
+# c.pico profile used. Limits are not reserved by the scheduler, so this costs no
+# headroom on a full node. A limit of 238Mi against a container measured at
+# 213Mi in use left ~10% headroom, which is an OOMKill on the next spike rather
+# than a right-sizing — the same mistake that took litellm down when its limit
+# was cut from 2Gi to below its working set.
 patches:
   - target:
       kind: Deployment
@@ -26,7 +33,7 @@ patches:
             cpu: 10m
             memory: 238Mi
           limits:
-            memory: 238Mi
+            memory: 512Mi
 labels:
   # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
   # adds the nodeSelector at admission. Replaces components/node-selectors/mini.
