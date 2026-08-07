@@ -199,7 +199,8 @@ for rel in sorted(flux_applied_paths()):
         spec = doc.get("spec") or {}
         tmpl = spec.get("template") or (spec.get("jobTemplate") or {}).get("spec", {}).get("template") or {}
         node_selector = (tmpl.get("spec") or {}).get("nodeSelector") or {}
-        if not any(k.startswith(PREFIX) for k in labels) and not node_selector:
+        affinity = (tmpl.get("spec") or {}).get("affinity") or {}
+        if not any(k.startswith(PREFIX) for k in labels) and not node_selector and not affinity:
             problems.append(
                 (
                     rel,
