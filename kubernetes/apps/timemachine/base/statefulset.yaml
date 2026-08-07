@@ -1,9 +1,26 @@
 apiVersion: apps/v1
-kind: DaemonSet
+# StatefulSet, not DaemonSet — cleanup.md calls for the change and the reason is
+# concrete: this workload's two PersistentVolumes are hostPath directories on a
+# single node, and a DaemonSet runs one pod per MATCHING node. It happens to
+# produce exactly one pod today only because the on-prem tier resolves to ff-vm1
+# alone. Widen that tier and the DaemonSet would schedule a second Samba server
+# pointing at volumes it cannot reach — or, worse, at the same data.
+#
+# replicas: 1 makes the single instance explicit rather than incidental, and the
+# stable pod identity suits a Time Machine target that clients discover by name.
+#
+# The PVCs are standalone objects (pvc.yaml), NOT volumeClaimTemplates, so they
+# and their bound PVs are untouched by this change — no data moves.
+kind: StatefulSet
 metadata:
   name: timemachine
   namespace: backup
 spec:
+  replicas: 1
+  # Governing headless Service. hostNetwork means clients reach this on the LAN
+  # rather than through the Service, so it exists to satisfy the StatefulSet API
+  # and to give the pod a stable DNS name in-cluster.
+  serviceName: timemachine
   selector:
     matchLabels:
       app: timemachine
