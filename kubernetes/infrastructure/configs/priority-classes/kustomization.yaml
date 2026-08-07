@@ -24,12 +24,16 @@
 #     wins the race and then fails for want of a secret. The corollary rule is
 #     that nothing may outrank its own dependencies - which is why litellm and
 #     the valkey instances carry `business` alongside the apps that call them.
-#  3. NOTHING is globalDefault yet, on purpose. globalDefault applies only to
-#     pods admitted AFTER it is set, while already-running pods stay at priority
-#     0. On this cluster (ff-vm1 ~94% CPU / ~99% memory requested, the OCI pair
-#     91-96% CPU) that asymmetry lets a routine rollout preempt running
-#     workloads that simply had not been recreated yet. Flip `medium` to
-#     globalDefault: true only after the explicit assignments have rolled out.
+#  3. NOTHING is globalDefault, on purpose — and this is a standing decision,
+#     not a staging step. globalDefault applies only to pods admitted AFTER it
+#     is set, while already-running pods stay at priority 0. On this cluster
+#     (ff-vm1 ~94% CPU / ~99% memory requested, the OCI pair 91-96% CPU) that
+#     asymmetry lets a routine rollout preempt running workloads that simply had
+#     not been recreated yet. Beyond that transient, a global default is the
+#     wrong shape here permanently: it would silently rank every unlabelled pod
+#     above whatever still carries no class at all, so the pods nobody has
+#     thought about would outrank the ones somebody deliberately left alone.
+#     Priority is assigned explicitly through the placement label instead.
 #
 # Names must NOT begin with `system-`: the API server rejects those outright
 # ("priority class names with 'system-' prefix are reserved for system use only").
@@ -38,6 +42,12 @@
 # (coredns, traefik, metrics-server, local-path-provisioner, svclb-traefik,
 # node-tuning, oci-node-firewall, the flux controllers, anything Longhorn) -
 # doing so DEMOTES them by ~4 orders of magnitude.
+#
+# The inverse mistake is just as easy and less visible: assigning `critical` to a
+# workload that does not actually own data or break others PROMOTES it above the
+# things that do, and on a saturated node it wins the scheduling race against a
+# workload that genuinely needed the room. Assign a class only where the
+# definition above actually fits — the risk runs in both directions.
 #
 # Assigning them to workloads must target the CONTROLLER pod template, not bare
 # Pods: the in-tree Priority admission plugin resolves priorityClassName into
