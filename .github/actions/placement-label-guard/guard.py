@@ -29,6 +29,18 @@ that quietly sets neither fails.
 This bug class shipped twice: headlamp's tier label was inert on its HelmRelease
 while landing on the oauth2-proxy and auth-redirect Deployments beside it, and
 external-dns-mikrotik's priority label never reached the chart's Deployment.
+
+SECOND CHECK — the complement. The above only sees kustomizations that DECLARE a
+placement label, so it is blind to the opposite failure: a workload with no
+placement at all. That one is silent too — the workload simply schedules
+wherever, which on a mixed arm64/amd64 cluster can mean an image that cannot run.
+So every controller Flux actually applies must have EITHER a placement label or
+an inline nodeSelector.
+
+DaemonSets are exempt: they run on every node by design, so "unpinned" is their
+correct state. The check builds each Flux Kustomization's `path:` rather than
+every kustomization.yaml, because a base/ directory built in isolation misses
+labels its parent applies — measuring that way produces false positives.
 """
 
 from __future__ import annotations
@@ -149,10 +161,62 @@ for kfile in sorted(root.rglob("kustomization.yaml")):
             )
         )
 
+# ---------------------------------------------------------------------------
+# Second check: controllers with NO placement at all.
+# ---------------------------------------------------------------------------
+def flux_applied_paths() -> set:
+    """The `path:` of every Flux Kustomization — what actually gets applied."""
+    found = set()
+    for f in root.rglob("*.yaml"):
+        try:
+            docs = [d for d in yaml.safe_load_all(f.read_text(encoding="utf-8")) if isinstance(d, dict)]
+        except (yaml.YAMLError, UnicodeDecodeError, OSError):
+            continue
+        for d in docs:
+            if d.get("kind") == "Kustomization" and "kustomize.toolkit.fluxcd.io" in str(d.get("apiVersion", "")):
+                p = (d.get("spec") or {}).get("path")
+                if p:
+                    found.add(p.lstrip("./"))
+    return found
+
+
+# DaemonSets run on every node by design, so having no nodeSelector is correct.
+NEEDS_PLACEMENT = {"Deployment", "StatefulSet", "CronJob"}
+controllers_checked = 0
+
+for rel in sorted(flux_applied_paths()):
+    directory = pathlib.Path(rel)
+    if not directory.is_dir():
+        continue
+    docs = build(directory)
+    if docs is None:
+        continue
+    for doc in docs:
+        if doc.get("kind") not in NEEDS_PLACEMENT:
+            continue
+        controllers_checked += 1
+        labels = ((doc.get("metadata") or {}).get("labels") or {})
+        spec = doc.get("spec") or {}
+        tmpl = spec.get("template") or (spec.get("jobTemplate") or {}).get("spec", {}).get("template") or {}
+        node_selector = (tmpl.get("spec") or {}).get("nodeSelector") or {}
+        affinity = (tmpl.get("spec") or {}).get("affinity") or {}
+        if not any(k.startswith(PREFIX) for k in labels) and not node_selector and not affinity:
+            problems.append(
+                (
+                    rel,
+                    "UNPLACED",
+                    f"{doc.get('kind')}/{(doc.get('metadata') or {}).get('name')} has neither a "
+                    f"{PREFIX}tier label nor an inline nodeSelector, so it schedules wherever there "
+                    "is room — on a mixed arm64/amd64 cluster that can mean a node whose "
+                    "architecture the image does not support",
+                )
+            )
+
 summary = pathlib.Path(os.environ.get("GITHUB_STEP_SUMMARY", os.devnull))
 with summary.open("a", encoding="utf-8") as fh:
     fh.write("## Placement label guard\n\n")
-    fh.write(f"Checked **{checked}** kustomization(s) declaring a `{PREFIX}*` label.\n\n")
+    fh.write(f"Checked **{checked}** kustomization(s) declaring a `{PREFIX}*` label, and "
+             f"**{controllers_checked}** Flux-applied controller(s) for having any placement at all.\n\n")
     if problems:
         fh.write("| kustomization | problem | detail |\n|---|---|---|\n")
         for path, kind, detail in problems:
@@ -168,4 +232,5 @@ if problems:
     print(f"\n{len(problems)} placement label problem(s) found.", file=sys.stderr)
     sys.exit(1)
 
-print(f"OK — {checked} kustomization(s) checked; every placement label reaches its target.")
+print(f"OK — {checked} labelled kustomization(s) reach their target, and all "
+      f"{controllers_checked} Flux-applied controllers have a placement.")
