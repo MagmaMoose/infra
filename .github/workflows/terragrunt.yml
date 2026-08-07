@@ -1,0 +1,168 @@
+---
+# Atlantis replacement, per cleanup.md's appendix.
+#
+# Differences from the appendix sketch, all deliberate:
+#   - runs-on is [self-hosted, Linux, X64], which the existing `firefly-0` runner
+#     already satisfies. The sketch used a `samenlevingszaken` label that exists in
+#     a different organisation and matches nothing here.
+#   - the OCI provider is configured from OCI_* environment variables (see
+#     terraform/root.hcl), so those are passed explicitly rather than relying on a
+#     ~/.oci/config that a runner will not have.
+#
+# NOT YET RUNNABLE, and the reason is a setting rather than code: the `Default`
+# runner group has allows_public_repositories=false while this repository is
+# public, so no self-hosted runner will pick these jobs up. Changing that is a
+# deliberate security decision — self-hosted runners executing public-repo
+# workflows is the exact scenario GitHub warns about — so it is left to the repo
+# owner. The fork guard below is necessary but NOT sufficient on its own.
+name: Terragrunt
+
+on:
+  pull_request:
+    paths: ['terraform/**', 'scripts/terragrunt-pipeline.sh', '.github/workflows/terragrunt.yml']
+  push:
+    branches: [main]
+    paths: ['terraform/**', 'scripts/terragrunt-pipeline.sh', '.github/workflows/terragrunt.yml']
+  schedule:
+    - cron: '0 5 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: terragrunt-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
+  OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
+  OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+  OCI_REGION: eu-amsterdam-1
+
+jobs:
+  discover:
+    # A self-hosted runner must never execute untrusted fork code with private
+    # cloud credentials. Same-repository pull requests still receive plan output.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    runs-on: [self-hosted, Linux, X64]
+    outputs:
+      matrix: ${{ steps.stacks.outputs.matrix }}
+      has_stacks: ${{ steps.stacks.outputs.has_stacks }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with: {fetch-depth: 0}
+
+      - name: Discover affected stacks
+        id: stacks
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed="$RUNNER_TEMP/changed.txt"
+          scope=changed
+          case "${{ github.event_name }}" in
+            pull_request) git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" > "$changed" ;;
+            push)         git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" > "$changed" ;;
+            # A scheduled or manual run has no reliable event range, so plan
+            # everything rather than silently omitting a stack.
+            *)            scope=all ;;
+          esac
+          if [[ "$scope" == all ]]; then
+            bash scripts/terragrunt-pipeline.sh discover all > "$RUNNER_TEMP/stacks.txt"
+          else
+            bash scripts/terragrunt-pipeline.sh discover changed "$changed" > "$RUNNER_TEMP/stacks.txt"
+          fi
+          matrix=$(jq -Rsc '{include: (split("\n") | map(select(length > 0) | {stack: ., id: (gsub("[^A-Za-z0-9]+"; "-") | sub("-$"; ""))}))}' "$RUNNER_TEMP/stacks.txt")
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "has_stacks=$([[ $(jq '.include|length' <<<"$matrix") -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  plan:
+    needs: discover
+    if: needs.discover.outputs.has_stacks == 'true'
+    runs-on: [self-hosted, Linux, X64]
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Write the OCI private key
+        shell: bash
+        run: |
+          install -m 600 /dev/null "$RUNNER_TEMP/oci_api_key.pem"
+          printf '%s' "${{ secrets.OCI_PRIVATE_KEY }}" > "$RUNNER_TEMP/oci_api_key.pem"
+          echo "OCI_PRIVATE_KEY_PATH=$RUNNER_TEMP/oci_api_key.pem" >> "$GITHUB_ENV"
+
+      - name: Plan
+        id: plan
+        shell: bash
+        run: |
+          set +e
+          bash scripts/terragrunt-pipeline.sh plan "${{ matrix.stack }}" "$RUNNER_TEMP/out"
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set -e
+          status=failed; [[ -f "$RUNNER_TEMP/out/status" ]] && status=$(<"$RUNNER_TEMP/out/status")
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          printf '## `%s`\n\nStatus: `%s`\n' "${{ matrix.stack }}" "$status" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish plan to the pull request
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker="<!-- terragrunt-plan-${{ matrix.id }} -->"
+          # Redaction is applied before anything reaches a PR comment — this repo
+          # is public and plan output echoes variable values.
+          if [[ -f "$RUNNER_TEMP/out/plan.txt" ]]; then
+            text=$(bash scripts/terragrunt-pipeline.sh redact "$RUNNER_TEMP/out/plan.txt" | tail -c 58000)
+          else
+            text='No plan output was produced; see the workflow logs.'
+          fi
+          body=$(printf '%s\n## Terragrunt plan: `%s`\n\nStatus: **%s**. Sensitive-looking lines are redacted.\n\n```text\n%s\n```\n' \
+            "$marker" "${{ matrix.stack }}" "${{ steps.plan.outputs.status }}" "$text")
+          existing=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/issues/${{ github.event.pull_request.number }}/comments?per_page=100" \
+            | jq -r --arg m "$marker" '.[] | select(.body | contains($m)) | .id' | tail -n1)
+          if [[ -n "$existing" ]]; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" -f body="$body" >/dev/null
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/issues/${{ github.event.pull_request.number }}/comments" -f body="$body" >/dev/null
+          fi
+
+      - name: Fail on planning error
+        if: steps.plan.outputs.exit_code != '0'
+        run: exit 1
+
+  apply:
+    needs: [discover, plan]
+    # Applies run only from main, only when every plan succeeded, and only inside
+    # a protected environment — which is where the human approval lives. The
+    # appendix's bespoke "was this PR approved" job is not reimplemented: GitHub
+    # environments already do that, and hand-rolled approval checks are easy to
+    # get subtly wrong.
+    if: github.event_name == 'push' && needs.discover.outputs.has_stacks == 'true' && needs.plan.result == 'success'
+    runs-on: [self-hosted, Linux, X64]
+    environment: all/deploy
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Write the OCI private key
+        shell: bash
+        run: |
+          install -m 600 /dev/null "$RUNNER_TEMP/oci_api_key.pem"
+          printf '%s' "${{ secrets.OCI_PRIVATE_KEY }}" > "$RUNNER_TEMP/oci_api_key.pem"
+          echo "OCI_PRIVATE_KEY_PATH=$RUNNER_TEMP/oci_api_key.pem" >> "$GITHUB_ENV"
+
+      - name: Replan and apply the reviewed commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/terragrunt-pipeline.sh apply "${{ matrix.stack }}" "$RUNNER_TEMP/out"
+          printf '## apply `%s`\n\nStatus: `%s`\n' "${{ matrix.stack }}" "$(<"$RUNNER_TEMP/out/status")" >> "$GITHUB_STEP_SUMMARY"
