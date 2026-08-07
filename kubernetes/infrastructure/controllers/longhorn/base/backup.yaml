@@ -1,0 +1,107 @@
+# KICS 3e2d3b2f "hardcoded secret key" is a false positive: `secretKey` values are
+# ExternalSecret field NAMES mapped to OCI Vault entries, and `credentialSecret` is a
+# Kubernetes secret reference name — no secret value is hardcoded in source.
+# kics-scan disable=3e2d3b2f-c22a-4df1-9cc6-a7a0aebb0c99
+---
+# Longhorn backup configuration, added 2026-08-07.
+#
+# THERE WERE NO BACKUPS AT ALL BEFORE THIS. Verified, not assumed: the `default`
+# BackupTarget had an empty backupTargetURL and `available: false`, there were zero
+# RecurringJobs, and no Velero anywhere in the cluster — across 45 Longhorn volumes
+# holding 41 GiB. Losing a node meant losing whatever single replica lived on it,
+# with no offsite copy and no way to roll a volume back to a known-good point.
+#
+# S3 credentials come from the same OCI Vault key the MinIO offsite mirror already
+# uses (`backup-oci-s3-credentials`), so this introduces no new secret material.
+# Longhorn insists on the AWS_* names regardless of provider, and AWS_ENDPOINTS is
+# what points it at OCI's S3-compatible endpoint rather than real AWS.
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: longhorn-backup-oci
+  namespace: longhorn-system
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: oci-vault
+    kind: ClusterSecretStore
+  target:
+    name: longhorn-backup-oci
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        AWS_ACCESS_KEY_ID: "{{ .access_key }}"
+        AWS_SECRET_ACCESS_KEY: "{{ .secret_key }}"
+        # Region is required by the S3 client even though OCI ignores it.
+        AWS_REGION: eu-amsterdam-1
+        AWS_ENDPOINTS: https://axn3gwpaabzc.compat.objectstorage.eu-amsterdam-1.oraclecloud.com
+  data:
+    - secretKey: access_key # kics-scan ignore-line - ESO secretKey is a field name, not a hardcoded value
+      remoteRef:
+        key: backup-oci-s3-credentials
+        property: access_key
+    - secretKey: secret_key # kics-scan ignore-line - ESO secretKey is a field name, not a hardcoded value
+      remoteRef:
+        key: backup-oci-s3-credentials
+        property: secret_key
+
+---
+apiVersion: longhorn.io/v1beta2
+kind: BackupTarget
+metadata:
+  name: default
+  namespace: longhorn-system
+spec:
+  # s3://<bucket>@<region>/<prefix> — the @region segment is mandatory syntax for
+  # Longhorn's S3 driver even against OCI, which derives the real endpoint from
+  # AWS_ENDPOINTS in the credential secret above.
+  backupTargetURL: s3://longhorn-backups@eu-amsterdam-1/
+  credentialSecret: longhorn-backup-oci # kics-scan ignore-line - reference name, not a hardcoded secret
+  pollInterval: 5m0s
+
+---
+# Local snapshots for EVERY volume. These cost nothing offsite — they are
+# copy-on-write points on the same disks — and they are what actually recovers the
+# common case: an app corrupting its own config, a bad upgrade, an accidental
+# delete. `groups: [default]` makes Longhorn apply this to any volume that does not
+# opt out, so new volumes are covered without anyone remembering to label them.
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: daily-snapshot
+  namespace: longhorn-system
+spec:
+  cron: "0 2 * * *"
+  task: snapshot
+  groups:
+    - default
+  retain: 7
+  concurrency: 2
+
+---
+# Offsite backups are OPT-IN by label, deliberately not `groups: [default]`.
+#
+# Backing up all 45 volumes would push ~41 GiB into OCI Object Storage on top of the
+# ~17 GiB already there (postgres-backups 15 GiB, minio-backups 2 GiB), and most of
+# that 41 GiB does not deserve it: `security/data-dependency-track-api-server-0`
+# alone is 9.4 GiB of NVD/OSV vulnerability mirror that the app re-downloads by
+# itself, and `automation/atlantis` is 6 GiB of terraform plan cache. Paying to
+# store regenerable data offsite is how a backup bill becomes a reason to turn
+# backups off.
+#
+# Opt a volume in with:
+#   recurring-job.longhorn.io/weekly-backup: enabled
+#
+# Longhorn backups are incremental after the first full, so adding a volume is cheap
+# after its initial upload.
+apiVersion: longhorn.io/v1beta2
+kind: RecurringJob
+metadata:
+  name: weekly-backup
+  namespace: longhorn-system
+spec:
+  cron: "0 3 * * 0"
+  task: backup
+  retain: 4
+  concurrency: 1
