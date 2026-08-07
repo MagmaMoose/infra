@@ -6,7 +6,7 @@ resources:
   - service.yaml
   - ingress.yaml
   - pvc.yaml
-  - secret.enc.yaml
+  - externalsecret-n8n.yaml
   - externalsecret.yaml
 # Resources set explicitly in deployment.yaml (raw, per repo convention) —
 # the c.small profile was overriding the inline values up to 512Mi.

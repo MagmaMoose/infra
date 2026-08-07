@@ -11,10 +11,10 @@ resources:
   - middleware-franklinhouse.enc.yaml
   - middleware-oauth2.yaml
   - middleware-errors.yaml
-  - headlamp-kubeconfigs.enc.yaml
+  - externalsecret-headlamp-kubeconfigs.yaml
   - oauth2-proxy.yaml
-  - oauth2-proxy-secret.enc.yaml
-  - oauth2-proxy-emails.enc.yaml
+  - externalsecret.yaml
+  - externalsecret-oauth2-proxy-emails.yaml
   - auth-redirect.yaml
 #components:
 #  - ../../../components/node-selectors/native-cloud

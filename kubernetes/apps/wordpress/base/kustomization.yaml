@@ -7,7 +7,7 @@ resources:
   - pvc.yaml
   - namespace.yaml
   - configmap.yaml
-  - secret.enc.yaml
+  - externalsecret.yaml
 # Migrated off ff-pi1: static hostPath pv.yaml dropped, pvc.yaml now Longhorn,
 # pinned to the worker node (k3s agent) instead of the Pi (system node).
 labels:

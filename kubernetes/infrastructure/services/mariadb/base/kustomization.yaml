@@ -4,4 +4,4 @@ resources:
   - statefulset.yaml
   - service.yaml
   - pvc.yaml
-  - secret.enc.yaml
+  - externalsecret.yaml

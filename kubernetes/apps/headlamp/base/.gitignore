@@ -17,6 +17,9 @@
 !certificate.yaml
 !certificate-p1.yaml
 !auth-redirect.yaml
+!externalsecret.yaml
+!externalsecret-headlamp-kubeconfigs.yaml
+!externalsecret-oauth2-proxy-emails.yaml
 
 # Keep encrypted files
 !*.enc.yaml
