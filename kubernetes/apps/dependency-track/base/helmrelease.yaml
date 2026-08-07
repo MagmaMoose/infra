@@ -20,6 +20,27 @@ spec:
   upgrade:
     remediation:
       retries: 3
+  # Priority class via a postRenderer, NOT chart values.
+  #
+  # Covers: dependency-track-api-server, dependency-track-frontend.
+  #
+  # This chart's pod specs expose only nodeSelector, affinity and tolerations —
+  # there is no priorityClassName field to set. A values key would be accepted
+  # silently by Helm and do nothing, leaving these at priority 0 while the
+  # manifest claimed otherwise. Patching the rendered output cannot be ignored.
+  #
+  # `low` per the desired-state table: security scanning and reporting. Losing it
+  # costs findings freshness, not availability, so it should yield to anything
+  # serving traffic.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+            patch: |
+              - op: add
+                path: /spec/template/spec/priorityClassName
+                value: low
   values:
     common:
       # Externally-managed signing key (ExternalSecret → OCI Vault); key `secret.key`.
