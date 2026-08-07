@@ -6,5 +6,9 @@ resources:
   - namespace.yaml
   - database.yaml
   - externalsecret.yaml
+  # Must exist before the HelmRelease that names it in blueprints.configMaps —
+  # the chart mounts it as a volume, so a missing ConfigMap leaves the worker
+  # pod stuck in ContainerCreating rather than starting without blueprints.
+  - blueprint-proxy-providers.yaml
   - helmrelease.yaml
   - ingress.yaml
