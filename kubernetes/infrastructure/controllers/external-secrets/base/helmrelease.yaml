@@ -22,6 +22,19 @@ spec:
     remediation:
       retries: 3
   values:
+    # Placement. This is the only infrastructure controller with no placement
+    # mechanism at all — all three pods happen to sit on ff-pi1 today, but nothing
+    # put them there and nothing keeps them there. On a mixed arm64/amd64 cluster
+    # that is a coin toss.
+    #
+    # Set in chart values, not by the placement label: this kustomization emits a
+    # HelmRelease, so a kustomize label lands on the HelmRelease and never reaches
+    # the Deployments the chart renders — the defect #566 fixed and #567 guards.
+    #
+    # system tier, matching the secrets plane's `critical` class: external-secrets
+    # is what every ExternalSecret in the cluster depends on to resolve.
+    nodeSelector:
+      node-role.kubernetes.io/system: ""
     # Priority class, per the desired-state table in cleanup.md.
     # Set in chart values because the Kyverno assign-priority-class policy
     # cannot reach a chart-rendered workload — the placement label lands on
@@ -38,6 +51,9 @@ spec:
       limits:
         memory: 100Mi
     webhook:
+      # Same tier as the main controller; see the note under values:.
+      nodeSelector:
+        node-role.kubernetes.io/system: ""
       # Priority class, per the desired-state table in cleanup.md.
       # Set in chart values because the Kyverno assign-priority-class policy
       # cannot reach a chart-rendered workload — the placement label lands on
@@ -54,6 +70,9 @@ spec:
         limits:
           memory: 100Mi
     certController:
+      # Same tier as the main controller; see the note under values:.
+      nodeSelector:
+        node-role.kubernetes.io/system: ""
       # Priority class, per the desired-state table in cleanup.md.
       # Set in chart values because the Kyverno assign-priority-class policy
       # cannot reach a chart-rendered workload — the placement label lands on
