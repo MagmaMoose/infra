@@ -13,3 +13,15 @@ spec:
     name: flux-system
   timeout: 5m
   wait: true
+  # The PriorityClasses must exist before assign-priority-class can mutate anything
+  # into referencing them: the in-tree Priority admission plugin resolves
+  # priorityClassName to spec.priority at admission, and a pod naming a class that
+  # does not exist is REJECTED outright — not defaulted, not warned about.
+  #
+  # Until now that ordering held only because the pull requests happened to merge in
+  # sequence. Nothing encoded it, so a cluster rebuild, or a prune-and-reapply that
+  # recreated these two in the wrong order, would have this policy stamping a class
+  # name that no object defines yet — and every mutated workload would fail admission
+  # until the configs tree caught up.
+  dependsOn:
+    - name: infrastructure-priority-classes
