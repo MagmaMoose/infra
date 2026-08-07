@@ -25,7 +25,21 @@ spec:
   admission: true
   background: false
   mutateExistingOnPolicyUpdate: false
-  failurePolicy: Fail
+  # Ignore, not Fail. Fail was the original choice, on the reasoning that an
+  # unpinned workload is worse than a blocked apply. That reasoning was wrong
+  # about the blast radius: with Fail, a Kyverno admission outage makes EVERY
+  # Deployment/StatefulSet/DaemonSet write fail cluster-wide — including Flux's
+  # reconciliation, and including any attempt to repair Kyverno itself. It is
+  # the one failure mode this repo cannot GitOps its way out of, and it was
+  # reached in practice: the admission controller went 0/1 on a control plane
+  # already short of memory and every rollout returned 502 from the webhook.
+  #
+  # Fail is only defensible behind a genuinely highly-available webhook. This
+  # cluster has a single 4-core control-plane node where Kyverno restarts often,
+  # so Ignore is the honest setting. The cost is bounded and visible: a workload
+  # admitted during a Kyverno outage lands unpinned, which the placement
+  # validate policies still report, and a rollout restart re-applies it.
+  failurePolicy: Ignore
   webhookTimeoutSeconds: 10
   rules:
     - name: pod-template
