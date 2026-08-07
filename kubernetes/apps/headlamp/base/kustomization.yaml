@@ -9,7 +9,7 @@ resources:
   - ingressroute.yaml
   - middleware.enc.yaml
   - middleware-franklinhouse.enc.yaml
-  - middleware-oauth2.yaml
+  - middleware-authentik.yaml
   - middleware-errors.yaml
   - externalsecret-headlamp-kubeconfigs.yaml
   - oauth2-proxy.yaml

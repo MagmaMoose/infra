@@ -12,3 +12,6 @@ resources:
   - blueprint-proxy-providers.yaml
   - helmrelease.yaml
   - ingress.yaml
+  # Serves headlamp's /outpost.goauthentik.io/* paths. Lives here, not with
+  # headlamp, because traefik has allowCrossNamespace=false.
+  - ingressroute-headlamp-outpost.yaml

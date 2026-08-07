@@ -7,13 +7,10 @@ spec:
   entryPoints:
     - websecure
   routes:
-    - match: Host(`headlamp.sargeant.co`) && PathPrefix(`/oauth2`)
-      kind: Rule
-      priority: 200
-      services:
-        - name: oauth2-proxy
-          port: 4180
-    # Main cluster
+    # Main cluster — the only one that needs token injection. Its kubeconfig entry
+    # uses tokenFile (the pod's own ServiceAccount), so headlamp cannot authenticate
+    # to the local API server without this middleware putting a bearer token on the
+    # request.
     - match: Host(`headlamp.sargeant.co`) && (PathPrefix(`/c/main`) || PathPrefix(`/clusters/main`))
       kind: Rule
       priority: 100
@@ -21,51 +18,9 @@ spec:
         - name: headlamp
           port: 80
       middlewares:
-        - name: oauth2-errors
-          namespace: misc
-        - name: oauth2-auth
+        - name: authentik-auth
           namespace: misc
         - name: headlamp-inject-token
-          namespace: misc
-    - match: Host(`headlamp.sargeant.co`) && (PathPrefix(`/c/p1-prod-eks`) || PathPrefix(`/clusters/p1-prod-eks`))
-      kind: Rule
-      priority: 100
-      services:
-        - name: headlamp
-          port: 80
-      middlewares:
-        - name: oauth2-errors
-          namespace: misc
-        - name: oauth2-auth
-          namespace: misc
-        - name: headlamp-inject-token-p1-prod-eks
-          namespace: misc
-    - match: Host(`headlamp.sargeant.co`) && (PathPrefix(`/c/p1-staging-eks`) || PathPrefix(`/clusters/p1-staging-eks`))
-      kind: Rule
-      priority: 100
-      services:
-        - name: headlamp
-          port: 80
-      middlewares:
-        - name: oauth2-errors
-          namespace: misc
-        - name: oauth2-auth
-          namespace: misc
-        - name: headlamp-inject-token-p1-staging-eks
-          namespace: misc
-    # PR cluster
-    - match: Host(`headlamp.sargeant.co`) && (PathPrefix(`/c/pr-nonprod-aks`) || PathPrefix(`/clusters/pr-nonprod-aks`))
-      kind: Rule
-      priority: 100
-      services:
-        - name: headlamp
-          port: 80
-      middlewares:
-        - name: oauth2-errors
-          namespace: misc
-        - name: oauth2-auth
-          namespace: misc
-        - name: headlamp-inject-token-pr-nonprod-aks
           namespace: misc
     - match: Host(`headlamp.sargeant.co`) && (PathPrefix(`/c/franklinhouse`) || PathPrefix(`/clusters/franklinhouse`))
       kind: Rule
@@ -74,25 +29,22 @@ spec:
         - name: headlamp
           port: 80
       middlewares:
-        - name: oauth2-errors
-          namespace: misc
-        - name: oauth2-auth
+        - name: authentik-auth
           namespace: misc
         - name: headlamp-inject-token-franklinhouse
           namespace: misc
-    - match: Host(`headlamp.sargeant.co`) && (PathPrefix(`/c/pr-acc-eurofiber`) || PathPrefix(`/clusters/pr-acc-eurofiber`))
-      kind: Rule
-      priority: 100
-      services:
-        - name: headlamp
-          port: 80
-      middlewares:
-        - name: oauth2-errors
-          namespace: misc
-        - name: oauth2-auth
-          namespace: misc
-        - name: headlamp-inject-token-pr-acc-eurofiber
-          namespace: misc
+    # FOUR ROUTES DELETED HERE, not migrated: p1-prod-eks, p1-staging-eks,
+    # pr-nonprod-aks and pr-acc-eurofiber. Each named an inject-token middleware that
+    # HAS NEVER EXISTED — not in the cluster and not anywhere in git history. Traefik
+    # drops a router whose middleware cannot be resolved, and had been logging
+    #   middleware "misc-headlamp-inject-token-p1-prod-eks@kubernetescrd" does not exist
+    # for all four, continuously. So they have never served a request; traffic for
+    # those clusters already falls through to the catch-all below.
+    #
+    # Deleting them changes nothing at runtime and is not a loss of function: every
+    # one of those clusters carries its own credential in the headlamp-kubeconfigs
+    # Secret (each user has a literal `token:`), so they authenticate without any
+    # injection. Only `main` relies on injection, because only `main` uses tokenFile.
     - match: Host(`headlamp.sargeant.co`)
       kind: Rule
       priority: 5
@@ -100,9 +52,7 @@ spec:
         - name: headlamp
           port: 80
       middlewares:
-        - name: oauth2-errors
-          namespace: misc
-        - name: oauth2-auth
+        - name: authentik-auth
           namespace: misc
   tls:
     secretName: headlamp-tls

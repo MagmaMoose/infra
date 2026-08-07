@@ -1,0 +1,37 @@
+---
+# Routes headlamp's /outpost.goauthentik.io/* paths to the embedded outpost. Without
+# this the forward-auth 302 points at a callback URL that nothing serves, and login
+# loops forever.
+#
+# WHY THIS LIVES IN THE authentik NAMESPACE AND NOT WITH THE REST OF HEADLAMP.
+# Traefik runs without --providers.kubernetescrd.allowCrossNamespace (checked against
+# the live args; there is no HelmChartConfig in the cluster or the repo, so it is the
+# stock k3s default of false). An IngressRoute in `misc` naming the Service
+# authentik/authentik-server is therefore SILENTLY DROPPED — the router never
+# appears, requests fall through to the catch-all, and the only symptom is a 404 with
+# nothing in the Traefik log pointing at the cause. Same-namespace is mandatory.
+#
+# NO middlewares. This IS the authentication endpoint: gating it behind
+# authentik-auth would deadlock every login on itself.
+#
+# NO tls: block, and none is needed. Traefik's certificate store is global — the
+# headlamp-tls cert is loaded from misc/headlamp's IngressRoute and served by SNI for
+# headlamp.sargeant.co regardless of which namespace the matching router lives in.
+#
+# priority 200 puts this above headlamp's own catch-all (priority 5) so the callback
+# path is never swallowed by the app.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: headlamp-outpost
+  namespace: authentik
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`headlamp.sargeant.co`) && PathPrefix(`/outpost.goauthentik.io`)
+      kind: Rule
+      priority: 200
+      services:
+        - name: authentik-server
+          port: 80
