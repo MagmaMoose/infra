@@ -1,8 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  # Phase C — core + database tier namespaces
-  - core-namespace.yaml
+  # Phase C — shared-plumbing + database tier namespaces
+  - general-system-namespace.yaml
   - database-namespace.yaml
   # OCI native-cloud Postgres tier (postgres-oci CNPG cluster)
   - database-oci-namespace.yaml

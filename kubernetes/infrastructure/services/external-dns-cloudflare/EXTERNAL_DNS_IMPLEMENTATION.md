@@ -44,7 +44,7 @@ Files created:
 
 Configuration:
 - Provider: `webhook`
-- Webhook URL: `http://external-dns-mikrotik-webhook.core.svc.cluster.local:8888`
+- Webhook URL: `http://external-dns-mikrotik-webhook.general-system.svc.cluster.local:8888`
 - Domain Filter: `local` (can be customized)
 - TXT Owner ID: `firefly-mikrotik`
 
@@ -108,16 +108,16 @@ Once the credentials are encrypted and configured:
 1. FluxCD will automatically detect and apply the changes
 2. Monitor the deployment:
    ```bash
-   kubectl get pods -n core -l app.kubernetes.io/name=external-dns-cloudflare
-   kubectl get pods -n core -l app.kubernetes.io/name=external-dns-mikrotik
-   kubectl get pods -n core -l app.kubernetes.io/name=external-dns-mikrotik-webhook
+   kubectl get pods -n general-system -l app.kubernetes.io/name=external-dns-cloudflare
+   kubectl get pods -n general-system -l app.kubernetes.io/name=external-dns-mikrotik
+   kubectl get pods -n general-system -l app.kubernetes.io/name=external-dns-mikrotik-webhook
    ```
 
 3. Check logs for any issues:
    ```bash
-   kubectl logs -n core -l app.kubernetes.io/name=external-dns-cloudflare
-   kubectl logs -n core -l app.kubernetes.io/name=external-dns-mikrotik
-   kubectl logs -n core -l app.kubernetes.io/name=external-dns-mikrotik-webhook
+   kubectl logs -n general-system -l app.kubernetes.io/name=external-dns-cloudflare
+   kubectl logs -n general-system -l app.kubernetes.io/name=external-dns-mikrotik
+   kubectl logs -n general-system -l app.kubernetes.io/name=external-dns-mikrotik-webhook
    ```
 
 ## How It Works

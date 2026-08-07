@@ -1,0 +1,13 @@
+---
+# Renamed from `core` (2026-08-07). "core" said nothing about what lives here —
+# 1password-connect, cloudflared, external-dns and minio are the cluster's shared
+# networking, secrets and object-storage plumbing.
+#
+# NOT bare `system`: that word already names the ff-pi1 PINNING TIER
+# (placement.sargeant.co/tier: system, node-role.kubernetes.io/system), and reusing
+# it for a namespace would make "system" mean two unrelated things in the same repo.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: general-system
+  labels:

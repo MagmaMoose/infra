@@ -72,7 +72,7 @@ domainFilters:
 ### External-DNS HelmRelease (`helmrelease.yaml`)
 
 - **Provider**: webhook
-- **Webhook URL**: `http://external-dns-mikrotik-webhook.core.svc.cluster.local:8888`
+- **Webhook URL**: `http://external-dns-mikrotik-webhook.general-system.svc.cluster.local:8888`
 - **Sources**: Ingress and Service resources
 - **Policy**: sync (creates, updates, and deletes DNS records)
 - **Registry**: TXT records with owner ID `firefly-mikrotik`
@@ -103,13 +103,13 @@ spec:
 ### Check Webhook Logs
 
 ```bash
-kubectl logs -n core -l app.kubernetes.io/name=external-dns-mikrotik-webhook
+kubectl logs -n general-system -l app.kubernetes.io/name=external-dns-mikrotik-webhook
 ```
 
 ### Check External-DNS Logs
 
 ```bash
-kubectl logs -n core -l app.kubernetes.io/name=external-dns-mikrotik
+kubectl logs -n general-system -l app.kubernetes.io/name=external-dns-mikrotik
 ```
 
 ### Verify DNS Records
