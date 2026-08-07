@@ -88,7 +88,37 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
+      # Are the OCI credentials configured at all? Every leaf's provider block reads
+      # them from the environment (terraform/root.hcl), so without them terragrunt
+      # fails at provider init on EVERY stack — which, since this workflow is a
+      # required check, would block every pull request that touches terraform/**
+      # rather than just reporting that it could not plan.
+      #
+      # Skipping loudly is the right failure mode for a missing SETTING, as opposed
+      # to a missing plan. A broken plan should fail; an unconfigured pipeline should
+      # say so and get out of the way.
+      - name: Check for OCI credentials
+        id: creds
+        shell: bash
+        run: |
+          if [[ -n "${{ secrets.OCI_PRIVATE_KEY }}" && -n "$OCI_TENANCY_OCID" \
+                && -n "$OCI_USER_OCID" && -n "$OCI_FINGERPRINT" ]]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Terragrunt plan skipped"
+              echo
+              echo 'The OCI credentials are not configured for this repository, so no'
+              echo 'stack can reach its provider. Add these four repository secrets to'
+              echo 'enable planning:'
+              echo
+              echo '- `OCI_TENANCY_OCID`, `OCI_USER_OCID`, `OCI_FINGERPRINT`, `OCI_PRIVATE_KEY`'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Write the OCI private key
+        if: steps.creds.outputs.present == 'true'
         shell: bash
         run: |
           install -m 600 /dev/null "$RUNNER_TEMP/oci_api_key.pem"
@@ -97,6 +127,7 @@ jobs:
 
       - name: Plan
         id: plan
+        if: steps.creds.outputs.present == 'true'
         shell: bash
         run: |
           set +e
@@ -108,7 +139,7 @@ jobs:
           printf '## `%s`\n\nStatus: `%s`\n' "${{ matrix.stack }}" "$status" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish plan to the pull request
-        if: github.event_name == 'pull_request'
+        if: steps.creds.outputs.present == 'true' && github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -133,7 +164,7 @@ jobs:
           fi
 
       - name: Fail on planning error
-        if: steps.plan.outputs.exit_code != '0'
+        if: steps.creds.outputs.present == 'true' && steps.plan.outputs.exit_code != '0'
         run: exit 1
 
   apply:
