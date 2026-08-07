@@ -11,7 +11,7 @@
 # oauth2-errors has no counterpart and is simply deleted. It existed to rewrite
 # oauth2-proxy's bare 401 into a /oauth2/start bounce; the outpost returns a 302 to
 # the authorization flow itself, so the shim has nothing left to do. The
-# auth-redirect nginx Deployment that backed it goes with it.
+# auth-redirect nginx Deployment that backed it goes with it in the follow-up cleanup.
 #
 # authResponseHeaders lists the identity headers so the app CAN consume them later.
 # Nothing reads them today — verified — and Authorization is deliberately absent:
