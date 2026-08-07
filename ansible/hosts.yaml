@@ -1,5 +1,8 @@
 all:
   children:
+    # `firefly` is ff-pi1 ONLY, and must stay that way. A dozen playbooks target
+    # `hosts: firefly` to manage docker, pihole, nginx, pivpn and so on — widening
+    # this group would silently run every one of them against the k3s agents too.
     firefly:
       hosts:
         192.168.19.10:
@@ -7,6 +10,51 @@ all:
         ansible_python_interpreter: /usr/bin/python3
         ansible_ssh_user: caleb
         ansible_ssh_private_key_file: ~/.ssh/id_rsa
+
+    # The whole k3s fleet, added 2026-08-07. Previously only the control plane was
+    # in the inventory at all, which is why `firefly-node-labels.yaml` could reapply
+    # labels through the API but could not touch the agents' own k3s config — the
+    # durability gap cleanup.md flags. A separate group rather than children of
+    # `firefly`, for the reason above.
+    #
+    # Split server/agents because the k3s SERVER is the only host with a kubeconfig
+    # at /etc/rancher/k3s/k3s.yaml, so anything invoking `k3s kubectl` has to target
+    # firefly_cluster_server.
+    #
+    # The OCI pair is reached over the site-to-site link on 192.168.223.0/24 and runs
+    # the stock Ubuntu cloud image, so it logs in as `ubuntu`, not `caleb`.
+    firefly_cluster:
+      children:
+        firefly_cluster_server:
+        firefly_cluster_agents:
+      vars:
+        ansible_python_interpreter: /usr/bin/python3
+
+    firefly_cluster_server:
+      hosts:
+        192.168.19.10: # ff-pi1 — arm64 control plane + etcd
+          k3s_node_name: ff-pi1
+          k3s_role: system
+          k3s_tier: on-prem
+          ansible_ssh_user: caleb
+
+    firefly_cluster_agents:
+      hosts:
+        192.168.19.13: # ff-vm1 — amd64 on-prem worker (Proxmox guest)
+          k3s_node_name: ff-vm1
+          k3s_role: worker
+          k3s_tier: on-prem
+          ansible_ssh_user: caleb
+        192.168.223.71: # ff-oci1 — arm64 OCI Ampere
+          k3s_node_name: ff-oci1
+          k3s_role: worker
+          k3s_tier: native-cloud
+          ansible_ssh_user: ubuntu
+        192.168.223.72: # ff-oci2 — arm64 OCI Ampere
+          k3s_node_name: ff-oci2
+          k3s_role: worker
+          k3s_tier: native-cloud
+          ansible_ssh_user: ubuntu
 
     mikrotik:
       hosts:
