@@ -53,6 +53,7 @@ nav:
       - Identity (Authentik): operations/identity-authentik.md
       - Runtime & Continuous Security: operations/runtime-continuous-security.md
       - DefectDojo: operations/defectdojo.md
+      - Backup and Restore: operations/backup-and-restore.md
       - Observability Stack: operations/observability-stack.md
       - Auto Shutdown: operations/auto-shutdown.md
       - Auto Update: operations/auto-update.md
