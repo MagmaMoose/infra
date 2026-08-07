@@ -20,3 +20,16 @@ spec:
     provider: sops
     secretRef:
       name: sops-keys
+  # `high`, per the desired-state table: this is the network path for VPN-routed
+  # workloads, so its loss breaks those workloads rather than the cluster.
+  #
+  # Patched here rather than labelled, because the workload is sourced from its own
+  # GitRepository — no kustomization in this repo has a `labels:` block that could
+  # reach it. Same mechanism the business apps use.
+  patches:
+    - target:
+        kind: Deployment
+      patch: |
+        - op: add
+          path: /spec/template/spec/priorityClassName
+          value: high
