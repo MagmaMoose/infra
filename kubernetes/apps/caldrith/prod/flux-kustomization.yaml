@@ -72,6 +72,34 @@ spec:
           path: /spec/jobTemplate/spec/template/spec/nodeSelector
           value:
             topology.sargeant.co/tier: native-cloud
+  # Priority class, set HERE as a patch rather than by the
+  # placement.sargeant.co/priority label the in-repo apps use: these workloads come
+  # from their OWN GitRepository, so no kustomization in this repo has a `labels:`
+  # block that could reach them.
+  #
+  # `business` because these are the revenue-bearing apps. Without it they sit at
+  # priority 0 while everything they DEPEND on was promoted — litellm and the valkey
+  # instances to business, postgres-oci/minio/mariadb to critical — and while ~30
+  # supporting media and automation workloads carry medium (1000) or higher. That
+  # inverts the rule the scale is built on, that nothing may outrank its own
+  # dependencies: left at 0 these are the FIRST pods preempted on a contended node,
+  # which is exactly backwards for the apps the cluster exists to run.
+  #
+  # business (50000) sits below critical (100000) deliberately — these apps run ON
+  # the secrets, TLS, admission and data planes, so one that outranked those would
+  # win the scheduling race and then fail for want of a secret.
+    - target:
+        kind: Deployment
+      patch: |
+        - op: add
+          path: /spec/template/spec/priorityClassName
+          value: business
+    - target:
+        kind: CronJob
+      patch: |
+        - op: add
+          path: /spec/jobTemplate/spec/template/spec/priorityClassName
+          value: business
   # Cloud-tier apps must use the CLOUD-tier cache. The app repos hardcode
   # REDIS_URL=valkey.database.svc, which is the valkey instance pinned to ff-vm1
   # (on-prem) — so these OCI pods reach back across the site-to-site VPN for every
