@@ -33,7 +33,15 @@ inputs = {
   # MySQL configuration
   shape_name              = "MySQL.Free"  # Free tier shape
   data_storage_size_in_gb = 50            # Free tier includes 50GB
-  mysql_version           = "9.6.0"
+  # MUST match the live DB system. It reports 26.7.0; this said 9.6.0, a version
+  # OCI no longer offers. mysql_version forces replacement, and prevent_destroy is
+  # false on this resource, so a plan run against the stale pin would have proposed
+  # DESTROYING the DB system and creating a new one — losing its data — rather than
+  # failing. That was survivable only while nothing could run terragrunt here; the
+  # org runner group now permits this public repo, so CI can reach this leaf.
+  #
+  # Verified against the live system with `oci mysql db-system get`, not assumed.
+  mysql_version           = "26.7.0"
 
   # Admin credentials. OCI_MYSQL_ADMIN_PASSWORD MUST be set in the environment
   # for any terragrunt invocation on this stack (parse-time fetch — plan,
