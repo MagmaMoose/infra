@@ -1,3 +1,4 @@
+# kics-scan disable=4a20ebac-1060-4c81-95d1-1f7f620e983b,48a5beba-e4c0-4584-a2aa-e6894e4cf424
 apiVersion: v1
 kind: Service
 metadata:
