@@ -4,18 +4,26 @@ kind: Kustomization
 metadata:
   name: prod-github-runner
   namespace: flux-system
-  labels:
-    app.kubernetes.io/sops: enabled
 spec:
   interval: 10m
   path: ./kubernetes/apps/github-runner/base
+  # prune: true is what performs the cutover. This Kustomization previously owned the
+  # github-runner StatefulSet, Service, ServiceAccount, ConfigMap, ExternalSecret and
+  # Namespace; once base/ no longer lists them, Flux deletes all six — including the
+  # `github-runner` namespace — in the same reconcile that creates arc-systems and
+  # arc-runners. No manual cleanup step.
   prune: true
   sourceRef:
     kind: GitRepository
     name: flux-system
-  timeout: 2m
+  # Two Helm installs, one of which lays down four CRDs and waits on a controller
+  # Deployment. The old 2m was sized for a StatefulSet.
+  timeout: 10m
   wait: true
-  decryption:
-    provider: sops
-    secretRef:
-      name: sops-keys
+  # external-secrets must be reconciling before base/externalsecret.yaml can produce
+  # arc-github-app, and the scale-set listener will not start without it.
+  dependsOn:
+    - name: infrastructure-controllers
+  # `decryption:` and the app.kubernetes.io/sops label are dropped: nothing under base/
+  # is SOPS-encrypted any more (the App key comes from OCI Vault via ESO), so the
+  # sops-keys reference was already vestigial.

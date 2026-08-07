@@ -2,20 +2,14 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - namespace.yaml
-  - serviceaccount.yaml
-  - service.yaml
+  - helmrepository.yaml
   - externalsecret.yaml
-  - configmap.yaml
-  - statefulset.yaml
-# Pin to ff-vm1 (the only amd64 node, 32 GiB) — the actions-runner + MegaLinter
-# images are amd64 and need multi-GB RAM. worker-on-prem selects the worker role
-# AND the on-prem tier so the pod never drifts onto the arm64 OCI workers.
-labels:
-  # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
-  # adds the nodeSelector at admission. Replaces components/node-selectors/worker-on-prem.
-  # includeSelectors/includeTemplates false: these fields are immutable on a live
-  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
-  - pairs:
-      placement.sargeant.co/tier: on-prem
-    includeSelectors: false
-    includeTemplates: false
+  - helmrelease-controller.yaml
+  - helmrelease-runner-set.yaml
+# NO kustomize `labels:` block, deliberately — and this is the opposite of what the
+# retired StatefulSet needed. Every workload here is rendered by a Helm chart, so a
+# `placement.sargeant.co/tier` label would land on the HelmRelease, which none of the
+# Kyverno placement policies match: it would be silently inert while looking correct.
+# Placement and priority are therefore set inside each chart's `spec.values` instead
+# (nodeSelector + priorityClassName), which is what
+# .github/actions/placement-label-guard checks for and what flagger/base already does.

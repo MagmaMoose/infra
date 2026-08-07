@@ -1,0 +1,20 @@
+---
+# ARC's charts are published ONLY as OCI artifacts under ghcr.io/actions — there is no
+# index.yaml to fetch, so this is a `type: oci` HelmRepository like platform2's and
+# finance's, not a classic entry in infrastructure/configs/flux/helmrepositories.yaml.
+#
+# No secretRef: the actions/* packages are public (verified with an anonymous token
+# exchange against ghcr.io/v2/actions/actions-runner-controller-charts/...), unlike the
+# tengen-systems charts which need ghcr-tengen-pull-secret.
+#
+# It lives in this app's directory rather than in infrastructure/configs/flux/ because it
+# is app-scoped — same reasoning as platform2's.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: actions-runner-controller-charts
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 30m
+  url: oci://ghcr.io/actions/actions-runner-controller-charts
