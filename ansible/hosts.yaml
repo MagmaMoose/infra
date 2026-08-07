@@ -39,6 +39,8 @@ all:
           ansible_ssh_user: caleb
 
     firefly_cluster_agents:
+      vars:
+        ansible_ssh_private_key_file: ~/.ssh/id_rsa
       hosts:
         192.168.19.13: # ff-vm1 — amd64 on-prem worker (Proxmox guest)
           k3s_node_name: ff-vm1
