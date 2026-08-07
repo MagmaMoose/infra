@@ -42,7 +42,6 @@
 # (coredns, traefik, metrics-server, local-path-provisioner, svclb-traefik,
 # node-tuning, oci-node-firewall, the flux controllers, anything Longhorn) -
 # doing so DEMOTES them by ~4 orders of magnitude.
-#
 # The inverse mistake is just as easy and less visible: assigning `critical` to a
 # workload that does not actually own data or break others PROMOTES it above the
 # things that do, and on a saturated node it wins the scheduling race against a
