@@ -1,0 +1,107 @@
+---
+# ARC control plane: one Deployment that reconciles AutoscalingRunnerSet /
+# AutoscalingListener / EphemeralRunner(Set) and owns their CRDs.
+#
+# PLACEMENT — cloud tier (ff-oci1 / ff-oci2, arm64), set HERE in spec.values and not via
+# a kustomize `placement.sargeant.co/tier` label. A kustomize label lands on the
+# HelmRelease, which none of the Kyverno placement policies match, so it would be
+# silently inert (the class the repo's own .github/actions/placement-label-guard exists
+# to catch). flagger/base/helmrelease.yaml is the model.
+#
+# Why the arm64 tier and not ff-vm1, given ff-vm1 is where the runners go:
+#   * ghcr.io/actions/gha-runner-scale-set-controller:0.14.2 publishes linux/amd64 AND
+#     linux/arm64 (verified against the ghcr manifest index), so arm64 is safe.
+#   * ff-vm1's scarce resource is MEMORY and it is scarce in REAL terms — 19429Mi/28042Mi
+#     live usage, and a 7-day peak sum of 144% of allocatable. The OCI pair is scarce only
+#     in CPU REQUESTS (ff-oci1 93%, ff-oci2 98%) while sitting at 19%/27% real CPU and
+#     29%/72% real memory. Spending 25m of reservation on a tier that is ~75% idle in
+#     reality is a cheaper trade than adding 96Mi to the node with the peak problem.
+#   * Measured free reservation on the cloud tier at time of writing: 130m CPU on ff-oci1,
+#     34m on ff-oci2. 25m fits either node. If that shrinks further, move this one
+#     workload to on-prem (`node-role.kubernetes.io/worker: ""` +
+#     `topology.sargeant.co/tier: on-prem`) — the retired github-runner StatefulSet frees
+#     200m/768Mi on ff-vm1, so there is room for the fallback.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: arc
+  namespace: arc-systems
+spec:
+  interval: 30m
+  # Pinned, not incidental: the scale-set chart below is pinned to the SAME version.
+  # ARC's controller and its AutoscalingRunnerSet CRs are versioned together and the
+  # project does not support a skewed pair, so the two versions move in one commit.
+  releaseName: arc
+  chart:
+    spec:
+      chart: gha-runner-scale-set-controller
+      version: "0.14.2"
+      sourceRef:
+        kind: HelmRepository
+        name: actions-runner-controller-charts
+        namespace: flux-system
+      interval: 30m
+  install:
+    # This chart is the only source of the four actions.github.com CRDs
+    # (autoscalingrunnersets, autoscalinglisteners, ephemeralrunners,
+    # ephemeralrunnersets). Without this, Flux installs the chart and the scale-set
+    # HelmRelease below then fails on an unknown kind.
+    crds: Create
+    remediation:
+      retries: 3
+  upgrade:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  values:
+    replicaCount: 1
+
+    # image.tag deliberately unset — the chart defaults it to .Chart.AppVersion, which is
+    # 0.14.2, the version pinned above. Setting it here would let the two drift.
+    image:
+      pullPolicy: IfNotPresent
+
+    serviceAccount:
+      create: true
+
+    # Set in chart values for the same reason as nodeSelector: the Kyverno
+    # assign-priority-class policy cannot reach a chart-rendered Deployment.
+    # `medium`, not `low`: if this dies, in-flight jobs are orphaned and no new runner
+    # can be created at all — it is the CI control plane, while the runners themselves
+    # are genuinely restartable batch work and are `low`.
+    priorityClassName: medium
+
+    nodeSelector:
+      topology.sargeant.co/tier: native-cloud
+
+    resources:
+      requests:
+        cpu: 25m
+        memory: 96Mi
+      limits:
+        # Memory ceiling only — no CPU limit, per repo convention (CPU limits produce
+        # false CFS-throttle alerts). 256Mi is ~2.6x the request, which is real headroom
+        # rather than the deferred-OOM shape called out in COMMON_MISTAKES #13/#14.
+        memory: 256Mi
+
+    podSecurityContext:
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    securityContext:
+      allowPrivilegeEscalation: false
+      # Safe: the chart already mounts an emptyDir at /tmp for this container, which is
+      # the only path the manager writes to.
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: ["ALL"]
+
+    flags:
+      # The chart ships logLevel: debug. On a cluster whose Loki sits on the memory-tight
+      # ff-vm1, debug from a controller that polls GitHub continuously is not free.
+      logLevel: info
+      logFormat: json
+      # `immediate` drains and replaces runners on an ARC upgrade rather than waiting for
+      # every in-flight job. With maxRunners: 1 the "wait" strategy could stall an upgrade
+      # behind a single long job.
+      updateStrategy: immediate

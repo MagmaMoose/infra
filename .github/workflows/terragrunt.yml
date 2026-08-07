@@ -2,19 +2,22 @@
 # Atlantis replacement, per cleanup.md's appendix.
 #
 # Differences from the appendix sketch, all deliberate:
-#   - runs-on is [self-hosted, Linux, X64], which the existing `firefly-0` runner
-#     already satisfies. The sketch used a `samenlevingszaken` label that exists in
-#     a different organisation and matches nothing here.
+#   - runs-on is `firefly`, the ARC runner scale set's NAME. This is not a label
+#     array and cannot be one: actions-runner-controller matches a job to a scale
+#     set by name only, so `[self-hosted, Linux, X64]` would never be picked up
+#     even though those labels describe the runner accurately. The appendix
+#     sketch's `samenlevingszaken` label belongs to a different organisation and
+#     matches nothing here either.
 #   - the OCI provider is configured from OCI_* environment variables (see
 #     terraform/root.hcl), so those are passed explicitly rather than relying on a
 #     ~/.oci/config that a runner will not have.
 #
-# NOT YET RUNNABLE, and the reason is a setting rather than code: the `Default`
-# runner group has allows_public_repositories=false while this repository is
-# public, so no self-hosted runner will pick these jobs up. Changing that is a
-# deliberate security decision — self-hosted runners executing public-repo
-# workflows is the exact scenario GitHub warns about — so it is left to the repo
-# owner. The fork guard below is necessary but NOT sufficient on its own.
+# The `Default` runner group now has allows_public_repositories=true (enabled by
+# the repo owner 2026-08-07), so self-hosted runners will pick these jobs up.
+# That is the scenario GitHub warns about, which is why the fork guard on the
+# `discover` job below is load-bearing rather than decorative: it stops a pull
+# request from a fork ever executing on a runner holding private-cloud
+# credentials. Do not weaken it.
 name: Terragrunt
 
 on:
@@ -46,7 +49,7 @@ jobs:
     # A self-hosted runner must never execute untrusted fork code with private
     # cloud credentials. Same-repository pull requests still receive plan output.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: firefly
     outputs:
       matrix: ${{ steps.stacks.outputs.matrix }}
       has_stacks: ${{ steps.stacks.outputs.has_stacks }}
@@ -80,7 +83,7 @@ jobs:
   plan:
     needs: discover
     if: needs.discover.outputs.has_stacks == 'true'
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: firefly
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -175,7 +178,7 @@ jobs:
     # environments already do that, and hand-rolled approval checks are easy to
     # get subtly wrong.
     if: github.event_name == 'push' && needs.discover.outputs.has_stacks == 'true' && needs.plan.result == 'success'
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: firefly
     environment: all/deploy
     strategy:
       fail-fast: false

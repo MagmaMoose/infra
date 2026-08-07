@@ -1,9 +1,27 @@
+---
+# ARC splits into two namespaces on purpose, and the split is load-bearing:
+#
+#   arc-systems  the gha-runner-scale-set-controller Deployment AND the per-scale-set
+#                AutoscalingListener pod. The listener is created BY the controller in
+#                the CONTROLLER's namespace (see the controller chart's
+#                manager_listener_role.yaml — a Role granting pods create/delete scoped
+#                to this namespace), not in the runner namespace. Pinning the listener
+#                therefore happens via `listenerTemplate` in the scale-set values, not
+#                via anything in this file.
+#
+#   arc-runners  the ephemeral runner pods and the GitHub App credential they register
+#                with. Every job gets a brand-new pod that is destroyed afterwards, so
+#                nothing in here is long-lived except the ExternalSecret's target.
+#
+# Keeping them apart means the privileged docker-in-docker runner pods (which WILL make
+# Falco emit "Launch Privileged Container" — expected, not a failure) never share a
+# namespace with the controller that can create pods and read the App key.
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: github-runner
-  labels:
-    # A dedicated namespace (mirroring platform1-infra) keeps the privileged
-    # docker-in-docker runner's RBAC and any Falco rule exceptions scoped away
-    # from the shared `automation` namespace. Falco WILL emit "Launch Privileged
-    # Container" alerts for the dind sidecar — that is expected, not a failure.
+  name: arc-systems
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: arc-runners
