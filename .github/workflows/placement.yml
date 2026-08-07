@@ -1,0 +1,66 @@
+# Fails a pull request when a placement.sargeant.co label cannot reach a pod
+# template.
+#
+# THE BUG CLASS: kustomize `labels:` applies to EVERY resource a kustomization
+# emits, while the Kyverno placement policies match only Deployment, StatefulSet,
+# DaemonSet and CronJob. Label a kustomization whose workload is a HelmRelease and
+# the label stops at the HelmRelease — the chart's Deployment never sees it, so
+# nothing is pinned or prioritised. Nothing in the cluster reports this: the
+# policies' own typo guards do not match HelmRelease either, so the workload is
+# silently unplaced and it looks like it worked.
+#
+# It has shipped twice already:
+#   1. headlamp — the tier label was inert on its HelmRelease, and simultaneously
+#      DID land on the oauth2-proxy and auth-redirect Deployments beside it in the
+#      same kustomization, narrowing them from "any worker" to "OCI only" and
+#      putting the site-to-site VPN in the path of every forward-auth subrequest.
+#   2. external-dns-mikrotik — its priority label never reached the chart's
+#      Deployment, leaving it at priority 0 while its peers were promoted.
+#
+# A CI gate rather than another Kyverno policy, deliberately. An admission policy
+# could only report this after the fact, in a PolicyReport nobody reads, and the
+# reports controller is disabled precisely because it was too expensive for the
+# control-plane node. Catching it at pull-request time costs nothing at runtime.
+#
+# A NEW workflow rather than a step inside Security, following the same reasoning
+# as External Secrets: that workflow's job id is a required status-check context,
+# and adding steps to it puts the gate that blocks every pull request at risk.
+name: Placement
+
+on:
+  pull_request:
+    paths:
+      - 'kubernetes/**'
+      # A change to the guard must re-run the guard, or the first proof it still
+      # works arrives on main.
+      - '.github/workflows/placement.yml'
+      - '.github/actions/placement-label-guard/**'
+  push:
+    branches: [main]
+    paths:
+      - 'kubernetes/**'
+      - '.github/workflows/placement.yml'
+      - '.github/actions/placement-label-guard/**'
+  workflow_dispatch:
+
+permissions:
+  # The guard only reads the tree and writes annotations plus a job summary,
+  # neither of which needs a token scope. Path filtering is done by on.*.paths
+  # rather than an action, so no pull-requests: read either.
+  contents: read
+
+concurrency:
+  group: placement-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  placement:
+    name: Placement label guard
+    runs-on: ${{ vars.SELFHOSTED_GITHUB_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: ./.github/actions/placement-label-guard
+        with:
+          root: kubernetes

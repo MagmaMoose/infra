@@ -75,6 +75,14 @@ spec:
     nodeSelector:
       type: pi
 
+    # Set HERE, not by the placement.sargeant.co/priority label on the
+    # kustomization. That label lands on this HelmRelease object, and the Kyverno
+    # assign-priority-class policy does not match HelmRelease — the chart renders
+    # the Deployment, so the label never reaches a pod template and the workload
+    # stays at priority 0. The nodeSelector immediately above is set here for the
+    # same reason.
+    priorityClassName: medium
+
     # Log configuration
     logLevel: info
     logFormat: json

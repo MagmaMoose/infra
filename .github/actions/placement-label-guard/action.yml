@@ -1,0 +1,41 @@
+# Fails the pull request when a placement.sargeant.co label cannot reach a pod
+# template, or reaches one nobody meant it to.
+#
+# WHY THIS EXISTS: kustomize `labels:` applies to EVERY resource a kustomization
+# emits, while the Kyverno placement policies only match Deployment, StatefulSet,
+# DaemonSet and CronJob. Put a tier label on a kustomization whose workload is a
+# HelmRelease and the label lands on the HelmRelease, not on the Deployment the
+# chart renders. Nothing rejects it, nothing warns, and the workload is simply
+# never pinned — the placement policies' own typo guards cannot see it either,
+# because they do not match HelmRelease.
+#
+# This is not hypothetical. headlamp shipped exactly that: the tier label was
+# inert on the HelmRelease it was written for, and simultaneously DID land on the
+# oauth2-proxy and auth-redirect Deployments in the same kustomization, narrowing
+# them from "any worker" to "OCI only" and putting the site-to-site VPN in the
+# path of every forward-auth subrequest.
+name: Placement label guard
+description: Verify every placement.sargeant.co label lands on a matchable controller
+
+inputs:
+  root:
+    description: Directory to scan for kustomizations
+    required: false
+    default: kubernetes
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        ROOT: ${{ inputs.root }}
+      run: |
+        set -uo pipefail
+        if ! command -v kustomize >/dev/null 2>&1; then
+          echo "::group::install kustomize"
+          curl -fsSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" -o /tmp/ik.sh
+          bash /tmp/ik.sh 5.4.3 /usr/local/bin >/dev/null
+          echo "::endgroup::"
+        fi
+        kustomize version
+        python3 "${GITHUB_ACTION_PATH}/guard.py"
