@@ -1,9 +1,0 @@
-- op: add
-  path: /spec/values/controllers/main/containers/main/resources
-  value:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 250m
-      memory: 512Mi

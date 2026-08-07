@@ -6,7 +6,11 @@ resources:
   - configmap.yaml
   - pvc.yaml
 components:
-  - ../../../components/resource-profiles/c.pico
+  # c.pico removed: it was a no-op here. Resource profiles patch
+  # containers/0/resources on Deployment/StatefulSet/DaemonSet, and this
+  # kustomization emits a HelmRelease — the chart renders the DaemonSet, so the
+  # patch matched nothing. Homebridge's resources are set in the chart's own
+  # values, which is the only place that reaches them.
   # Migrated off ff-pi1: hostPath persistence replaced with the Longhorn PVC in
   # pvc.yaml (referenced from configmap values), pinned to the worker node.
   - ../../../components/ingress-standards/sargeant.co

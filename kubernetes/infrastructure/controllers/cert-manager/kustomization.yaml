@@ -4,8 +4,6 @@ metadata:
   name: core
 resources:
   - ./base
-components:
-  - ../../../components/resource-profiles/t.nano
 labels:
   # Placement tier — consumed by the Kyverno `place-system` ClusterPolicy, which
   # adds the nodeSelector at admission. Replaces components/node-selectors/pi.
@@ -23,6 +21,37 @@ labels:
 #   cainjector  -> high     : gates cert-manager's own CRs, not the cluster
 #   webhook     -> high     : same
 patches:
+  # Resources, inlined from the t.nano resource-profile component that used to be
+  # listed above. The values are carried over EXACTLY, with one deliberate change:
+  # the CPU limit is dropped.
+  #
+  # Copying both numbers verbatim matters. A profile sets requests AND limits, and
+  # replacing one by reading only the request line is how litellm ended up with a
+  # memory limit below its own working set and OOMKilled silently on every start
+  # (COMMON_MISTAKES #13). t.nano was: requests 50m/64Mi, limits 200m/256Mi — so
+  # 256Mi is the memory limit here, not 64Mi.
+  #
+  # The CPU limit goes because CPU is compressible: the request already guarantees
+  # a share under contention, while a limit adds CFS throttling that shows up as
+  # latency rather than as a scheduling failure. This is the shape cleanup.md
+  # specifies (CPU requests, no CPU limits; memory request and limit both set).
+  #
+  # These numbers are the profile's, not measurements — cert-manager has not been
+  # right-sized against real usage yet. They are preserved as-is so that deleting
+  # the component tree is a behaviour-preserving refactor; sizing is a separate
+  # pass that needs the metrics API back.
+  - target:
+      kind: Deployment
+      labelSelector: app.kubernetes.io/instance=cert-manager
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            memory: 256Mi
   - target:
       kind: Deployment
       name: cert-manager
