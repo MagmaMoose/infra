@@ -53,13 +53,13 @@ Before deploying, you need to:
    ```bash
    # Encrypt the credentials file
    sops --encrypt \
-     --age age1yj3wdeleng98w9rv46yh40ettc78r9k4r4wgnx7ja5zxmyt8qe7snjg0a0 \
+     --age age1c5k0q4adlrst6t003whpek86c87ymkdh9num9ha22uhwftvanyds6v2ctc \
      --encrypted-regex '^(data|stringData)$' \
      1password-credentials-secret.yaml > 1password-credentials-secret.enc.yaml
 
    # Encrypt the token file
    sops --encrypt \
-     --age age1yj3wdeleng98w9rv46yh40ettc78r9k4r4wgnx7ja5zxmyt8qe7snjg0a0 \
+     --age age1c5k0q4adlrst6t003whpek86c87ymkdh9num9ha22uhwftvanyds6v2ctc \
      --encrypted-regex '^(data|stringData)$' \
      1password-token-secret.yaml > 1password-token-secret.enc.yaml
    ```

@@ -16,9 +16,10 @@ resources:
   # OCI API key + config for the oci CLI baked into the atlantis-firefly
   # image. Mounted by deployment.yaml at /home/atlantis/.oci/ so terragrunt
   # parse-time `run_cmd("oci secrets secret-bundle get ...")` calls
-  # (cloudflare/dns/prod/terragrunt.hcl etc) authenticate. SOPS-bootstrap —
-  # this key itself auths OCI Vault, so it can't live there (chicken+egg),
-  # same as kubernetes/infrastructure/controllers/external-secrets/oci-vault-secret-enc.yaml.
+  # (cloudflare/dns/prod/terragrunt.hcl etc) authenticate. Now materialized by
+  # external-secrets from OCI Vault `atlantis-oci-cli`, fetched with the
+  # external-secrets bootstrap credential (oci-vault-credentials), so it no
+  # longer needs SOPS.
   - externalsecret-atlantis-oci-cli.yaml
   # The Secret 'atlantis' is materialized by externalsecret.yaml from OCI
   # Vault keys: atlantis-github-app-id, atlantis-github-app-private-key,
