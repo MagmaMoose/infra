@@ -103,6 +103,26 @@ data:
           name: authentik Embedded Outpost
         attrs:
           type: proxy
+          # authentik_host IS REQUIRED and ships EMPTY. With it unset the outpost
+          # builds its authorize redirect against `http://localhost`, so a browser
+          # arriving at defectdojo or headlamp is bounced to
+          # http://localhost/application/o/authorize/ and the login dead-ends.
+          #
+          # This is invisible until a real browser tries it: the forward-auth
+          # endpoint still returns a correct-looking 302, and the redirect_uri
+          # inside it is right (that comes from the provider's external_host) —
+          # only the authorize ORIGIN is wrong. Verified by reading the Location
+          # header, not by checking the status code.
+          #
+          # The outpost caches this config and refreshes every 5 minutes, so a
+          # change here needs a restart of authentik-server (the embedded outpost
+          # runs inside it) before it takes effect.
+          config:
+            authentik_host: https://authentik.magmamoose.com
+            authentik_host_browser: https://authentik.magmamoose.com
+            authentik_host_insecure: false
+            log_level: info
+            object_naming_template: ak-outpost-%(name)s
           providers:
             - !KeyOf provider-defectdojo
             - !KeyOf provider-headlamp
