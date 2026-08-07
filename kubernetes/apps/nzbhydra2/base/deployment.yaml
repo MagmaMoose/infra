@@ -24,7 +24,16 @@ spec:
             cpu: 10m
             memory: 710Mi
           limits:
-            memory: 710Mi
+            # 1536Mi, the ceiling the c.micro profile gave this before it was removed —
+            # NOT the 710Mi measured figure. A limit equal to the measured working set
+            # caps the container at its steady state, and this one is a JVM: heap plus
+            # metaspace routinely allocate above average, and the JVM sizes itself from
+            # the cgroup limit, so a tight limit makes it both likelier to exceed and
+            # less able to avoid it. The OOMKill is silent (exit 137, no logs) — the same
+            # defect litellm shipped with.
+            # The request stays at the measured 710Mi for honest scheduling; limits are
+            # not scheduler-reserved, so this headroom costs no capacity.
+            memory: 1536Mi
         ports:
         - containerPort: 5076
           name: http
