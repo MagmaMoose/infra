@@ -1,0 +1,204 @@
+# kics-scan disable=88841d5c-d22d-4b7e-a6a0-89ca50e44b9f
+# False positive: /boot/firmware is vfat; owner/group/mode on ansible.builtin.copy would
+# error there because vfat carries no Unix permissions. The mount umask governs access.
+---
+# Switches ff-pi1 from the Pi 5's default 16KB-page kernel to the 4KB-page one.
+#
+# WHY. The Raspberry Pi 5 boots `kernel_2712.img`, which uses a **16KB page size**.
+# Software that bundles jemalloc built for 4KB pages cannot initialise on it — jemalloc
+# aborts with `Unsupported system page size` and every subsequent allocation fails:
+#
+#   <jemalloc>: Unsupported system page size
+#   [error] [src/config_format/flb_config_format.c:110 errno=12] Cannot allocate memory
+#
+# That is fluent-bit's DaemonSet pod on ff-pi1, which had crash-looped 139 times. It is
+# specifically a page-size problem and NOT a version problem: 3.2.2 (deployed), 4.2.8 and
+# 5.1.0 were each run on the node and failed identically, so there is no upgrade out of it.
+# The other three nodes are unaffected — ff-vm1 is amd64 and the OCI pair are arm64 VMs,
+# all on 4KB pages, and fluent-bit has 0 restarts on all three.
+#
+# WHY THIS FIX rather than routing around it. `kernel8.img` is the stock ARM64 4KB-page
+# kernel, ships in the same firmware package, and is the documented way to get 4KB pages on
+# a Pi 5. It fixes the whole class rather than one workload, so the next jemalloc-linked
+# image does not reopen this. The alternative considered was reviving the Alloy DaemonSet
+# (Go, no jemalloc, verified working on 16KB pages here) and excluding ff-pi1 from
+# fluent-bit; that avoids a reboot but leaves the fleet running two shippers and leaves the
+# page-size trap armed.
+#
+# Secondary benefit worth noting on a memory-bound node: 16KB pages round every small
+# allocation up to 16KB, so 4KB pages typically reclaim a little RAM to internal
+# fragmentation. Not the reason for the change, but it points the right way.
+#
+# !! THIS REBOOTS THE CONTROL-PLANE NODE. !!
+# A page-size change is a kernel selection, so there is no way to apply it live.
+#
+# !! RECOVERY IF IT DOES NOT COME BACK. !!
+# config.txt is backed up beside itself before the edit. `/boot/firmware` is a plain FAT
+# partition, so recovery needs no Linux: put the card/NVMe in any machine, open config.txt
+# in a text editor and delete the `kernel=kernel8.img` line (or copy the .bak over it). The
+# firmware has no automatic fallback, which is exactly why the backup is taken first and why
+# this playbook refuses to run if the target kernel image is missing.
+#
+#   ansible-playbook -i hosts.yaml firefly-pi-page-size.yaml --check --diff
+#   ansible-playbook -i hosts.yaml firefly-pi-page-size.yaml
+- name: Boot ff-pi1 with a 4KB page size
+  hosts: firefly_cluster_server
+  gather_facts: true
+  become: true
+
+  vars:
+    pi_kernel_image: kernel8.img
+    boot_config: /boot/firmware/config.txt
+
+  tasks:
+    - name: Confirm the target kernel image actually exists
+      # Refuse rather than write a config.txt that points the firmware at a missing kernel,
+      # which is an unbootable machine and a trip to wherever the Pi lives.
+      ansible.builtin.stat:
+        path: "/boot/firmware/{{ pi_kernel_image }}"
+      register: kernel_img
+
+    - name: Fail if the kernel image is missing
+      ansible.builtin.assert:
+        that: kernel_img.stat.exists
+        fail_msg: >-
+          /boot/firmware/{{ pi_kernel_image }} does not exist — refusing to edit config.txt.
+          Reinstall linux-image-rpi-v8 (or the equivalent firmware package) first.
+        success_msg: "{{ pi_kernel_image }} present"
+
+    - name: Record the page size before the change
+      ansible.builtin.command:
+        cmd: getconf PAGESIZE
+      register: pagesize_before
+      changed_when: false
+
+    - name: Back up config.txt before touching it
+      # force: false so re-runs keep the ORIGINAL pre-change file rather than overwriting the
+      # backup with an already-modified copy — a backup that tracks the current state is not
+      # a backup.
+      # No owner/group/mode: /boot/firmware is vfat, which carries no Unix permissions —
+      # they come from the mount's umask, and asking Ansible to chmod there errors.
+      ansible.builtin.copy:
+        src: "{{ boot_config }}"
+        dest: "{{ boot_config }}.pre-4k.bak"
+        remote_src: true
+        force: false
+
+    - name: Select the 4KB-page kernel
+      # Placed in the trailing [all] section so it applies to this model unconditionally.
+      # The regexp makes it idempotent and means an existing kernel= line is REPLACED rather
+      # than duplicated — two kernel= lines would leave which one wins up to firmware
+      # ordering.
+      # Again no owner/group/mode — vfat.
+      ansible.builtin.lineinfile:
+        path: "{{ boot_config }}"
+        regexp: '^\s*kernel\s*='
+        line: "kernel={{ pi_kernel_image }}"
+        insertafter: '^\[all\]'
+      register: config_edit
+
+    - name: Re-read config.txt to prove the edit did not mangle it
+      # Skipped under --check: nothing was written, so re-reading would assert against the
+      # unmodified file and fail on the very line the run did not make. Everything from here
+      # down verifies a change that only a real run performs.
+      ansible.builtin.slurp:
+        src: "{{ boot_config }}"
+      register: config_after
+      when: not ansible_check_mode
+
+    - name: Assert the rest of the boot config survived
+      # Cheap paranoia, but the failure mode being guarded against is "Pi does not boot", so
+      # confirm the lines that matter are all still present alongside the new one. The
+      # Pironman 5 overlay is in this list deliberately: it drives the NVMe carrier this node
+      # boots from, so losing it is as fatal as losing the kernel line.
+      ansible.builtin.assert:
+        that:
+          - "'kernel=' ~ pi_kernel_image in cfg"
+          - "'arm_64bit=1' in cfg"
+          - "'dtoverlay=sunfounder-pironman5' in cfg"
+          - "'dtoverlay=vc4-kms-v3d' in cfg"
+        fail_msg: >-
+          config.txt no longer contains its expected entries — NOT rebooting. Restore
+          {{ boot_config }}.pre-4k.bak before doing anything else.
+        success_msg: "config.txt intact, kernel line present"
+      vars:
+        cfg: "{{ config_after.content | b64decode }}"
+      when: not ansible_check_mode
+
+    - name: Reboot into the new kernel
+      # Only when the config actually changed, so re-running this playbook on an
+      # already-converted node is a no-op instead of a surprise reboot.
+      #
+      # Deliberately NOT test_command: `systemctl is-system-running --wait`. That exits
+      # non-zero on a DEGRADED system — and this node has a known-failing unit or two — so
+      # Ansible would treat a perfectly healthy boot as unreachable and spin until timeout.
+      # The module's default connectivity probe is the honest test of "is it back".
+      ansible.builtin.reboot:
+        msg: "Switching to a 4KB page size (ansible/firefly-pi-page-size.yaml)"
+        reboot_timeout: 900
+        post_reboot_delay: 30
+      when: config_edit is changed
+
+    - name: Re-gather facts after the reboot
+      # Facts were collected before the reboot, so ansible_facts['kernel'] would otherwise
+      # report the kernel we just moved away from — and this playbook's whole claim is that
+      # the running kernel changed.
+      ansible.builtin.setup:
+      when: not ansible_check_mode
+
+    - name: Read the page size after the reboot
+      ansible.builtin.command:
+        cmd: getconf PAGESIZE
+      register: pagesize_after
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Assert the page size actually changed
+      ansible.builtin.assert:
+        that: pagesize_after.stdout | int == 4096
+        fail_msg: >-
+          Page size is still {{ pagesize_after.stdout }} after reboot — the firmware did not
+          pick up kernel={{ pi_kernel_image }}. Check {{ boot_config }} and `uname -r`.
+        success_msg: "page size {{ pagesize_before.stdout }} -> {{ pagesize_after.stdout }}"
+      when: not ansible_check_mode
+
+    - name: Wait for the API server to serve again
+      ansible.builtin.uri:
+        url: https://127.0.0.1:6443/readyz
+        validate_certs: false
+        status_code: [200, 401, 403]
+      register: k3s_readyz
+      retries: 30
+      delay: 10
+      until: k3s_readyz is succeeded
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Confirm the reservations from the sibling playbook survived the reboot
+      # config.yaml.d and the systemd drop-in are both on disk, so they should — but this is
+      # the first reboot since they were applied, and "survives a reboot" is the whole point
+      # of putting them in files rather than patching the running process.
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get node {{ k3s_node_name }}
+          -o jsonpath={.status.allocatable.memory}
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: node_allocatable
+      changed_when: false
+      retries: 12
+      delay: 10
+      until:
+        - node_allocatable.stdout | length > 0
+        - (node_allocatable.stdout | regex_replace('Mi$', '') | int) < ansible_facts['memtotal_mb']
+      when: not ansible_check_mode
+
+    - name: Show the result
+      when: not ansible_check_mode
+      ansible.builtin.debug:
+        msg: >-
+          {{ k3s_node_name }} page size {{ pagesize_before.stdout }} ->
+          {{ pagesize_after.stdout }}; kernel {{ ansible_facts['kernel'] }};
+          allocatable memory {{ node_allocatable.stdout }} (reservations survived).
+          fluent-bit should now start — verify with
+          `kubectl -n observability get pods -l app.kubernetes.io/name=fluent-bit -o wide`.

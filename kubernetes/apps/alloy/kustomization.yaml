@@ -1,6 +1,0 @@
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-# Only references env overlays — ./base/alloy is applied exclusively by the
-# per-env Flux Kustomization (prod/alloy/flux-kustomization.yaml).
-resources:
-  - ./prod
