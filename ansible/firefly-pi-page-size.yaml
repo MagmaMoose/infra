@@ -1,3 +1,6 @@
+# kics-scan disable=88841d5c-d22d-4b7e-a6a0-89ca50e44b9f
+# False positive: /boot/firmware is vfat; owner/group/mode on ansible.builtin.copy would
+# error there because vfat carries no Unix permissions. The mount umask governs access.
 ---
 # Switches ff-pi1 from the Pi 5's default 16KB-page kernel to the 4KB-page one.
 #
