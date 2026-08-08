@@ -73,7 +73,6 @@ resources:
   - ./syncthing
   - ./wordpress
   # observability
-  - ./alloy
   - ./blackbox-exporter
   - ./blackbox-exporter-oci
   - ./fluent-bit
