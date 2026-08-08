@@ -161,7 +161,17 @@ spec:
     serviceAccount:
       create: false
 
-    # nodeSelector is deliberately unset, and now safely so: v0.0.9's manifest
-    # list carries linux/amd64 and linux/arm64, so a pod is schedulable on the
-    # arm64 native-cloud tier (ff-oci1/ff-oci2) as well as everywhere else.
-    # Pinning to that tier is still open — see AGENTS.md.
+    # Pinned to the worker tier. "Everywhere else" previously included ff-pi1, and
+    # that is where the scheduler actually put it: an application workload landed on
+    # the 8Gi k3s server node because nothing excluded it. ff-pi1 advertises all
+    # 8063Mi as allocatable while the k3s server process alone holds ~4.8Gi outside
+    # kubepods, so unpinned pods are scored against roughly 5Gi of headroom that does
+    # not exist.
+    #
+    # `worker` rather than `on-prem`: v0.0.9's manifest list carries linux/amd64 AND
+    # linux/arm64 (verified with `docker manifest inspect`), so this is genuinely
+    # architecture-agnostic and there is no reason to narrow it to ff-vm1. The tier
+    # spans ff-vm1 + ff-oci1/ff-oci2 and lets the scheduler place on fit. What matters
+    # for this change is only that all three exclude ff-pi1.
+    nodeSelector:
+      node-role.kubernetes.io/worker: ""

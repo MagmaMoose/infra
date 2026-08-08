@@ -27,10 +27,18 @@ spec:
     mode: enabled
   values:
     # The operator itself (not the postgres Cluster CR it manages, which has its own
-    # affinity pinning it to the worker). A system controller, per
-    # docs/reference/cluster-topology.md — pin to ff-pi1. Previously unpinned: nothing
-    # stopped the scheduler from placing it on the CPU-request-saturated ff-vm1 instead.
+    # affinity pinning it to the worker).
+    #
+    # MOVED OFF ff-pi1 (was node-role.kubernetes.io/system) to relieve the control-plane
+    # node's memory exhaustion — see the note in the kyverno HelmRelease for the full
+    # reasoning. The operator only needs API access, and every Cluster it reconciles
+    # already runs on ff-vm1 or the OCI pair, so co-locating it with its workload is if
+    # anything the more natural placement.
+    #
+    # on-prem tier = the pair clusterpolicy-place-on-prem injects, resolving to exactly
+    # ff-vm1 (ff-pi1 carries tier=on-prem too, but is not labelled worker).
     nodeSelector:
-      node-role.kubernetes.io/system: ""
+      node-role.kubernetes.io/worker: ""
+      topology.sargeant.co/tier: on-prem
     crds:
       create: true

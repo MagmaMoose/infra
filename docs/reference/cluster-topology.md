@@ -8,8 +8,8 @@ workload should run*.
 
 | Role | k3s role | Runs | Current node(s) | Planned | Labels |
 |------|----------|------|-----------------|---------|--------|
-| **system** | k3s **server** (control plane) | API server, scheduler, controller-manager, kine **plus** the cluster's system controllers (helm-controller, flux-\*, kyverno, cert-manager, external-secrets, longhorn-manager, 1Password Connect, …) | **ff-pi1** (Raspberry Pi 5, arm64, 8 GiB) | ff-pi2, ff-pi3 (more Pi5s — control-plane HA / more system capacity) | `node-role.kubernetes.io/system`, legacy `type=pi` / `node-role.kubernetes.io/pi` |
-| **worker** | k3s **agent** | Application workloads | **ff-vm1** (amd64, 16 vCPU / 32 GiB); **ff-oci1** / **ff-oci2** (OCI free-tier, arm64, 2 OCPU / 12 GiB — the **native-cloud** sub-tier, see below) | ff-vm2 | `node-role.kubernetes.io/worker`, legacy `type=mini` / `node-role.kubernetes.io/mini`; native-cloud nodes also carry `topology.sargeant.co/tier=native-cloud` |
+| **system** | k3s **server** (control plane) | API server, scheduler, controller-manager, kine **plus** the bootstrap- and network-critical controllers: flux-\*, cert-manager, external-secrets, 1Password Connect, external-dns, CoreDNS/Traefik | **ff-pi1** (Raspberry Pi 5, arm64, 8 GiB) | ff-pi2, ff-pi3 (more Pi5s — control-plane HA / more system capacity) | `node-role.kubernetes.io/system`, legacy `type=pi` / `node-role.kubernetes.io/pi` |
+| **worker** | k3s **agent** | Application workloads, plus the policy engine and the operators whose workloads live here (kyverno, cloudnative-pg) | **ff-vm1** (amd64, 8 vCPU / 27.4 GiB allocatable); **ff-oci1** / **ff-oci2** (OCI free-tier, arm64, 2 OCPU / ~11.9 GiB allocatable — the **native-cloud** sub-tier, see below) | ff-vm2 | `node-role.kubernetes.io/worker`, legacy `type=mini` / `node-role.kubernetes.io/mini`; native-cloud nodes also carry `topology.sargeant.co/tier=native-cloud` |
 
 ```mermaid
 flowchart TB
@@ -39,13 +39,38 @@ flowchart TB
 
 ## Choosing where a workload runs
 
-- **System controllers** (anything that operates the cluster itself) → `system`.
-- **Everything else** (applications) → `worker`.
+- **`system`** — the control plane, plus only what must keep working when *no worker
+  does*: Flux (it installs everything else, so it cannot depend on anything else),
+  cert-manager, the secrets plane (external-secrets + 1Password Connect), DNS and
+  ingress, and node-level DaemonSets.
+- **`worker`** — applications, the policy engine, and operators whose managed
+  workloads already live on a worker.
+- **Everything else** → `worker`. `system` is the exception, not the default.
 
-The goal is for **ff-pi1 to run only control-plane + system controllers**, leaving
-headroom for the API server, scheduler, and node-level DaemonSets
-(node-exporter, fluent-bit, Alloy). The Pi is **memory-request bound** (8 GiB),
-so a single over-provisioned app reservation there is expensive.
+!!! warning "`system` is not a synonym for 'infrastructure'"
+    The earlier rule here was "anything that operates the cluster itself → `system`",
+    and it is how an 8 GiB Pi ended up hosting the whole controller tier. Most
+    controllers only need an API connection; needing an API connection is not a
+    reason to sit on the API server. Ask instead: *if every worker were down, would
+    this still need to run?* If the answer is no, it belongs on `worker`.
+
+### Why ff-pi1 has far less room than it looks
+
+ff-pi1 reports 8063Mi capacity, but the k3s server process — API server, scheduler,
+controller-manager, kine and the kubelet in one Go binary — holds roughly 2.5-3 GiB
+of that, and it lives in `system.slice`, **outside** `kubepods.slice`. The kubelet
+neither counts it against Allocatable by default nor can ever evict it.
+
+Left unreserved, the node therefore advertised its full 8063Mi while ~4.8 GiB was
+already spoken for, and pods drifted onto it against roughly 5 GiB of headroom that
+did not exist — until it exhausted memory and swap and hard-locked, needing a
+physical reset. `ansible/firefly-control-plane-resources.yaml` closes that gap: it
+sets `system-reserved`/`kube-reserved` so Allocatable tells the truth (~3823Mi), adds
+an `eviction-soft` threshold that sheds load while the node is still responsive, and
+caps the k3s Go heap with `GOMEMLIMIT`.
+
+The practical consequence when placing work: **treat ff-pi1 as a ~3.8 GiB node, not
+an 8 GiB one.**
 
 ## The native-cloud tier (OCI)
 

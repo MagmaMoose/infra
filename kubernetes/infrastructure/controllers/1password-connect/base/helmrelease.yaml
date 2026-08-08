@@ -26,6 +26,24 @@ spec:
       # cannot reach a chart-rendered workload — the placement label lands on
       # the HelmRelease, not the Deployment the chart renders.
       priorityClassName: critical
+      # Placement for the connect POD. connect-api and connect-sync are two containers in a
+      # single pod, so there is exactly one pod spec and exactly one nodeSelector — it has to
+      # be set here, at `connect:`, which is the only key the chart reads
+      # (`helm show values 1password/connect` has `connect.nodeSelector` and
+      # `operator.nodeSelector`, and nothing under `connect.api`/`connect.sync`).
+      #
+      # It was previously set under `connect.api` and `connect.sync` instead. Those keys do
+      # not exist in the chart, so both were discarded and the Deployment rendered with NO
+      # nodeSelector at all: `kubectl get deploy onepassword-connect -o
+      # jsonpath={...nodeSelector}` returned empty while the sibling operator, whose key is
+      # correct, showed the pin. The pod was on ff-pi1 by scheduler accident, and on a node
+      # advertising ~5Gi of headroom it did not have, that accident was close to guaranteed.
+      #
+      # Staying on the system tier is deliberate: 1Password Connect is what external-secrets
+      # resolves against, and the secrets plane is kept together on the control-plane node.
+      # This change makes the existing placement real, it does not move the workload.
+      nodeSelector:
+        node-role.kubernetes.io/system: ""
       # Reference existing secret for credentials
       credentialsName: onepassword-credentials
       credentialsKey: 1password-credentials.json
@@ -34,8 +52,7 @@ spec:
       api:
         name: connect-api
         replicas: 1
-        nodeSelector:
-          node-role.kubernetes.io/system: ""
+        # nodeSelector deliberately absent — it is a pod-level field and lives at `connect:`.
         resources:
           # KRR ~100Mi working set; trimmed from 256Mi to relieve ff-pi1
           # memory-request pressure. No CPU limit (avoid CFS throttling).
@@ -52,8 +69,7 @@ spec:
       sync:
         name: connect-sync
         replicas: 1
-        nodeSelector:
-          node-role.kubernetes.io/system: ""
+        # nodeSelector deliberately absent — it is a pod-level field and lives at `connect:`.
         resources:
           # KRR ~100Mi working set; trimmed from 256Mi to relieve ff-pi1
           # memory-request pressure. No CPU limit (avoid CFS throttling).

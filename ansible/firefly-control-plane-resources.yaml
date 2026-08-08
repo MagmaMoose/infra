@@ -1,0 +1,315 @@
+---
+# Stops ff-pi1 from running itself out of memory and hard-locking.
+#
+# THE FAILURE. ff-pi1 becomes completely unresponsive — no SSH, no API — and only a
+# physical power cycle brings it back. Measured on the node four minutes after one such
+# reset: 6755MB of 8063MB used, the 512MB swap file 100% consumed, load average 21.77 on
+# four cores. Not power and not heat: `vcgencmd get_throttled` reads 0x0 and the SoC was
+# at 52.7'C, and the root device is NVMe, not SD.
+#
+# WHY IT RUNS OUT. The node lies to the scheduler about how much memory it has.
+#
+#   Capacity/Allocatable   8063Mi        <- what the scheduler is told
+#   k3s.service (RSS)      4779Mi        <- lives in system.slice, NOT kubepods.slice
+#   kubepods               2487Mi
+#   pod REQUESTS            2548Mi (31%) <- what the scheduler thinks is in use
+#
+# No kube-reserved, no system-reserved and no eviction thresholds were set, so the kubelet
+# advertised all 8063Mi as available for pods while the k3s server process permanently held
+# ~4.8Gi of it. The scheduler saw ~5.5Gi free where ~0.8Gi actually was, and kept placing
+# work there. Only cert-manager is pinned to this node in git; everything else DRIFTED onto
+# it through that phantom headroom.
+#
+# Then the ending is a livelock rather than a clean OOM kill: memory fills, the 512MB swap
+# file fills, processes enter direct reclaim, and with PSI compiled out and no userspace OOM
+# daemon nothing sheds load early. The kernel OOM killer is reached far too late to matter —
+# by then sshd cannot even fork. Hence the physical reset.
+#
+# WHAT THIS PLAYBOOK CHANGES, in the order the fixes bite:
+#   1. GOMEMLIMIT caps the k3s Go heap, which is the single largest consumer.
+#   2. kube-reserved/system-reserved make Allocatable honest, so the drift cannot recur.
+#   3. eviction-soft sheds pods gracefully well before the livelock point.
+#   4. vm.swappiness stops the kernel paging out the control plane's hot heap.
+#   5. journald becomes persistent, so the NEXT crash leaves evidence behind.
+#
+# Deliberately NOT here — a userspace OOM daemon (earlyoom / systemd-oomd). Both pick a
+# victim by memory footprint, and on this node the largest process by a wide margin IS the
+# k3s server. The likeliest outcome is that the safety net kills the control plane, which is
+# the thing we are trying to keep alive. kubelet eviction is the cgroup-aware equivalent and
+# is what item 3 turns on properly. (systemd-oomd would additionally need PSI, which is not
+# compiled into this Pi kernel — /proc/pressure/* does not exist.)
+#
+# !! THIS RESTARTS k3s ON THE CONTROL PLANE. !!
+# Both the kubelet flags and GOMEMLIMIT are read at process start, so the handler below
+# restarts k3s. Expect the API server to be unavailable for roughly 30-60s. Running
+# workloads are not disturbed. Dry-run first, per the repo convention:
+#
+#   ansible-playbook -i hosts.yaml firefly-control-plane-resources.yaml --check --diff
+#   ansible-playbook -i hosts.yaml firefly-control-plane-resources.yaml
+- name: Bound and account for the firefly control plane's memory
+  hosts: firefly_cluster_server
+  gather_facts: true
+  become: true
+
+  vars:
+    # Ceiling for the k3s server's Go heap. Sized from the live runtime rather than guessed:
+    #   go_memstats_heap_alloc_bytes  1.97GB   <- live objects
+    #   go_memstats_heap_inuse_bytes  2.79GB
+    #   go_memstats_next_gc_bytes     3.73GB   <- where GC was letting the heap run to
+    #   process RSS                   4.06GB, of which 3.98GB anonymous
+    #
+    # The heap is ~2.0GB live and the rest is GC slack: with GOGC at its default of 100 the
+    # runtime lets the heap reach twice the live set before collecting, and nothing capped
+    # that. GOMEMLIMIT makes the runtime collect harder as it approaches the limit instead.
+    #
+    # 2560MiB leaves ~0.5GB of headroom over the live set. Setting it AT the live set would
+    # trade the memory problem for a GC death-spiral (continuous collection, high CPU), which
+    # on a 4-core node is its own outage. If the live set genuinely grows past this, Go
+    # exceeds the limit rather than OOMing — it is a soft target, which is what makes it safe
+    # to set. Watch go_memstats_heap_alloc_bytes and raise it if the live set approaches 2.5GB.
+    k3s_go_mem_limit: 2560MiB
+
+    # Memory carved out of Allocatable for everything outside kubepods.slice. Covers the k3s
+    # server at its new ceiling (2560Mi) plus containerd (~150Mi) and the base system
+    # (sshd/systemd/journald, ~200Mi) — call it 2.9Gi — with margin, because under-reserving
+    # is the direction that reproduces the crash and over-reserving only costs schedulable
+    # room this node has plenty of.
+    #
+    # Resulting Allocatable: 8063 - 3584 - 256 - 400 = 3823Mi.
+    # Pod requests after the accompanying placement changes are ~1844Mi, so this fits with
+    # better than 2x headroom while making the 5.5Gi phantom impossible.
+    k3s_system_reserved_memory: 3584Mi
+    k3s_kube_reserved_memory: 256Mi
+
+    # CPU. Allocatable becomes 4000 - 500 - 250 = 3250m against ~1500m of requests after the
+    # placement changes. CPU is compressible so this is much less load-bearing than the
+    # memory reservation; it exists so a busy control plane is not competing with pods for
+    # the last core.
+    k3s_system_reserved_cpu: 500m
+    k3s_kube_reserved_cpu: 250m
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart k3s
+      # Serialised after the reload by handler declaration order. k3s re-reads
+      # config.yaml.d and the unit's Environment= on start; neither can be applied live.
+      ansible.builtin.systemd:
+        name: k3s
+        state: restarted
+
+    - name: Apply sysctl
+      ansible.builtin.command:
+        cmd: sysctl --system
+      changed_when: false
+
+    - name: Restart journald
+      ansible.builtin.systemd:
+        name: systemd-journald
+        state: restarted
+
+  tasks:
+    - name: Ensure the k3s config drop-in directory exists
+      # Same directory the placement-label drop-in uses; k3s merges every *.yaml here over
+      # config.yaml in lexical order. 20- sorts after 10-placement-labels.yaml and the two
+      # set disjoint keys, so the merge is order-independent in practice.
+      ansible.builtin.file:
+        path: /etc/rancher/k3s/config.yaml.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Reserve node resources and set eviction thresholds
+      ansible.builtin.copy:
+        dest: /etc/rancher/k3s/config.yaml.d/20-node-resources.yaml
+        owner: root
+        group: root
+        mode: "0644"
+        # Validate before the file is moved into place. A malformed drop-in would not
+        # surface until k3s next restarts — possibly weeks later, with no obvious link to
+        # this change — so refusing to write one at all is worth the extra step.
+        validate: "python3 -c \"import yaml,sys; yaml.safe_load(open(sys.argv[1]))\" %s"
+        content: |
+          # Managed by ansible/firefly-control-plane-resources.yaml — do not hand-edit.
+          #
+          # Makes Allocatable reflect reality. Without these the kubelet advertised all
+          # 8063Mi to the scheduler while the k3s server held ~4.8Gi of it in system.slice,
+          # and pods drifted onto this node against ~5.5Gi of headroom that did not exist.
+          #
+          # NOTE these reservations only SUBTRACT from Allocatable. They are not enforced as
+          # cgroup limits, because enforcing would need system-reserved-cgroup /
+          # kube-reserved-cgroup pointing at real slices, and capping the control plane's own
+          # cgroup risks the kernel OOM-killing the API server. Accounting is the goal here;
+          # GOMEMLIMIT in the systemd drop-in is what actually bounds k3s.
+          kubelet-arg:
+            - "system-reserved=cpu={{ k3s_system_reserved_cpu }},memory={{ k3s_system_reserved_memory }}"
+            - "kube-reserved=cpu={{ k3s_kube_reserved_cpu }},memory={{ k3s_kube_reserved_memory }}"
+            # Hard threshold raised from the k3s default of 100Mi. 100Mi of headroom on an
+            # 8Gi node is indistinguishable from zero: the node livelocks in reclaim long
+            # before the kubelet ever observes it, which is exactly what kept happening.
+            - "eviction-hard=memory.available<400Mi,nodefs.available<10%,imagefs.available<10%"
+            # The one that should actually fire. At 800Mi available the node is under real
+            # pressure but still responsive, so the kubelet can evict a pod gracefully
+            # (SIGTERM, 60s) instead of the kernel taking the box down. The 90s grace period
+            # keeps a transient spike — an image pull, a Flux reconcile — from evicting
+            # anything.
+            - "eviction-soft=memory.available<800Mi"
+            - "eviction-soft-grace-period=memory.available=90s"
+            - "eviction-max-pod-grace-period=60"
+      notify: Restart k3s
+
+    - name: Ensure the k3s systemd drop-in directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/system/k3s.service.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Cap the k3s server's Go heap
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/k3s.service.d/10-memory.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          # Managed by ansible/firefly-control-plane-resources.yaml — do not hand-edit.
+          #
+          # The k3s server process — API server, scheduler, controller-manager, kine and the
+          # kubelet, all in one Go binary — was measured at 4.06GB RSS, 3.98GB of it
+          # anonymous. That is Go heap, not page cache: only 68MB was file-backed, so this is
+          # not the SQLite datastore being mapped in.
+          #
+          # No MemoryMax/MemoryHigh here on purpose. A hard cap invites the kernel to OOM-kill
+          # the control plane, and MemoryHigh throttles by stalling the cgroup in reclaim,
+          # which on an API server turns a memory problem into a cluster-wide latency problem
+          # that is much harder to recognise. GOMEMLIMIT applies backpressure inside the
+          # runtime instead — the Go GC works harder and the process stays up.
+          [Service]
+          Environment=GOMEMLIMIT={{ k3s_go_mem_limit }}
+      notify:
+        - Reload systemd
+        - Restart k3s
+
+    - name: Keep the control plane's hot heap out of swap
+      # swappiness 60 is the Debian default and is wrong for this workload. The k3s heap is
+      # hot, and paging it to a 512MB file on memory pressure is precisely the step that
+      # turns "short of memory" into "thrashing and unreachable" — swap was found 100% full
+      # four minutes after a reset.
+      #
+      # 10 rather than 0: some swap is still wanted as a genuine cold-page reserve. 0 would
+      # push the node into OOM territory sooner rather than later.
+      #
+      # Swap SIZE is deliberately left alone. Once GOMEMLIMIT and the placement changes land,
+      # ff-pi1 should sit near 55-60% memory and barely touch swap at all; resizing it now
+      # would be tuning a symptom that the other changes remove.
+      #
+      # Written with builtin modules rather than ansible.posix.sysctl to keep this playbook
+      # on the same collection footing as the rest of ansible/ — nothing else here needs a
+      # collection installed, and there is no requirements.yml to declare one in.
+      ansible.builtin.copy:
+        dest: /etc/sysctl.d/90-k3s-memory.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          # Managed by ansible/firefly-control-plane-resources.yaml — do not hand-edit.
+          vm.swappiness = 10
+      notify: Apply sysctl
+
+    - name: Ensure the journald drop-in directory exists
+      # Debian ships journald.conf but not necessarily journald.conf.d/.
+      ansible.builtin.file:
+        path: /etc/systemd/journald.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Make the journal survive a reset
+      # journald was configured Storage=volatile, so every one of these crashes destroyed its
+      # own evidence — `journalctl --list-boots` showed a single boot and `-b -1` was empty,
+      # which is why the diagnosis above had to be rebuilt from live measurements rather than
+      # read out of the logs.
+      #
+      # /var/log/journal already exists, and the root filesystem is NVMe, so the usual reason
+      # to keep a Pi's journal in RAM (SD-card wear) does not apply here.
+      #
+      # A drop-in rather than an edit to journald.conf: journald reads
+      # journald.conf.d/*.conf over the main file, so this states only what we override,
+      # leaves the distribution's file untouched, and is idempotent by construction rather
+      # than by regex matching.
+      ansible.builtin.copy:
+        dest: /etc/systemd/journald.conf.d/10-persistent.conf
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          # Managed by ansible/firefly-control-plane-resources.yaml — do not hand-edit.
+          [Journal]
+          Storage=persistent
+          # Bounded so persistence cannot become its own disk problem. 512MB is many boots'
+          # worth at this node's volume.
+          SystemMaxUse=512M
+          SystemMaxFileSize=64M
+      notify: Restart journald
+
+    - name: Flush handlers so the assertions below run against the new process
+      ansible.builtin.meta: flush_handlers
+
+    - name: Confirm k3s came back
+      ansible.builtin.command:
+        cmd: systemctl is-active k3s
+      register: k3s_state
+      changed_when: false
+      failed_when: k3s_state.stdout != 'active'
+
+    - name: Wait for the API server to serve again
+      # A restarted k3s takes a little while to bind :6443 and pass readyz. Without this the
+      # allocatable assertion below races the restart and reports a false failure.
+      ansible.builtin.uri:
+        url: https://127.0.0.1:6443/readyz
+        validate_certs: false
+        status_code: [200, 401, 403]
+      register: k3s_readyz
+      retries: 30
+      delay: 10
+      until: k3s_readyz is succeeded
+      changed_when: false
+
+    - name: Read back the node's advertised allocatable memory
+      # The point of the whole playbook is this number changing, so assert it rather than
+      # assuming. Allocatable should now be ~3823Mi instead of the full 8063Mi.
+      #
+      # RETRIED, because /readyz going green does NOT mean the Node object is current: the
+      # kubelet posts its status a beat later. The first run of this playbook read back the
+      # unchanged 8063Mi and reported success on a number that had simply not updated yet —
+      # the reservation had in fact applied, and re-reading a minute later showed 3823Mi.
+      # An assertion that can pass or fail on timing is worse than no assertion, so it now
+      # waits for the value to actually move off capacity.
+      ansible.builtin.command:
+        cmd: >-
+          k3s kubectl get node {{ k3s_node_name }}
+          -o jsonpath={.status.allocatable.memory}
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: node_allocatable
+      changed_when: false
+      retries: 12
+      delay: 10
+      until:
+        - node_allocatable.stdout | length > 0
+        # Derived from gathered facts, not hardcoded: the only thing being asserted is that
+        # Allocatable now sits BELOW total RAM, which is precisely what a reservation does.
+        - (node_allocatable.stdout | regex_replace('Mi$', '') | int) < ansible_facts['memtotal_mb']
+
+    - name: Show the result
+      ansible.builtin.debug:
+        msg: >-
+          {{ k3s_node_name }} now advertises allocatable memory {{ node_allocatable.stdout }}
+          (was 8063Mi, the node's full capacity). Reserved:
+          system={{ k3s_system_reserved_memory }} kube={{ k3s_kube_reserved_memory }},
+          hard-eviction 400Mi. k3s Go heap capped at {{ k3s_go_mem_limit }}.
