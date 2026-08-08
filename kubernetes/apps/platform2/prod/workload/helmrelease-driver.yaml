@@ -113,6 +113,13 @@ spec:
       enabled: false
     existingSecret: platform2-driver-env # kics-scan ignore-line - Secret name reference, not a hardcoded credential
 
-    # nodeSelector unset for the same reason as the backend: no platform2 image
-    # has been published, so its architecture is unverified and pinning to the
-    # arm64 native-cloud tier would be a guess.
+    # Pinned to the worker tier, same as the backend and for the same reason: an
+    # application workload had drifted onto ff-pi1, the k3s server node.
+    #
+    # The note this replaces said no platform2 image had been published and the
+    # architecture was therefore a guess. That is out of date — v0.0.9 is published
+    # and `docker manifest inspect ghcr.io/tengen-systems/platform2-driver:v0.0.9`
+    # shows linux/amd64 and linux/arm64, which the running arm64 pod also
+    # demonstrates. So the tier is safe on every agent it spans.
+    nodeSelector:
+      node-role.kubernetes.io/worker: ""

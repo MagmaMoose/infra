@@ -43,15 +43,46 @@ spec:
     # limit) shows the slow start is node-level, not pod-resource-driven, so resources are
     # left at kyverno chart defaults (3.8+).
     #
-    # None of the 4 controllers set their own .nodeSelector, so this cascades to all of them
-    # (each controller's template does `.Values.<component>.nodeSelector | default
-    # .Values.global.nodeSelector`) — pinning kyverno to ff-pi1, per
-    # docs/reference/cluster-topology.md. Previously unpinned: nothing stopped the scheduler
-    # from placing it on the CPU-request-saturated ff-vm1 instead.
-    global:
-      nodeSelector:
-        node-role.kubernetes.io/system: ""
+    # PLACEMENT IS SET PER CONTROLLER, NOT GLOBALLY — and the note that used to be here was
+    # wrong about why.
+    #
+    # It claimed "none of the 4 controllers set their own .nodeSelector, so this cascades to
+    # all of them". They do. In chart 3.8.2 `global.nodeSelector` defaults to `{}` while
+    # EVERY controller defaults to a non-empty `nodeSelector: {kubernetes.io/os: linux}`, and
+    # the chart's own comment on the global key is explicit: "Non-global values will override
+    # the global value." A non-empty per-controller default always wins, so a value set only
+    # under `global:` never reaches a pod template.
+    #
+    # This was not a theoretical bug. The previous `global.nodeSelector:
+    # node-role.kubernetes.io/system` pin was inert for as long as it existed — the live
+    # Deployments carried `{"kubernetes.io/os":"linux"}` and nothing else. Kyverno was running
+    # on ff-pi1 by scheduler choice, not because it was pinned there, which also means the
+    # node it was thought to be pinned to could have changed under any reschedule. Same defect
+    # family as #566/#567 (a placement setting that silently reaches nothing) — verify by
+    # rendering, not by reading the values file.
+    #
+    # WHY off ff-pi1. The original pin was chosen to keep kyverno away from a then-CPU-request-
+    # saturated ff-vm1. Had it worked, it would have put four controllers — admission at 2
+    # replicas — on the 8Gi node that also runs the k3s server, kine and the SQLite datastore.
+    # That node is the one that now hard-locks and needs a physical reset, so the trade has
+    # inverted: ff-vm1 measured 74% CPU requests (5960m/8000m) when this changed, against
+    # kyverno's ~400m.
+    #
+    # This is also the move the previous incident write-up asked for and deliberately did not
+    # do unattended, because relocating an admission webhook adds a network hop to every
+    # controller write. That concern was about the CLOUD tier, where the hop crosses the
+    # site-to-site VPN. ff-vm1 is on the same LAN segment as ff-pi1 (192.168.19.13 vs
+    # .19.10), so the added latency is sub-millisecond and the concern does not apply.
+    #
+    # The selector pair below is what clusterpolicy-place-on-prem injects, resolving to
+    # exactly ff-vm1 — ff-pi1 carries tier=on-prem too, but is not labelled worker.
+    # `kubernetes.io/os: linux` is carried forward from the chart default rather than dropped:
+    # replacing the map replaces it wholesale.
     admissionController:
+      nodeSelector: &onPrem
+        kubernetes.io/os: linux
+        node-role.kubernetes.io/worker: ""
+        topology.sargeant.co/tier: on-prem
       # Priority class, per the desired-state table in cleanup.md.
       # Set in chart values because the Kyverno assign-priority-class policy
       # cannot reach a chart-rendered workload — the placement label lands on
@@ -88,6 +119,8 @@ spec:
         failureThreshold: 6
         successThreshold: 1
     backgroundController:
+      # Repeated per controller, not inherited — see the note above admissionController.
+      nodeSelector: *onPrem
       # Priority class, per the desired-state table in cleanup.md.
       # Set in chart values because the Kyverno assign-priority-class policy
       # cannot reach a chart-rendered workload — the placement label lands on
@@ -98,6 +131,8 @@ spec:
     # loosen its probes too. Keep one replica — its webhook only gates CleanupPolicy, not
     # cluster-wide admission, so a single-pod flap is not cluster-impacting.
     cleanupController:
+      # Repeated per controller, not inherited — see the note above admissionController.
+      nodeSelector: *onPrem
       # Priority class, per the desired-state table in cleanup.md.
       # Set in chart values because the Kyverno assign-priority-class policy
       # cannot reach a chart-rendered workload — the placement label lands on
@@ -153,3 +188,29 @@ spec:
     # Disable PolicyReports cleanup — not needed for our use case.
     policyReportsCleanup:
       enabled: false
+
+    # Turn OFF admission report GENERATION as well. Disabling reportsController above stopped
+    # the aggregation half of reporting but left the production half running, and the two are
+    # a producer/consumer pair:
+    #
+    #   admission controller  --creates-->  (Cluster)EphemeralReport  --consumed by-->  reports
+    #                                                                                  controller
+    #
+    # With the consumer gone, nothing ever deletes an ephemeral report. They are named for a
+    # lifetime of seconds; ff-pi1 was found holding 10,048 ClusterEphemeralReports dating back
+    # days — by a wide margin the largest resource in the datastore (next: 3,975 events, 612
+    # replicasets). They are the reason state.db reached 524MB with a 188MB WAL, and a large
+    # part of why the apiserver's Go heap sat at ~2.0GB live / 4.8GB RSS on an 8Gi node.
+    #
+    # So the previous fix traded a bounded write stream for an unbounded accumulation. Turning
+    # generation off closes the loop: no producer, no consumer, no leak. Enforcement is again
+    # unaffected — mutation and validation are admission-time and do not read these.
+    #
+    # Verified against chart 3.8.2 rather than assumed: `helm template --set
+    # features.admissionReports.enabled=false` flips `--admissionReports=true` to `false` on
+    # the rendered controllers. Background scanning is deliberately left alone — the
+    # background controller also services `generate` rules (sync-ghcr-pull-secret), so
+    # disabling it would break secret propagation.
+    features:
+      admissionReports:
+        enabled: false
