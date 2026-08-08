@@ -35,7 +35,8 @@
 
   vars:
     db_dir: /var/lib/rancher/k3s/server/db
-    db_path: /var/lib/rancher/k3s/server/db/state.db
+    db_path: "{{ db_dir }}/state.db"
+    db_backup_path: "{{ db_dir }}/state.db.pre-vacuum.bak"
 
   tasks:
     - name: Confirm sqlite3 is available
@@ -54,6 +55,8 @@
       # VACUUM writes a complete second copy before swapping it in, so it transiently needs
       # at least the database's own size in free space — plus the backup taken below. Assert
       # 3x rather than discover it half way through with a corrupt rebuild.
+      # Assumes db_path lives on /. ff-pi1 is single-disk; if the DB moves to a separate
+      # mount, update this selector to match that mount point.
       ansible.builtin.assert:
         that: >-
           (ansible_facts['mounts'] | selectattr('mount', 'equalto', '/') | first).size_available
@@ -76,7 +79,7 @@
       # copy back — far cheaper than rebuilding firefly from scratch.
       ansible.builtin.copy:
         src: "{{ db_path }}"
-        dest: "{{ db_path }}.pre-vacuum.bak"
+        dest: "{{ db_backup_path }}"
         remote_src: true
         owner: root
         group: root
@@ -120,7 +123,7 @@
         that: integrity_after.stdout is search('^ok$', multiline=True)
         fail_msg: >-
           integrity_check FAILED after VACUUM. Do NOT start k3s. Restore with:
-          cp {{ db_path }}.pre-vacuum.bak {{ db_path }}
+          cp {{ db_backup_path }} {{ db_path }}
         success_msg: "integrity_check ok after rebuild"
       when: not ansible_check_mode
 
@@ -159,7 +162,7 @@
       changed_when: false
       retries: 12
       delay: 10
-      until: node_list.stdout_lines | length >= 4
+      until: node_list.stdout_lines | length >= 4  # ff-pi1: 1 server + 3 agents
       when: not ansible_check_mode
 
     - name: Show the result
@@ -169,5 +172,5 @@
           {{ (db_after.stat.size / 1048576) | round | int }}MB
           (reclaimed {{ ((db_before.stat.size - db_after.stat.size) / 1048576) | round | int }}MB);
           integrity ok; {{ node_list.stdout_lines | length }} nodes present.
-          Backup kept at {{ db_path }}.pre-vacuum.bak — delete it once you are happy.
+          Backup kept at {{ db_backup_path }} — delete it once you are happy.
       when: not ansible_check_mode
