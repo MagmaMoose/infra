@@ -283,6 +283,13 @@
     - name: Read back the node's advertised allocatable memory
       # The point of the whole playbook is this number changing, so assert it rather than
       # assuming. Allocatable should now be ~3823Mi instead of the full 8063Mi.
+      #
+      # RETRIED, because /readyz going green does NOT mean the Node object is current: the
+      # kubelet posts its status a beat later. The first run of this playbook read back the
+      # unchanged 8063Mi and reported success on a number that had simply not updated yet —
+      # the reservation had in fact applied, and re-reading a minute later showed 3823Mi.
+      # An assertion that can pass or fail on timing is worse than no assertion, so it now
+      # waits for the value to actually move off capacity.
       ansible.builtin.command:
         cmd: >-
           k3s kubectl get node {{ k3s_node_name }}
@@ -291,6 +298,13 @@
         KUBECONFIG: /etc/rancher/k3s/k3s.yaml
       register: node_allocatable
       changed_when: false
+      retries: 12
+      delay: 10
+      until:
+        - node_allocatable.stdout | length > 0
+        # Derived from gathered facts, not hardcoded: the only thing being asserted is that
+        # Allocatable now sits BELOW total RAM, which is precisely what a reservation does.
+        - (node_allocatable.stdout | regex_replace('Mi$', '') | int) < ansible_facts['memtotal_mb']
 
     - name: Show the result
       ansible.builtin.debug:
