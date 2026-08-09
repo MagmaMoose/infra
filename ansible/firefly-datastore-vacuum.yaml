@@ -1,0 +1,176 @@
+---
+# Reclaims free pages in ff-pi1's k3s datastore by VACUUMing its SQLite file.
+#
+# WHAT THIS IS. Despite the `[-]etcd failed` name k3s gives its datastore readiness probe,
+# firefly does NOT run etcd. It runs **kine over SQLite** at
+# /var/lib/rancher/k3s/server/db/state.db. There is a stale `db/etcd` directory from the
+# original install; ignore it. Nothing here has an etcd equivalent — no etcdctl, no defrag.
+#
+# WHY. SQLite never shrinks a database file on its own. Deleting rows marks pages free for
+# REUSE but leaves the file the same size. After purging 10,048 orphaned kyverno
+# ClusterEphemeralReports the write-ahead log fell from 188MB to 60MB, but state.db stayed
+# at 513MB — almost entirely free pages. VACUUM rebuilds the file and hands the space back.
+#
+# This is maintenance, not a one-off: kine deletes constantly (events, replicasets, leases),
+# so free pages accumulate again. Re-run when state.db has grown well past the size implied
+# by `kubectl get --raw /metrics | grep apiserver_storage_objects`.
+#
+# HONEST ABOUT THE BENEFIT. ff-pi1's binding constraint is MEMORY, and this reclaims DISK on
+# a 931GB NVMe that is not short of it. The real wins are smaller: less page cache held by a
+# mostly-empty file, and shorter table scans for kine queries. It is worth doing while a
+# maintenance window is open; it is not worth taking an outage for on its own.
+#
+# !! THIS STOPS k3s. !!
+# SQLite cannot be VACUUMed while a writer holds it, so the control plane goes down for the
+# duration — expect 1-2 minutes total, most of it k3s restarting rather than the VACUUM
+# itself. Pods already running on the node keep running under containerd; they are simply
+# unmanaged until the kubelet returns.
+#
+#   ansible-playbook -i hosts.yaml firefly-datastore-vacuum.yaml --check --diff
+#   ansible-playbook -i hosts.yaml firefly-datastore-vacuum.yaml
+- name: VACUUM the firefly k3s SQLite datastore
+  hosts: firefly_cluster_server
+  gather_facts: true
+  become: true
+
+  vars:
+    db_dir: /var/lib/rancher/k3s/server/db
+    db_path: "{{ db_dir }}/state.db"
+    db_backup_path: "{{ db_dir }}/state.db.pre-vacuum.bak"
+
+  tasks:
+    - name: Confirm sqlite3 is available
+      ansible.builtin.command:
+        cmd: which sqlite3
+      register: sqlite_bin
+      changed_when: false
+      failed_when: sqlite_bin.rc != 0
+
+    - name: Measure the datastore before
+      ansible.builtin.stat:
+        path: "{{ db_path }}"
+      register: db_before
+
+    - name: Check there is room to rebuild
+      # VACUUM writes a complete second copy before swapping it in, so it transiently needs
+      # at least the database's own size in free space — plus the backup taken below. Assert
+      # 3x rather than discover it half way through with a corrupt rebuild.
+      # Assumes db_path lives on /. ff-pi1 is single-disk; if the DB moves to a separate
+      # mount, update this selector to match that mount point.
+      ansible.builtin.assert:
+        that: >-
+          (ansible_facts['mounts'] | selectattr('mount', 'equalto', '/') | first).size_available
+          > (db_before.stat.size * 3)
+        fail_msg: >-
+          Not enough free space on / to VACUUM safely (need ~3x
+          {{ (db_before.stat.size / 1048576) | round | int }}MB).
+        success_msg: "free space OK for a {{ (db_before.stat.size / 1048576) | round | int }}MB rebuild"
+
+    - name: Stop k3s
+      # Must be a clean stop, not a kill: shutting down lets SQLite checkpoint and remove the
+      # -wal file. VACUUMing with a live WAL alongside is asking for trouble.
+      ansible.builtin.systemd:
+        name: k3s
+        state: stopped
+      when: not ansible_check_mode
+
+    - name: Back up the datastore before touching it
+      # This file IS the cluster. 513MB on a 931GB disk is free insurance, and restoring is a
+      # copy back — far cheaper than rebuilding firefly from scratch.
+      ansible.builtin.copy:
+        src: "{{ db_path }}"
+        dest: "{{ db_backup_path }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0600"
+      when: not ansible_check_mode
+
+    - name: Verify the database is sound BEFORE rebuilding it
+      # Order matters. Running this first means a VACUUM is never performed on an
+      # already-corrupt file, and if the check fails the backup above is still a good copy.
+      ansible.builtin.command:
+        cmd: sqlite3 {{ db_path }} "PRAGMA integrity_check;"
+      register: integrity_before
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Abort if the datastore was already damaged
+      ansible.builtin.assert:
+        that: integrity_before.stdout is search('^ok$', multiline=True)
+        fail_msg: >-
+          integrity_check did NOT return ok — refusing to VACUUM. Start k3s again and
+          investigate; the datastore is damaged independently of this playbook.
+        success_msg: "integrity_check ok"
+      when: not ansible_check_mode
+
+    - name: VACUUM
+      ansible.builtin.command:
+        cmd: sqlite3 {{ db_path }} "VACUUM;"
+      register: vacuum_run
+      changed_when: vacuum_run.rc == 0
+      when: not ansible_check_mode
+
+    - name: Verify the database is still sound afterwards
+      ansible.builtin.command:
+        cmd: sqlite3 {{ db_path }} "PRAGMA integrity_check;"
+      register: integrity_after
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Assert the rebuilt database is sound
+      ansible.builtin.assert:
+        that: integrity_after.stdout is search('^ok$', multiline=True)
+        fail_msg: >-
+          integrity_check FAILED after VACUUM. Do NOT start k3s. Restore with:
+          cp {{ db_backup_path }} {{ db_path }}
+        success_msg: "integrity_check ok after rebuild"
+      when: not ansible_check_mode
+
+    - name: Measure the datastore after
+      ansible.builtin.stat:
+        path: "{{ db_path }}"
+      register: db_after
+      when: not ansible_check_mode
+
+    - name: Start k3s
+      ansible.builtin.systemd:
+        name: k3s
+        state: started
+      when: not ansible_check_mode
+
+    - name: Wait for the API server to serve again
+      ansible.builtin.uri:
+        url: https://127.0.0.1:6443/readyz
+        validate_certs: false
+        status_code: [200, 401, 403]
+      register: k3s_readyz
+      retries: 30
+      delay: 10
+      until: k3s_readyz is succeeded
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Confirm the cluster still knows about its nodes
+      # The point of asserting on node COUNT rather than just readyz: a datastore that came
+      # back empty would still serve /readyz perfectly happily.
+      ansible.builtin.command:
+        cmd: k3s kubectl get nodes --no-headers
+      environment:
+        KUBECONFIG: /etc/rancher/k3s/k3s.yaml
+      register: node_list
+      changed_when: false
+      retries: 12
+      delay: 10
+      until: node_list.stdout_lines | length >= 4  # ff-pi1: 1 server + 3 agents
+      when: not ansible_check_mode
+
+    - name: Show the result
+      ansible.builtin.debug:
+        msg: >-
+          state.db {{ (db_before.stat.size / 1048576) | round | int }}MB ->
+          {{ (db_after.stat.size / 1048576) | round | int }}MB
+          (reclaimed {{ ((db_before.stat.size - db_after.stat.size) / 1048576) | round | int }}MB);
+          integrity ok; {{ node_list.stdout_lines | length }} nodes present.
+          Backup kept at {{ db_backup_path }} — delete it once you are happy.
+      when: not ansible_check_mode
