@@ -108,14 +108,22 @@ spec:
   # node most likely to have one. valkey-oci already exists on this tier.
   # Overridden here rather than in the app repos because which backing instance a
   # workload talks to is a placement decision, same as the nodeSelector patch above.
+  #
+  # `name:` below is the DEPLOYMENT name, not the container name — they differ here
+  # (Deployment/nievah-backend runs container `nievah`). A target that matches nothing
+  # is a SILENT no-op in kustomize, so when nievah#113 renamed Deployment/nievah ->
+  # Deployment/nievah-backend, this patch simply stopped applying: the ingest fell back
+  # to the on-prem valkey while the worker stayed on valkey-oci, and every review/triage
+  # job was enqueued into a queue nothing was polling. Both must always resolve to the
+  # SAME instance; check `kubectl get deploy -n nievah` before editing a name here.
     - target:
         kind: Deployment
-        name: nievah
+        name: nievah-backend
       patch: |
         apiVersion: apps/v1
         kind: Deployment
         metadata:
-          name: nievah
+          name: nievah-backend
         spec:
           template:
             spec:
