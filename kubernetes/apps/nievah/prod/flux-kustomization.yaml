@@ -148,3 +148,34 @@ spec:
                   env:
                     - name: REDIS_URL
                       value: redis://valkey-oci.database.svc.cluster.local:6379
+  # Same override for the scheduled-tick CronJobs (nievah-planner-tick /
+  # nievah-standup-tick), which ENQUEUE the planner and standup jobs the worker then runs.
+  # These must land on the same instance as the worker for a sharper reason than the
+  # Deployments: a tick enqueued onto the wrong valkey does not error, it reports SUCCESS.
+  # The Job exits 0, `kubectl get jobs` is green, and the planner simply never runs — the
+  # #20 failure mode, but self-congratulating.
+  #
+  # Deliberately targeted by KIND ALONE, with no `name:`, unlike the two Deployment patches
+  # above — which is the lesson of #20 applied rather than repeated. An unnamed target cannot
+  # be orphaned by an app-repo rename, and it covers any tick CronJob added later for free.
+  # Verified by rendering the app overlay and re-applying these patches to it: both CronJobs
+  # come out on valkey-oci. The container name (`tick`) is the one cross-repo coupling left,
+  # and the pod now checks itself for that — it looks for arq's worker health key on the
+  # valkey it just wrote to and raises a Slack error naming this exact split if it is absent.
+    - target:
+        kind: CronJob
+      patch: |
+        apiVersion: batch/v1
+        kind: CronJob
+        metadata:
+          name: not-used-the-target-selector-above-decides
+        spec:
+          jobTemplate:
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: tick
+                      env:
+                        - name: REDIS_URL
+                          value: redis://valkey-oci.database.svc.cluster.local:6379
