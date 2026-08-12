@@ -75,3 +75,30 @@ resource "cloudflare_ruleset" "dynamic_redirect" {
     }
   ]
 }
+
+# Cloudflare Fonts (Speed -> Optimization -> Content). The site loads Sora and IBM
+# Plex Mono from Google Fonts; with this on, Cloudflare rewrites the HTML at the
+# edge — it strips the fonts.googleapis.com <link> and inlines CSS that serves the
+# font files from magmamoose.com itself. That removes the third-party round trip
+# and the Google connection, so it is faster and keeps visitors' requests off
+# Google's servers.
+#
+# It is a pure edge rewrite: the Google <link> stays in the repo's HTML (so the
+# site still renders correctly when hit directly — wrangler dev, or the origin),
+# and Cloudflare only transforms the response it serves. Nothing in the website
+# repo changes.
+#
+# CSP note (website repo's _headers): Cloudflare Fonts does NOT rewrite CSP, and it
+# relies on inline <style> plus fonts served from our own origin. The site's policy
+# already allows both — `style-src` carries 'unsafe-inline' and `font-src` carries
+# 'self' — and it keeps the fonts.googleapis.com / fonts.gstatic.com origins for the
+# un-rewritten (direct/local) case, so it works whether this is on or off. Leave
+# those origins in the CSP; do not "tighten" them away or the origin/local fallback
+# loses its fonts.
+#
+# setting_id "fonts" maps to the /zones/{id}/settings/fonts API; value is on/off.
+resource "cloudflare_zone_setting" "fonts" {
+  zone_id    = var.zone_id
+  setting_id = "fonts"
+  value      = "on"
+}
