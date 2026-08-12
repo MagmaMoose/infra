@@ -69,6 +69,42 @@ inputs = {
   zone_id = "f04a8d6c68daf6ba1430c5645ca70cb8"
 
   records = [
+    # ── Email authentication ────────────────────────────────────────────────
+    # magmamoose.com receives mail via iCloud custom email domain (MX ->
+    # mx0{1,2}.mail.icloud.com). Cloudflare Security Insights flagged a weak
+    # DMARC record; this brings DMARC under Terraform and adds aggregate
+    # reporting so we can see who is sending as the domain.
+    #
+    # Policy stays p=none (monitor only) on purpose: it is the safe first step,
+    # zero deliverability risk. Once the rua reports are clean, tighten to
+    # p=quarantine in a follow-up.
+    #
+    # rua is a magmamoose.com address, so NO external _report authorisation
+    # record is needed. The dmarc@ mailbox must exist to actually collect the
+    # daily XML reports — add it as an iCloud alias, or change this to
+    # hello@magmamoose.com. The record is valid either way.
+    #
+    # ⚠️ FIRST APPLY — the zone already has a dashboard-managed `_dmarc` TXT
+    # (`v=DMARC1; p=none;`). This module keys records by name#type#value, so with
+    # a different value it will try to CREATE a second `_dmarc` record, and two
+    # DMARC records is an INVALID (ignored) DMARC. Before `atlantis apply`,
+    # delete the existing `_dmarc` TXT in the Cloudflare dashboard — it is the
+    # trivial p=none record, and the momentary gap changes nothing (p=none has no
+    # enforcement). Same pre-existing-record handling as the apex in
+    # cloudflare/website-magmamoose/prod. (Alternative: import it via this
+    # module's `imports` input using its record_id.)
+    #
+    # NOT modelled here: the MX records (this module has no `priority` field) and
+    # the existing SPF TXT (`v=spf1 include:icloud.com ~all`, which is already
+    # the correct iCloud record — Cloudflare's SPF flag is a false positive).
+    # Both stay dashboard-managed, matching how sargeant.co handles email too.
+    {
+      name    = "_dmarc.magmamoose.com"
+      type    = "TXT"
+      value   = "v=DMARC1; p=none; rua=mailto:dmarc@magmamoose.com;"
+      proxied = false
+    },
+
     # comment-commander / comment-commander-pro DNS is managed in the zero-trust
     # layer (cloudflared tunnel + Access, zero-trust/prod), NOT here — having it
     # in both places double-manages the record and breaks `terragrunt apply`.
