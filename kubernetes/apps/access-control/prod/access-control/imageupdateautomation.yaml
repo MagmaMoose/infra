@@ -1,0 +1,32 @@
+---
+# Writes new image tags back to the EXTERNAL app repo (not this one), which is why
+# sourceRef points at the `access-control` GitRepository rather than flux-system.
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageUpdateAutomation
+metadata:
+  name: access-control-prod-imageupdateautomation
+  namespace: flux-system
+spec:
+  interval: 5m
+  sourceRef:
+    kind: GitRepository
+    name: access-control
+  git:
+    checkout:
+      ref:
+        branch: main
+    commit:
+      author:
+        email: actions@users.noreply.github.com
+        name: github-actions[bot]
+      messageTemplate: |
+        chore: update access-control image
+        {{- range .Changed.Changes }}
+        - {{ .OldValue }} -> {{ .NewValue }}
+        {{- end }}
+        [ci skip]
+    push:
+      branch: main
+  update:
+    path: "./access-control/k8s/overlays/prod"
+    strategy: Setters

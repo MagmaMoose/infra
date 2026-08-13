@@ -1,0 +1,13 @@
+# franklinhouse runs its OWN CNPG Clusters, one per environment.
+#
+# This is a deliberate exception to the repo-wide rule in AGENTS.md ("all
+# PostgreSQL workloads run through one shared CNPG cluster; do not create
+# additional Cluster objects"). That rule scopes to firefly: franklinhouse is a
+# physically separate k3s cluster and cannot reach firefly's `postgres` in the
+# `database` namespace, so it needs its own — which is exactly the environment
+# isolation exception the rule carves out.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./prod
+  - ./staging

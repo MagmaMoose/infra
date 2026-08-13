@@ -1,0 +1,33 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# franklinhouse "system" tier = the three k3s control-plane VMs
+# (fh-system-vm1/2/3), which carry BOTH:
+#   label: node-role=system
+#   taint: node-role.kubernetes.io/control-plane=true:NoSchedule
+#
+# Distinct from ../system, which targets firefly's
+# `node-role.kubernetes.io/system` label and needs no toleration because
+# firefly's servers are untainted. Selecting franklinhouse's system nodes
+# without ALSO tolerating the control-plane taint yields unschedulable pods,
+# so the two patches must travel together — that is why this is its own
+# component rather than a reuse of ../system.
+#
+# Applied to franklinhouse's Flux controllers from
+# clusters/franklinhouse/flux-system/kustomization.yaml, mirroring how firefly
+# applies ../pi to its own controllers.
+patches:
+  - target:
+      kind: Deployment
+    patch: |
+      - op: add
+        path: /spec/template/spec/nodeSelector
+        value:
+          node-role: system
+      - op: add
+        path: /spec/template/spec/tolerations
+        value:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Equal
+            value: "true"
+            effect: NoSchedule

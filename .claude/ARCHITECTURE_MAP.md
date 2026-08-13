@@ -13,4 +13,14 @@ Three sources of truth (in flow order):
 
 Secrets order: **OCI Vault → 1Password → SOPS (last resort, `.enc.yaml` only)**.
 
-franklinhouse cluster is NOT here — lives in `calebsargeant/infra-v2`. This repo is firefly-only.
+**Two** clusters now live here (franklinhouse folded in from the private
+`calebsargeant/infra-v2` on 2026-08-13):
+
+| Cluster | Root | Apps | Infra |
+|---|---|---|---|
+| firefly | `kubernetes/clusters/firefly/` | `../../apps` (whole aggregator) | `../../infrastructure` (shared) |
+| franklinhouse | `kubernetes/clusters/franklinhouse/` | `../../apps/access-control` **only** | `./infrastructure` (cluster-local) |
+
+Never add `access-control` to `kubernetes/apps/kustomization.yaml` (that is
+firefly's app set), and never point franklinhouse at `../../apps`. Details:
+`docs/reference/franklinhouse.md`.

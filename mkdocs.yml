@@ -62,6 +62,7 @@ nav:
   - Reference:
       - Cluster Topology: reference/cluster-topology.md
       - Secrets Management: reference/secrets-management.md
+      - FranklinHouse Cluster: reference/franklinhouse.md
       - Ansible: reference/ansible.md
       - Resource Profiles: reference/resource-profiles.md
       - Terraform (OCI): reference/terraform-oci.md

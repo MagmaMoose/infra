@@ -49,6 +49,11 @@ k3s.yaml
 
 ansible/vars
 
+# k3s join token written by scripts/bootstrap-franklinhouse-k3s.sh — this is a
+# cluster-admin-equivalent credential and this repo is PUBLIC.
+.k3s_token
+**/.k3s_token
+
 age.agekey
 .service-account.json
 oci_api_key.pem

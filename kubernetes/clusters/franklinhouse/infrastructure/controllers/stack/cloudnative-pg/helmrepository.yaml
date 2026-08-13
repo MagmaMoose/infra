@@ -1,0 +1,12 @@
+---
+# franklinhouse-local: firefly declares its HelmRepositories centrally in
+# kubernetes/infrastructure/flux/helmrepositories.yaml, which this cluster does
+# not reconcile, so the CNPG chart source is declared alongside its HelmRelease.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: cloudnative-pg
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: https://cloudnative-pg.github.io/charts
