@@ -1,258 +1,260 @@
 {
-  "generated": "2026-06-25T00:00:00Z",
-  "summary": "Monolithic infrastructure-as-code repo for a Raspberry Pi home lab plus multi-cloud (GCP/OCI/Cloudflare). Terragrunt-wrapped Terraform provisions cloud, Ansible bootstraps systems, FluxCD reconciles a single-node k3s cluster ('firefly'). The franklinhouse cluster lives in a separate repo (calebsargeant/infra-v2) — this repo is firefly-only.",
-  "entrypoints": [
-    "kubernetes/clusters/firefly/kustomization.yaml — Flux root (loads apps + infrastructure)",
-    "kubernetes/clusters/firefly/flux-system/ — gotk-sync bootstrap pointing at this repo",
-    "terraform/root.hcl — Terragrunt inheritance root, version pins, GCS backend",
-    "atlantis.yaml — defines one Atlantis project per Terragrunt leaf",
-    "ansible/hosts.yaml — inventory for all playbook targets",
-    "AGENTS.md — full architecture/conventions guide (READ FIRST for deep context)"
-  ],
-  "modules": {
-    "terraform-cloudflare": {
-      "path": "terraform/cloudflare/",
-      "purpose": "DNS records (sargeant.co, magmamoose) and Zero Trust tunnels/applications",
-      "leaves": [
-        "dns/prod",
-        "dns-magmamoose/prod",
-        "zero-trust/prod"
-      ],
-      "shared_modules": [
-        "modules/cloudflare-dns"
-      ],
-      "depends_on": [
-        "terraform-root"
-      ]
+    "generated": "2026-06-25T00:00:00Z",
+    "summary": "Monolithic infrastructure-as-code repo for a Raspberry Pi home lab plus multi-cloud (GCP/OCI/Cloudflare). Terragrunt-wrapped Terraform provisions cloud, Ansible bootstraps systems, FluxCD reconciles TWO k3s clusters: 'firefly' (Pi + OCI nodes) and 'franklinhouse' (6 VMs on a 3-node Proxmox cluster, folded in from calebsargeant/infra-v2 on 2026-08-13).",
+    "entrypoints": [
+        "kubernetes/clusters/firefly/kustomization.yaml — Flux root (loads apps + infrastructure)",
+        "kubernetes/clusters/firefly/flux-system/ — gotk-sync bootstrap pointing at this repo",
+        "kubernetes/clusters/franklinhouse/kustomization.yaml — Flux root for franklinhouse (loads ../../apps/access-control ONLY + cluster-local infrastructure)",
+        "terraform/root.hcl — Terragrunt inheritance root, version pins, GCS backend",
+        "atlantis.yaml — defines one Atlantis project per Terragrunt leaf",
+        "ansible/hosts.yaml — inventory for all playbook targets",
+        "AGENTS.md — full architecture/conventions guide (READ FIRST for deep context)"
+    ],
+    "modules": {
+        "terraform-cloudflare": {
+            "path": "terraform/cloudflare/",
+            "purpose": "DNS records (sargeant.co, magmamoose) and Zero Trust tunnels/applications",
+            "leaves": [
+                "dns/prod",
+                "dns-magmamoose/prod",
+                "zero-trust/prod"
+            ],
+            "shared_modules": [
+                "modules/cloudflare-dns"
+            ],
+            "depends_on": [
+                "terraform-root"
+            ]
+        },
+        "terraform-fortigate": {
+            "path": "terraform/fortigate/",
+            "purpose": "Two standalone home-lab FortiGate 40Fs (no HA), dual-ISP resilient edge. fortios provider iterated per-unit via for_each (OpenTofu 1.9+). Self-contained leaf (no root.hcl include). VLAN segmentation (trusted/iot/guest/mgmt) over an 802.1Q trunk to the MikroTik; per-VLAN DHCP + segmentation policies. Both ISPs active-active. BGP-routed IPsec site-to-site VPN to OCI (vpn.tf/bgp.tf, OCI side oci/.../vpn-fortigate) with SD-WAN steering (sdwan.tf); BGP scope OCI+FGT-FGT. IPsec dial-up remote access via Google SAML (remote-access.tf). Syslog/NetFlow + automation stitches (monitoring.tf). Base-license only.",
+            "leaves": [
+                "prod"
+            ],
+            "shared_modules": [
+                "modules/fortigate"
+            ],
+            "notes": "Hardware not wired yet — Atlantis autoplan disabled (enabled:false); run 'atlantis plan -p fortigate-prod' once units are reachable + API tokens are in OCI Vault. Placeholder RFC1918 addressing; verify 40F physical port names before apply."
+        },
+        "terraform-mikrotik": {
+            "path": "terraform/mikrotik/",
+            "purpose": "Two physical home-lab MikroTik CRS edge switches (one behind each FortiGate). routeros provider iterated per-unit via for_each (OpenTofu 1.9+). L2 access bridge (MSTP, shared region) + routed /30 cross-link & inter-switch uplinks. Both ISPs active-active via ECMP (equal-distance default routes), no failover. Pairs with terraform/fortigate. NOT the OCI CHRs under terraform/oci/.../mikrotik.",
+            "leaves": [
+                "prod"
+            ],
+            "shared_modules": [
+                "modules/crs"
+            ],
+            "notes": "Hardware not wired yet (mt2 not installed) — Atlantis autoplan disabled; run 'atlantis plan -p mikrotik-prod' once reachable + password in OCI Vault. Placeholder addressing consistent with terraform/fortigate; verify CRS port names before apply."
+        },
+        "terraform-gcp": {
+            "path": "terraform/gcp/",
+            "purpose": "GCP project setup (state bucket, IAM); state lives in GCS magmamoose-terraform project",
+            "leaves": [
+                "prod/europe-west4/project"
+            ],
+            "depends_on": [
+                "terraform-root"
+            ]
+        },
+        "terraform-oci": {
+            "path": "terraform/oci/",
+            "purpose": "OCI tenancy infra (network, edge, server, mikrotik, vpn, database, drg-peering, policy) + tenancy-root IAM",
+            "leaves": [
+                "iam-policy",
+                "prod/eu-amsterdam-1/{network,edge,server,mikrotik,vpn,vpn-fortigate,database,drg-peering,policy}"
+            ],
+            "shared_modules": [
+                "modules/{network,edge,server,mikrotik,vpn,database,drg-peering,policy,iam-policy}"
+            ],
+            "depends_on": [
+                "terraform-root"
+            ],
+            "notes": "OCI Vault publicly accessible (KMS endpoints are public-internet + OCI-auth, not VPN-gated). modules/server provisions the ff-oci1/ff-oci2 arm64 free-tier k3s agents (native-cloud tier): servers map takes node_name + node_labels; cloud-init joins via token from Vault. Editing the module needs manual 'atlantis plan -p oci-prod-eu-amsterdam-1-server'"
+        },
+        "kubernetes-apps": {
+            "path": "kubernetes/apps/",
+            "purpose": "Per-app manifests. Each app has base/<app>/ (kustomize manifests) + prod/<app>/ (Flux Kustomization CR) NOTE: every app here is firefly's EXCEPT access-control, which is franklinhouse-only and is deliberately absent from kubernetes/apps/kustomization.yaml.",
+            "apps": [
+                "atlantis",
+                "authentik",
+                "bazarr",
+                "blackbox-exporter",
+                "defectdojo",
+                "dependency-track",
+                "excalidraw",
+                "falco",
+                "flagger",
+                "flaresolverr",
+                "fluent-bit",
+                "gatekeeper",
+                "git-pull-request-dashboard",
+                "headlamp",
+                "homeassistant",
+                "homebridge",
+                "krr",
+                "kube-prometheus-stack",
+                "kubescape",
+                "kyverno-policies",
+                "loki",
+                "mikrotik-minder",
+                "n8n",
+                "nextcloud",
+                "nzbhydra2",
+                "overseerr",
+                "plex",
+                "prowlarr",
+                "qbittorrent",
+                "radarr",
+                "renovate",
+                "sabnzbd",
+                "safe-settings",
+                "sonarqube",
+                "sonarr",
+                "syncthing",
+                "thanos-compactor",
+                "thanos-query",
+                "thanos-store",
+                "timemachine",
+                "trivy-operator",
+                "wordpress"
+            ],
+            "depends_on": [
+                "kubernetes-components",
+                "kubernetes-infrastructure"
+            ]
+        },
+        "kubernetes-infrastructure": {
+            "path": "kubernetes/infrastructure/",
+            "purpose": "Cluster-wide tiers, deployed in order via Flux Kustomizations with dependsOn",
+            "tiers": {
+                "configs": "infrastructure-configs — namespaces only",
+                "controllers": "infrastructure-controllers — cert-manager, external-secrets, 1password-connect, cloudnative-pg (dependsOn configs)",
+                "services": "infrastructure-services — cloudflared, minio, external-dns×2, postgres, postgres-oci (CNPG pinned to the OCI native-cloud tier, ns database-oci), mariadb (dependsOn controllers)"
+            },
+            "depends_on": [
+                "kubernetes-components"
+            ]
+        },
+        "kubernetes-components": {
+            "path": "kubernetes/components/",
+            "purpose": "Reusable kustomize Components (label-targeted patches)",
+            "components": [
+                "node-selectors",
+                "resource-profiles",
+                "gluetun-sidecar",
+                "wireguard-sidecar",
+                "vpn-routed-proxy",
+                "helm-releases",
+                "helm-release-standards",
+                "ingress-standards"
+            ],
+            "notes": "resource-profiles map AWS-style names (t.small, c.medium, m.large) to Pi-constrained requests/limits. node-selectors: system/worker (+ legacy pi/mini) and native-cloud (topology.sargeant.co/tier=native-cloud, the OCI ff-oci tier)"
+        },
+        "kubernetes-clusters": {
+            "path": "kubernetes/clusters/{firefly,franklinhouse}/",
+            "purpose": "Flux bootstrap entries, one per cluster. firefly's root pulls in ../../apps + ../../infrastructure (shared trees). franklinhouse's root pulls in ../../apps/access-control ONLY plus its own cluster-local ./infrastructure (own CNPG operator + Postgres Clusters) — aggregating ../../apps there would deploy all of firefly onto franklinhouse. See docs/reference/franklinhouse.md",
+            "depends_on": [
+                "kubernetes-apps",
+                "kubernetes-infrastructure",
+                "kubernetes-components"
+            ]
+        },
+        "ansible": {
+            "path": "ansible/",
+            "purpose": "System bootstrap, config management, docker host setup, network device config",
+            "playbook_prefixes": {
+                "kubernetes-*": "k3s install/master config/init",
+                "docker-*": "Docker host deployments; suffix indicates target host (-firefly, -server, -raspberry, -whale, -dockervm)",
+                "cisco-*": "Cisco router/switch config",
+                "mikrotik-*": "MikroTik router config",
+                "ark-*": "Game server (Ark Survival) install/config",
+                "pivpn-*": "PiVPN setup"
+            },
+            "roles": "ansible/roles/ — 35+ idempotent roles (k3s-fluxcd-bootstrap, k3s-sops-age-secret, mikrotik-dns, postgres-config, etc.)",
+            "inventory": "ansible/hosts.yaml",
+            "vars": "ansible/vars/ (gitignored — contains secrets)"
+        },
+        "dockerfiles": {
+            "path": "dockerfiles/",
+            "purpose": "Custom container images built from this repo",
+            "images": [
+                "atlantis-firefly",
+                "git-pull-request-dashboard",
+                "n8n",
+                "openfortivpn",
+                "wordpress-postgres"
+            ]
+        },
+        "scripts": {
+            "path": "scripts/",
+            "purpose": "Ad-hoc utility scripts; Linux/ and Windows/ subdirs; tooling for AWS SSO, OCI inspection, auto-shutdown, terraform imports"
+        },
+        "docs": {
+            "path": "docs/",
+            "purpose": "MkDocs source for https://calebsargeant.github.io/infra/ — getting-started, guides, operations, reference (helm-charts, terraform-modules)"
+        }
     },
-    "terraform-fortigate": {
-      "path": "terraform/fortigate/",
-      "purpose": "Two standalone home-lab FortiGate 40Fs (no HA), dual-ISP resilient edge. fortios provider iterated per-unit via for_each (OpenTofu 1.9+). Self-contained leaf (no root.hcl include). VLAN segmentation (trusted/iot/guest/mgmt) over an 802.1Q trunk to the MikroTik; per-VLAN DHCP + segmentation policies. Both ISPs active-active. BGP-routed IPsec site-to-site VPN to OCI (vpn.tf/bgp.tf, OCI side oci/.../vpn-fortigate) with SD-WAN steering (sdwan.tf); BGP scope OCI+FGT-FGT. IPsec dial-up remote access via Google SAML (remote-access.tf). Syslog/NetFlow + automation stitches (monitoring.tf). Base-license only.",
-      "leaves": [
-        "prod"
-      ],
-      "shared_modules": [
-        "modules/fortigate"
-      ],
-      "notes": "Hardware not wired yet — Atlantis autoplan disabled (enabled:false); run 'atlantis plan -p fortigate-prod' once units are reachable + API tokens are in OCI Vault. Placeholder RFC1918 addressing; verify 40F physical port names before apply."
-    },
-    "terraform-mikrotik": {
-      "path": "terraform/mikrotik/",
-      "purpose": "Two physical home-lab MikroTik CRS edge switches (one behind each FortiGate). routeros provider iterated per-unit via for_each (OpenTofu 1.9+). L2 access bridge (MSTP, shared region) + routed /30 cross-link & inter-switch uplinks. Both ISPs active-active via ECMP (equal-distance default routes), no failover. Pairs with terraform/fortigate. NOT the OCI CHRs under terraform/oci/.../mikrotik.",
-      "leaves": [
-        "prod"
-      ],
-      "shared_modules": [
-        "modules/crs"
-      ],
-      "notes": "Hardware not wired yet (mt2 not installed) — Atlantis autoplan disabled; run 'atlantis plan -p mikrotik-prod' once reachable + password in OCI Vault. Placeholder addressing consistent with terraform/fortigate; verify CRS port names before apply."
-    },
-    "terraform-gcp": {
-      "path": "terraform/gcp/",
-      "purpose": "GCP project setup (state bucket, IAM); state lives in GCS magmamoose-terraform project",
-      "leaves": [
-        "prod/europe-west4/project"
-      ],
-      "depends_on": [
-        "terraform-root"
-      ]
-    },
-    "terraform-oci": {
-      "path": "terraform/oci/",
-      "purpose": "OCI tenancy infra (network, edge, server, mikrotik, vpn, database, drg-peering, policy) + tenancy-root IAM",
-      "leaves": [
-        "iam-policy",
-        "prod/eu-amsterdam-1/{network,edge,server,mikrotik,vpn,vpn-fortigate,database,drg-peering,policy}"
-      ],
-      "shared_modules": [
-        "modules/{network,edge,server,mikrotik,vpn,database,drg-peering,policy,iam-policy}"
-      ],
-      "depends_on": [
-        "terraform-root"
-      ],
-      "notes": "OCI Vault publicly accessible (KMS endpoints are public-internet + OCI-auth, not VPN-gated). modules/server provisions the ff-oci1/ff-oci2 arm64 free-tier k3s agents (native-cloud tier): servers map takes node_name + node_labels; cloud-init joins via token from Vault. Editing the module needs manual 'atlantis plan -p oci-prod-eu-amsterdam-1-server'"
-    },
-    "kubernetes-apps": {
-      "path": "kubernetes/apps/",
-      "purpose": "Per-app manifests. Each app has base/<app>/ (kustomize manifests) + prod/<app>/ (Flux Kustomization CR)",
-      "apps": [
-        "atlantis",
-        "authentik",
-        "bazarr",
-        "blackbox-exporter",
-        "defectdojo",
-        "dependency-track",
-        "excalidraw",
-        "falco",
-        "flagger",
-        "flaresolverr",
-        "fluent-bit",
-        "gatekeeper",
-        "git-pull-request-dashboard",
-        "headlamp",
-        "homeassistant",
-        "homebridge",
-        "krr",
-        "kube-prometheus-stack",
-        "kubescape",
-        "kyverno-policies",
-        "loki",
-        "mikrotik-minder",
-        "n8n",
-        "nextcloud",
-        "nzbhydra2",
-        "overseerr",
-        "plex",
-        "prowlarr",
-        "qbittorrent",
-        "radarr",
-        "renovate",
-        "sabnzbd",
-        "safe-settings",
-        "sonarqube",
-        "sonarr",
-        "syncthing",
-        "thanos-compactor",
-        "thanos-query",
-        "thanos-store",
-        "timemachine",
-        "trivy-operator",
-        "wordpress"
-      ],
-      "depends_on": [
-        "kubernetes-components",
-        "kubernetes-infrastructure"
-      ]
-    },
-    "kubernetes-infrastructure": {
-      "path": "kubernetes/infrastructure/",
-      "purpose": "Cluster-wide tiers, deployed in order via Flux Kustomizations with dependsOn",
-      "tiers": {
-        "configs": "infrastructure-configs — namespaces only",
-        "controllers": "infrastructure-controllers — cert-manager, external-secrets, 1password-connect, cloudnative-pg (dependsOn configs)",
-        "services": "infrastructure-services — cloudflared, minio, external-dns×2, postgres, postgres-oci (CNPG pinned to the OCI native-cloud tier, ns database-oci), mariadb (dependsOn controllers)"
-      },
-      "depends_on": [
-        "kubernetes-components"
-      ]
-    },
-    "kubernetes-components": {
-      "path": "kubernetes/components/",
-      "purpose": "Reusable kustomize Components (label-targeted patches)",
-      "components": [
-        "node-selectors",
-        "resource-profiles",
-        "gluetun-sidecar",
-        "wireguard-sidecar",
-        "vpn-routed-proxy",
-        "helm-releases",
-        "helm-release-standards",
-        "ingress-standards"
-      ],
-      "notes": "resource-profiles map AWS-style names (t.small, c.medium, m.large) to Pi-constrained requests/limits. node-selectors: system/worker (+ legacy pi/mini) and native-cloud (topology.sargeant.co/tier=native-cloud, the OCI ff-oci tier)"
-    },
-    "kubernetes-clusters": {
-      "path": "kubernetes/clusters/firefly/",
-      "purpose": "Flux bootstrap entry for the firefly cluster — root kustomization.yaml pulls in ../../apps + ../../infrastructure",
-      "depends_on": [
-        "kubernetes-apps",
-        "kubernetes-infrastructure"
-      ]
-    },
-    "ansible": {
-      "path": "ansible/",
-      "purpose": "System bootstrap, config management, docker host setup, network device config",
-      "playbook_prefixes": {
-        "kubernetes-*": "k3s install/master config/init",
-        "docker-*": "Docker host deployments; suffix indicates target host (-firefly, -server, -raspberry, -whale, -dockervm)",
-        "cisco-*": "Cisco router/switch config",
-        "mikrotik-*": "MikroTik router config",
-        "ark-*": "Game server (Ark Survival) install/config",
-        "pivpn-*": "PiVPN setup"
-      },
-      "roles": "ansible/roles/ — 35+ idempotent roles (k3s-fluxcd-bootstrap, k3s-sops-age-secret, mikrotik-dns, postgres-config, etc.)",
-      "inventory": "ansible/hosts.yaml",
-      "vars": "ansible/vars/ (gitignored — contains secrets)"
-    },
-    "dockerfiles": {
-      "path": "dockerfiles/",
-      "purpose": "Custom container images built from this repo",
-      "images": [
-        "atlantis-firefly",
-        "git-pull-request-dashboard",
-        "n8n",
-        "openfortivpn",
-        "wordpress-postgres"
-      ]
-    },
-    "scripts": {
-      "path": "scripts/",
-      "purpose": "Ad-hoc utility scripts; Linux/ and Windows/ subdirs; tooling for AWS SSO, OCI inspection, auto-shutdown, terraform imports"
-    },
-    "docs": {
-      "path": "docs/",
-      "purpose": "MkDocs source for https://calebsargeant.github.io/infra/ — getting-started, guides, operations, reference (helm-charts, terraform-modules)"
-    }
-  },
-  "callgraph_highlights": [
-    {
-      "caller": "kubernetes/clusters/firefly/kustomization.yaml",
-      "calls": [
-        "kubernetes/apps/*",
-        "kubernetes/infrastructure/*"
-      ],
-      "note": "Flux root — owns the full reconciled state"
-    },
-    {
-      "caller": "kubernetes/apps/<app>/prod/<app>/flux-kustomization.yaml",
-      "calls": [
-        "kubernetes/apps/<app>/base/<app>/"
-      ],
-      "note": "Each app's Flux Kustomization CR points its path: at base manifests"
-    },
-    {
-      "caller": "terraform/<leaf>/terragrunt.hcl",
-      "calls": [
-        "terraform/root.hcl (via find_in_parent_folders)",
-        "terraform/<provider>/modules/<name>"
-      ],
-      "note": "Terragrunt leaves source modules + inherit root config; backend.tf and provider.tf are auto-generated"
-    },
-    {
-      "caller": "ExternalSecret CRs",
-      "calls": [
-        "OCI Vault",
-        "1Password Connect"
-      ],
-      "note": "Preferred runtime secret path; SOPS is fallback only"
-    },
-    {
-      "caller": "Atlantis (cluster)",
-      "calls": [
-        "atlantis.yaml projects → terragrunt plan/apply"
-      ],
-      "note": "Each LEAF terragrunt module = 1 Atlantis project; shared inputs (root.hcl, region.hcl, modules/) do NOT autoplan — comment 'atlantis plan -p <project>' manually"
-    }
-  ],
-  "hotspots": [
-    "kubernetes/apps/<app>/base/<app>/ — most app changes",
-    "kubernetes/apps/<app>/prod/<app>/flux-kustomization.yaml — Flux wiring for an app",
-    "kubernetes/infrastructure/{controllers,services}/stack/ — cluster-wide infra changes",
-    "terraform/oci/prod/eu-amsterdam-1/<leaf>/ — OCI infra changes",
-    "terraform/cloudflare/dns/prod/ — DNS records",
-    "terraform/oci/modules/ — when extending OCI modules",
-    "ansible/roles/k3s-* — cluster bootstrap changes",
-    "atlantis.yaml — when adding a new Terragrunt leaf",
-    "AGENTS.md — when introducing a new convention/pattern (definition-of-done requirement)"
-  ],
-  "secret_management_priority": [
-    "1. OCI Vault + ExternalSecrets (runtime cluster secrets)",
-    "2. 1Password Connect + ExternalSecrets (app creds / shared team)",
-    "3. SOPS + Age (last resort — .enc.yaml only, kustomization label app.kubernetes.io/sops=enabled)"
-  ],
-  "do_not_edit": [
-    "backend.tf — auto-generated by terragrunt (if_exists = overwrite)",
-    "provider.tf — auto-generated by terragrunt (if_exists = overwrite)",
-    ".terragrunt-cache/ — gitignored cache"
-  ]
+    "callgraph_highlights": [
+        {
+            "caller": "kubernetes/clusters/firefly/kustomization.yaml",
+            "calls": [
+                "kubernetes/apps/*",
+                "kubernetes/infrastructure/*"
+            ],
+            "note": "Flux root — owns the full reconciled state"
+        },
+        {
+            "caller": "kubernetes/apps/<app>/prod/<app>/flux-kustomization.yaml",
+            "calls": [
+                "kubernetes/apps/<app>/base/<app>/"
+            ],
+            "note": "Each app's Flux Kustomization CR points its path: at base manifests"
+        },
+        {
+            "caller": "terraform/<leaf>/terragrunt.hcl",
+            "calls": [
+                "terraform/root.hcl (via find_in_parent_folders)",
+                "terraform/<provider>/modules/<name>"
+            ],
+            "note": "Terragrunt leaves source modules + inherit root config; backend.tf and provider.tf are auto-generated"
+        },
+        {
+            "caller": "ExternalSecret CRs",
+            "calls": [
+                "OCI Vault",
+                "1Password Connect"
+            ],
+            "note": "Preferred runtime secret path; SOPS is fallback only"
+        },
+        {
+            "caller": "Atlantis (cluster)",
+            "calls": [
+                "atlantis.yaml projects → terragrunt plan/apply"
+            ],
+            "note": "Each LEAF terragrunt module = 1 Atlantis project; shared inputs (root.hcl, region.hcl, modules/) do NOT autoplan — comment 'atlantis plan -p <project>' manually"
+        }
+    ],
+    "hotspots": [
+        "kubernetes/apps/<app>/base/<app>/ — most app changes",
+        "kubernetes/apps/<app>/prod/<app>/flux-kustomization.yaml — Flux wiring for an app",
+        "kubernetes/infrastructure/{controllers,services}/stack/ — cluster-wide infra changes",
+        "terraform/oci/prod/eu-amsterdam-1/<leaf>/ — OCI infra changes",
+        "terraform/cloudflare/dns/prod/ — DNS records",
+        "terraform/oci/modules/ — when extending OCI modules",
+        "ansible/roles/k3s-* — cluster bootstrap changes",
+        "atlantis.yaml — when adding a new Terragrunt leaf",
+        "AGENTS.md — when introducing a new convention/pattern (definition-of-done requirement)"
+    ],
+    "secret_management_priority": [
+        "1. OCI Vault + ExternalSecrets (runtime cluster secrets)",
+        "2. 1Password Connect + ExternalSecrets (app creds / shared team)",
+        "3. SOPS + Age (last resort — .enc.yaml only, kustomization label app.kubernetes.io/sops=enabled)"
+    ],
+    "do_not_edit": [
+        "backend.tf — auto-generated by terragrunt (if_exists = overwrite)",
+        "provider.tf — auto-generated by terragrunt (if_exists = overwrite)",
+        ".terragrunt-cache/ — gitignored cache"
+    ]
 }

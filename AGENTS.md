@@ -46,6 +46,11 @@ kubernetes/
   clusters/firefly/
     flux-system/                 # Flux bootstrap — gotk-sync points here; the root Kustomization
     kustomization.yaml           # Meta — resources: [../../apps, ../../infrastructure]
+  clusters/franklinhouse/        # Second cluster (see docs/reference/franklinhouse.md)
+    flux-system/                 # Flux bootstrap + SOPS-encrypted GHCR pull secret
+    kustomization.yaml           # Meta — resources: [../../apps/access-control, ./infrastructure, ./system]
+    infrastructure/              # Cluster-LOCAL tiers (own CNPG operator + Postgres Clusters)
+    system/                      # Traefik HelmChartConfig (pinned to control-plane nodes)
   components/                    # Reusable kustomize Components: node-selectors/, resource-profiles/,
                                  # gluetun-sidecar/, wireguard-sidecar/, helm-releases/, ingress-standards/
   infrastructure/
@@ -56,7 +61,26 @@ kubernetes/
                                  # (Flux Kustomization: infrastructure-services, dependsOn controllers)
 ```
 
-The `franklinhouse` cluster lives in a separate public repo, [calebsargeant/infra-v2](https://github.com/CalebSargeant/infra-v2); this repo is firefly-only.
+The `franklinhouse` cluster was folded into this repo on 2026-08-13 (previously
+the **private** repo `calebsargeant/infra-v2`). It lives under
+`kubernetes/clusters/franklinhouse/` and is documented in
+[docs/reference/franklinhouse.md](docs/reference/franklinhouse.md).
+
+Two scoping rules keep the two clusters apart, and both matter when editing:
+
+- `clusters/franklinhouse/kustomization.yaml` references
+  **`../../apps/access-control` directly**, never `../../apps` —
+  `kubernetes/apps/kustomization.yaml` is *firefly's* app set, so aggregating it
+  would deploy all of firefly onto franklinhouse. For the same reason
+  `access-control` is deliberately absent from that aggregator.
+- franklinhouse's infrastructure tiers are **cluster-local** under
+  `clusters/franklinhouse/infrastructure/`, because the shared
+  `kubernetes/infrastructure/` tree is cluster-agnostic and its tier
+  Kustomizations point at firefly's `stack/` paths.
+
+franklinhouse also runs **its own CNPG Clusters** (`prod-database`,
+`staging-database`), a deliberate exception to the shared-Postgres rule below:
+it is a physically separate k3s cluster and cannot reach firefly's `postgres`.
 
 **Key patterns**:
 - Each `apps/<app>/prod/<app>/flux-kustomization.yaml` emits a `prod-<app>` Flux Kustomization CR; its `path:` points at `apps/<app>/base/<app>` (the manifests).
@@ -291,9 +315,15 @@ always-online, public-facing workloads (GitHub-App backends) and the
 
 ### Before Editing Kubernetes Manifests
 
-- Changes to `kubernetes/infrastructure/` or `kubernetes/components/` are cluster-agnostic (would affect any cluster reconciled from this repo)
-- Changes to `clusters/firefly/` affect only firefly
-- Run `kustomize build kubernetes/clusters/firefly` to validate
+- Changes to `kubernetes/infrastructure/` or `kubernetes/components/` are cluster-agnostic (would affect any cluster reconciled from this repo). **In practice `kubernetes/infrastructure/` is firefly's** — franklinhouse deliberately does not reconcile it (see `clusters/franklinhouse/infrastructure/`)
+- Changes to `clusters/firefly/` affect only firefly; `clusters/franklinhouse/` only franklinhouse
+- Changes to `kubernetes/apps/access-control/` affect **franklinhouse only**; every other app under `kubernetes/apps/` is firefly's
+- Validate **both** clusters — they share the `apps/` and `components/` trees:
+  ```bash
+  kustomize build kubernetes/clusters/firefly
+  kustomize build kubernetes/clusters/franklinhouse
+  ```
+  For the two `flux-system/` bootstrap dirs, add `--load-restrictor LoadRestrictionsNone` (both reference `../apps.yaml`, which plain `kustomize build` rejects; Flux itself does not enforce that restriction)
 - Test labels match resource profiles/node selectors
 - Encrypted secrets: remember `.enc.yaml` suffix
 

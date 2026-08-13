@@ -1,0 +1,30 @@
+---
+# WARNING — two operational risks carried over verbatim from infra-v2, both of
+# which turned a 2-of-3 Proxmox host failure into unrecoverable downtime on
+# 2026-08-13. See docs/reference/franklinhouse.md ("Known risks") before changing
+# this file; neither is fixed here because doing so is a behavioural change, not
+# a migration.
+#
+#   1. storageClass: local-path pins each instance's PVC to the node that first
+#      scheduled it. Losing that node makes the volume unreachable and the
+#      instance unschedulable — the data is not replicated at the storage layer.
+#   2. There is NO .spec.backup stanza and no ScheduledBackup anywhere, so the
+#      only copy of this database is those node-local volumes.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres
+  namespace: prod-database
+spec:
+  instances: 3
+  storage:
+    size: 20Gi
+    storageClass: local-path
+  bootstrap:
+    initdb:
+      database: access_control
+      owner: access_control
+      secret:
+        name: access-control-app-user
+  monitoring:
+    enablePodMonitor: true

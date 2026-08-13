@@ -1,0 +1,18 @@
+---
+# Source for the EXTERNAL application repo. The workload manifests
+# (k8s/overlays/{prod,staging}) live there, not in this repo — only the
+# control plane (this GitRepository, image automation, namespaces) is here.
+# Authenticated with the access-control-deploy-key Secret projected by
+# externalsecret.yaml.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: access-control
+  namespace: flux-system
+spec:
+  interval: 5m0s
+  ref:
+    branch: main
+  secretRef:
+    name: access-control-deploy-key
+  url: ssh://git@github.com/CalebSargeant/franklinhouse.git

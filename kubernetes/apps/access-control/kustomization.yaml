@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# External-repo app: the workload manifests live in the app's own GitHub repo
+# (CalebSargeant/franklinhouse, ./access-control/k8s/overlays/<env>). Unlike
+# in-tree apps (which reference ./prod only), external apps reference ./base too --
+# base/access-control holds the in-cluster plumbing (GitRepository source, image
+# repositories, deploy-key ExternalSecret) that the meta `apps` Kustomization
+# applies directly, while prod|staging/access-control hold the Flux Kustomizations
+# that reconcile the external workload.
+#
+# base/ is listed HERE rather than emitted per-env on purpose: its resources are
+# cluster-scoped singletons shared by both environments, so a per-env source
+# Kustomization would give two owners to the same GitRepository/ImageRepository.
+#
+# NOTE: deployed to the franklinhouse cluster ONLY. Referenced from
+# kubernetes/clusters/franklinhouse/kustomization.yaml and deliberately ABSENT
+# from kubernetes/apps/kustomization.yaml (firefly's app set) -- the deploy-key
+# ExternalSecret targets the `azure-keyvault` ClusterSecretStore, which exists on
+# franklinhouse but not on firefly.
+resources:
+  - ./base
+  - ./prod
+  - ./staging

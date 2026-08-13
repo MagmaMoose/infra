@@ -1,0 +1,135 @@
+---
+# franklinhouse k3s cluster bootstrap — folded in from
+# calebsargeant/infra-v2 (ansible/k3s-cluster/site.yml).
+#
+# Inventory groups live in hosts.yaml: franklinhouse_control_plane (3 servers with
+# embedded etcd) and franklinhouse_workers (3 agents).
+#
+# Usage (K3S_TOKEN must be set; --check first, per repo convention):
+#   K3S_TOKEN=... ansible-playbook -i hosts.yaml franklinhouse-k3s-bootstrap.yaml --check
+#
+# !! OPERATIONAL WARNING !!
+# Every joining node below is pointed at the FIRST control-plane host as its
+# `--server` endpoint. That address is baked into each node's k3s systemd unit
+# and into the agent load-balancer cache at
+# /var/lib/rancher/k3s/agent/etc/k3s-agent-load-balancer.json. If that one host
+# is down, survivors cannot reach their configured endpoint and will not rejoin
+# on their own — this is precisely what happened on 2026-08-13 and it had to be
+# repaired by hand. See docs/reference/franklinhouse.md ("Known risks"). Consider
+# a VIP or DNS name for k3s_api_endpoint before rebuilding this cluster.
+
+- name: Prepare all franklinhouse nodes (packages + sudoers)
+  hosts: franklinhouse
+  become: true
+  gather_facts: true
+  pre_tasks:
+    - name: Ensure K3S_TOKEN is set
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.env', 'K3S_TOKEN') | length > 0
+        fail_msg: "Set K3S_TOKEN in your environment before running this playbook."
+  tasks:
+    - name: Apt cache update + dist upgrade
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: dist
+        cache_valid_time: 3600
+
+    - name: Install base dependencies
+      ansible.builtin.apt:
+        name:
+          - curl
+          - ca-certificates
+        state: present
+
+    - name: Grant caleb passwordless sudo (visudo-validated)
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/caleb
+        owner: root
+        group: root
+        mode: "0440"
+        content: |
+          caleb ALL=(ALL) NOPASSWD:ALL
+        validate: /usr/sbin/visudo -cf %s
+
+- name: Bootstrap first control-plane node
+  hosts: franklinhouse_control_plane[0]
+  become: true
+  gather_facts: true
+  vars:
+    k3s_server_taint: "node-role.kubernetes.io/control-plane=true:NoSchedule"
+  tasks:
+    - name: Install k3s server (cluster-init)
+      ansible.builtin.shell: curl -sfL https://get.k3s.io | sh -
+      args:
+        creates: /etc/systemd/system/k3s.service
+      environment:
+        K3S_TOKEN: "{{ lookup('ansible.builtin.env', 'K3S_TOKEN') }}"
+        INSTALL_K3S_EXEC: >-
+          server --cluster-init --write-kubeconfig-mode 600
+          --node-taint {{ k3s_server_taint }} --node-label node-role=system
+
+    - name: Wait for kube-api on first control-plane
+      ansible.builtin.wait_for:
+        port: 6443
+        delay: 5
+        timeout: 300
+
+- name: Join additional control-plane nodes
+  hosts: franklinhouse_control_plane[1:]
+  become: true
+  gather_facts: true
+  vars:
+    k3s_first_control_plane: "{{ groups['franklinhouse_control_plane'][0] }}"
+    k3s_api_endpoint: >-
+      {{ hostvars[k3s_first_control_plane].k3s_node_ip
+         | default(hostvars[k3s_first_control_plane].ansible_default_ipv4.address
+         | default(hostvars[k3s_first_control_plane].ansible_host
+         | default(k3s_first_control_plane))) }}
+    k3s_server_taint: "node-role.kubernetes.io/control-plane=true:NoSchedule"
+  tasks:
+    - name: Wait for first control-plane API endpoint
+      ansible.builtin.wait_for:
+        host: "{{ k3s_api_endpoint }}"
+        port: 6443
+        delay: 5
+        timeout: 300
+
+    - name: Install k3s server (join)
+      ansible.builtin.shell: curl -sfL https://get.k3s.io | sh -
+      args:
+        creates: /etc/systemd/system/k3s.service
+      environment:
+        K3S_TOKEN: "{{ lookup('ansible.builtin.env', 'K3S_TOKEN') }}"
+        INSTALL_K3S_EXEC: >-
+          server --server https://{{ k3s_api_endpoint }}:6443
+          --write-kubeconfig-mode 600
+          --node-taint {{ k3s_server_taint }} --node-label node-role=system
+
+- name: Join worker nodes
+  hosts: franklinhouse_workers
+  become: true
+  gather_facts: true
+  vars:
+    k3s_first_control_plane: "{{ groups['franklinhouse_control_plane'][0] }}"
+    k3s_api_endpoint: >-
+      {{ hostvars[k3s_first_control_plane].k3s_node_ip
+         | default(hostvars[k3s_first_control_plane].ansible_default_ipv4.address
+         | default(hostvars[k3s_first_control_plane].ansible_host
+         | default(k3s_first_control_plane))) }}
+  tasks:
+    - name: Wait for first control-plane API endpoint
+      ansible.builtin.wait_for:
+        host: "{{ k3s_api_endpoint }}"
+        port: 6443
+        delay: 5
+        timeout: 300
+
+    - name: Install k3s agent
+      ansible.builtin.shell: curl -sfL https://get.k3s.io | sh -
+      args:
+        creates: /etc/systemd/system/k3s-agent.service
+      environment:
+        K3S_TOKEN: "{{ lookup('ansible.builtin.env', 'K3S_TOKEN') }}"
+        INSTALL_K3S_EXEC: >-
+          agent --server https://{{ k3s_api_endpoint }}:6443 --node-label node-role=apps

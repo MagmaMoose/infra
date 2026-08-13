@@ -1,0 +1,25 @@
+---
+# Operators / controllers for franklinhouse: currently just cloudnative-pg.
+# Gates the services tier — the Postgres Clusters in infrastructure-services
+# cannot reconcile until the CNPG operator and its CRDs are established.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infrastructure-controllers
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./kubernetes/clusters/franklinhouse/infrastructure/controllers/stack
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  timeout: 5m
+  wait: true
+  # The operator Deployment must be Ready before infrastructure-services (which
+  # contains the Postgres Clusters) reconciles.
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: cloudnative-pg
+      namespace: cloudnative-pg

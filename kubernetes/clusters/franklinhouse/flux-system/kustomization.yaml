@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - gotk-components.yaml
+  - gotk-sync.yaml
+  - ghcr-pull-secret.enc.yaml
+  # Cluster orchestration lives OUTSIDE flux-system/ (keeping this directory
+  # bootstrap-only), applied by THIS bootstrap Kustomization via a relative ref —
+  # the same pattern as clusters/firefly/flux-system/kustomization.yaml.
+  - ../apps.yaml                  # meta `apps` Kustomization (builds clusters/franklinhouse/)
+components:
+  # Pins the Flux controllers to franklinhouse's tainted control-plane nodes.
+  - ../../../components/node-selectors/franklinhouse-system

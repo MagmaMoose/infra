@@ -1,0 +1,21 @@
+---
+# See the warning in ../prod/cluster.yaml — same local-path pinning and same
+# absence of backups apply here.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres
+  namespace: staging-database
+spec:
+  instances: 1
+  storage:
+    size: 10Gi
+    storageClass: local-path
+  bootstrap:
+    initdb:
+      database: access_control
+      owner: access_control
+      secret:
+        name: access-control-app-user
+  monitoring:
+    enablePodMonitor: true
