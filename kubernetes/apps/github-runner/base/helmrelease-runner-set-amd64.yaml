@@ -20,40 +20,34 @@
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: arc-firefly
+  name: arc-firefly-amd64
   namespace: arc-runners
 spec:
   interval: 30m
-  # The scale set name is what GitHub matches `runs-on` against. `firefly` is the value
-  # the ORG variable `SELFHOSTED_GITHUB_RUNNER` is set to, so this set is the DEFAULT
-  # self-hosted pool for every repo that consults that variable.
+  # THE amd64 ESCAPE HATCH. Deliberately NOT the default pool.
   #
-  # THIS IS THE arm64 / OCI POOL. It used to be the amd64 ff-vm1 pool; the two swapped
-  # deliberately, and the name stayed here rather than moving to the amd64 set, because
-  # `firefly` is what the org variable already says. Keeping the name on the pool we want
-  # jobs to land on by default means the routing change needs no org-admin action at all.
-  # The amd64 ff-vm1 pool now lives in helmrelease-runner-set-amd64.yaml under the name
-  # `firefly-amd64` and is opt-in per repo.
+  # This is the ff-vm1 runner that used to be called `firefly`. It kept its node and its
+  # sizing and lost its name: `firefly` now belongs to the two-node arm64 OCI pool
+  # (helmrelease-runner-set.yaml), because that is the value the ORG variable
+  # `SELFHOSTED_GITHUB_RUNNER` already holds and pointing the default at the bigger pool
+  # required no org-admin action.
   #
-  # WHY the OCI pair is the default and not ff-vm1:
-  #   * CAPACITY — two nodes means two concurrent jobs instead of one. That is the whole
-  #     point of the change: a single runner serialised the entire org behind one job.
-  #   * HEADROOM — ff-vm1 is the memory-tight node (21766Mi/28715632Ki = 77% real usage,
-  #     and the 7-day peak sum already exceeds allocatable). ff-oci1 sits at 34% memory /
-  #     13% CPU and ff-oci2 at 73% / 68%. Moving CI off ff-vm1 relieves the node that has
-  #     the actual problem.
-  #   * ARCH IS FINE — every image in this pod template is multi-arch (actions-runner,
-  #     docker:dind, dotnet/sdk:8.0), `install-gh` already derives its arch from
-  #     `uname -m`, and Chargate v2's default `arch_strategy: auto` runs MegaLinter's
-  #     per-linter `megalinter-only-*` images (multi-arch since v10.0.0) when the Docker
-  #     daemon is not amd64. A job that genuinely needs amd64 sets the repo-level
-  #     `SELFHOSTED_GITHUB_RUNNER` to `firefly-amd64`.
+  # NOTHING ROUTES HERE BY DEFAULT. A job reaches this pool only if its repo sets a
+  # REPO-level `SELFHOSTED_GITHUB_RUNNER` variable to `firefly-amd64`, which overrides
+  # the org-level `firefly`. Reach for that when a job genuinely cannot run on arm64:
+  #   * a build that needs `linux/amd64` natively rather than under emulation;
+  #   * a tool with no arm64 build at all;
+  #   * Chargate with `arch_strategy: flavor` (the monolithic MegaLinter flavor image is
+  #     amd64-only — `auto` is what makes the arm64 pool work, by substituting the
+  #     per-linter `megalinter-only-*` images instead).
+  # It is also the fallback if the arm64 pool misbehaves: one repo-level variable moves
+  # that repo back to known-good hardware without touching the cluster.
   #
   # NOTE — an ARC scale set is addressed by NAME, not by matching
   # `[self-hosted, Linux, X64]`. Any job still using the literal array form will never be
   # picked up; it must use the `vars.SELFHOSTED_GITHUB_RUNNER` expression. See the
   # `scaleSetLabels` note below.
-  releaseName: arc-firefly
+  releaseName: arc-firefly-amd64
   # The controller must exist before this chart renders: without it the four
   # actions.github.com CRDs are absent, and the chart's own manager-RoleBinding wants the
   # controller's ServiceAccount.
@@ -95,7 +89,7 @@ spec:
     # optional: a self-hosted runner executing fork-PR code with OCI credentials is the
     # precise scenario GitHub warns about, and the group setting no longer blocks it.
     runnerGroup: default
-    runnerScaleSetName: firefly
+    runnerScaleSetName: firefly-amd64
 
     # scaleSetLabels is intentionally NOT set. It would be the only way to keep the
     # literal `[self-hosted, Linux, X64]` array in terragrunt.yml working, but
@@ -108,16 +102,17 @@ spec:
     # runner that is idle almost all of it. minRunners: 0 gives that back and only
     # borrows it for the duration of a job.
     minRunners: 0
-    # TWO concurrent runners — one per OCI node, enforced by the REQUIRED pod
-    # anti-affinity below, not merely hoped for. maxRunners without the anti-affinity
-    # would happily stack both on ff-oci1 and leave ff-oci2 idle, which is precisely the
-    # thing this change exists to fix.
+    # ONE concurrent runner, unchanged from when this set was called `firefly`.
+    # Arithmetic that produced it: ff-vm1 is 8000m / 28042Mi allocatable with a 7-day peak
+    # request sum already at 144% of allocatable, its real memory use is 21766Mi (77%),
+    # and the dind memory LIMIT below is 6Gi because MegaLinter needs it. Two concurrent
+    # MegaLinter jobs would take the node down, and limits are not scheduler-reserved so
+    # nothing would stop it (COMMON_MISTAKES #14).
     #
-    # Two is the ceiling, not a starting point: there are exactly two nodes in the tier,
-    # so a third runner would have nowhere to go and would sit Pending until one of the
-    # first two finished. GitHub re-queues rather than fails in that case, but a job that
-    # is Pending on the cluster looks identical to a stuck job on the Actions UI.
-    maxRunners: 2
+    # The pressure to raise this is now gone anyway: org-wide concurrency comes from the
+    # arm64 pool's two runners, and this set exists for the handful of jobs that must be
+    # amd64. Raise to 2 only after ff-vm1 gains ~6Gi of real headroom.
+    maxRunners: 1
 
     # Empty map, NOT `type: dind`, and this is load-bearing. With containerMode.type=dind
     # the chart synthesises the dind sidecar from a hardcoded helper: `image: docker:dind`
@@ -127,11 +122,9 @@ spec:
     #     MegaLinter/build containers put 1500-byte frames on a smaller path and large
     #     transfers (TLS handshakes, apt/npm fetches) blackhole and HANG — that is what
     #     previously stalled the chargate scans at ~0% CPU on ff-vm1, whose pod network is
-    #     flannel VXLAN at 1450 (verified: `cni0`/`flannel.1` = 1450 there).
-    #     KEPT AT 1450 ON THIS arm64/OCI POOL TOO, deliberately: ff-oci1's pod network is
-    #     8950, so 1450 is merely suboptimal there and never wrong, while raising it would
-    #     have to be re-verified per node. Both pools carry the same value so the two
-    #     templates stay diff-able.
+    #     flannel VXLAN at 1450 (verified: `cni0`/`flannel.1` = 1450 there). This pool
+    #     runs ONLY on ff-vm1, so 1450 is not a compromise here — it is the correct value
+    #     and the one that fixed the hang.
     #   * resource requests/limits on the dind container, which is where the multi-GB
     #     MegaLinter working set actually lives.
     # An empty map still selects the chart's default-mode path, which passes
@@ -176,37 +169,22 @@ spec:
 
     template:
       spec:
-        # native-cloud tier, written out rather than delegated to a Kyverno placement
+        # on-prem tier, written out rather than delegated to the Kyverno `place-on-prem`
         # policy: these pods are created by ARC from a CRD, not from a Deployment/
         # StatefulSet/DaemonSet/CronJob, so no placement policy matches them at all.
-        # The arch pin is explicit rather than implied by the tier — the tier happens to
-        # be all-arm64 today, but a job landing on an unexpected arch is a confusing
-        # failure and this makes it a scheduling error instead.
+        # These are the exact key/values that policy would have applied, plus the arch pin
+        # that is the entire reason this scale set exists — it is what makes
+        # `firefly-amd64` mean amd64 rather than "wherever there is room". ff-vm1 is the
+        # only amd64 node in the cluster, so this resolves to ff-vm1.
         nodeSelector:
           node-role.kubernetes.io/worker: ""
-          topology.sargeant.co/tier: native-cloud
-          kubernetes.io/arch: arm64
+          topology.sargeant.co/tier: on-prem
+          kubernetes.io/arch: amd64
 
-        # ONE RUNNER PER NODE. `requiredDuringScheduling` (not preferred) because the
-        # point of maxRunners: 2 is to use BOTH OCI nodes — a soft rule would let the
-        # scheduler stack both runners on ff-oci1, which has the most free memory and is
-        # therefore exactly where it would put them.
-        #
-        # The label is ARC's own, verified on a live runner pod:
-        #   actions.github.com/scale-set-name=firefly
-        # It matches only this scale set, so a `firefly-amd64` runner on ff-vm1 is not
-        # repelled by it (different value) and the two pools never interfere.
-        #
-        # Consequence to be aware of: if one OCI node is full or cordoned, the second
-        # runner stays Pending rather than doubling up. That is the intended trade —
-        # GitHub re-queues the job — but it is why maxRunners is 2 and not higher.
-        affinity:
-          podAntiAffinity:
-            requiredDuringSchedulingIgnoredDuringExecution:
-              - topologyKey: kubernetes.io/hostname
-                labelSelector:
-                  matchLabels:
-                    actions.github.com/scale-set-name: firefly
+        # No podAntiAffinity here, unlike the arm64 pool. It carries one to force its two
+        # runners onto separate nodes; with maxRunners: 1 and a single matching node there
+        # is never a second pod to repel, so the rule would be inert. Add it back in the
+        # same commit that raises maxRunners above 1.
         # `low` = "non-essential: batch, background jobs, restartable without impact",
         # which is exactly a CI job — GitHub re-queues it. The retired StatefulSet ran at
         # priority 0, so this is a promotion, and it keeps a build from evicting anything
@@ -266,10 +244,9 @@ spec:
 
           # `gh` is shelled out to by Diatreme's release step (`gh release create`). The
           # runner image does not ship it. Arch is derived from `uname -m` rather than
-          # hardcoded — which is what let this scale set move to the arm64 cloud tier
-          # without touching a line of it, and is why the amd64 pool can share the block
-          # verbatim. Runs as the image's own `runner` user (uid 1001) — the emptyDir is
-          # group/world-writable, so no root is needed here.
+          # hardcoded, which is why this block is byte-identical to the arm64 pool's and
+          # should stay that way. Runs as the image's own `runner` user (uid 1001) — the
+          # emptyDir is group/world-writable, so no root is needed here.
           - name: install-gh
             image: ghcr.io/actions/actions-runner:2.336.0
             command: ["bash", "-c"]
@@ -311,9 +288,8 @@ spec:
               - dockerd
               - --host=unix:///var/run/docker.sock
               - --group=$(DOCKER_GROUP_GID)
-              # See the containerMode comment above. Suboptimal but never wrong on this
-              # tier (OCI pod network is 8950); on ff-vm1 it is load-bearing, and both
-              # pools carry the same value so the templates stay diff-able.
+              # See the containerMode comment above. Load-bearing on ff-vm1: without it,
+              # chargate/MegaLinter hangs at ~0% CPU.
               - --mtu=1450
             env:
               # 123 is the `docker` group gid inside ghcr.io/actions/actions-runner
@@ -332,39 +308,17 @@ spec:
               periodSeconds: 5
             resources:
               requests:
-                # 50m, HALF what the amd64 pool reserves, because CPU requests are the
-                # binding constraint on this tier: ff-oci1 and ff-oci2 are both ~88% of
-                # 2000m ALREADY REQUESTED (measured: ~235m and ~244m free, and that
-                # excludes kube-system/kyverno, which this account could not read — so
-                # true free is lower still). At 100m + 100m the pod might simply never
-                # schedule, which would look like a permanently queued GitHub job.
-                #
-                # Costs nothing in throughput: there is no CPU limit here (repo
-                # convention), so a request is a scheduling floor and a contention share,
-                # not a cap. Real CPU use on these nodes is 13% and 68% against those 88%
-                # reservations, so a runner that bursts well past 50m will get it.
-                cpu: 50m
+                cpu: 100m
                 memory: 512Mi
               limits:
                 # dind hosts the chargate/MegaLinter container, so this cap governs the
-                # whole scan. MegaLinter needs several GB; 512Mi OOM-kills it.
-                #
-                # 4Gi here, NOT the 6Gi the amd64 pool carries, and this is a real
-                # trade-off rather than a rounding-down. The OCI nodes are ~11.6Gi
-                # allocatable each and ff-oci2 already sits at 8757Mi (73%) real usage, so
-                # a 6Gi dind + 2Gi runner ceiling on that node could push it into OOM —
-                # and limits are NOT scheduler-reserved, so nothing would stop it
-                # (COMMON_MISTAKES #14). 4Gi + 1Gi keeps the worst case under what ff-oci2
-                # actually has free.
-                #
-                # This is also less of a squeeze than it looks: on arm64 Chargate's
-                # `arch_strategy: auto` runs MegaLinter's per-linter `megalinter-only-*`
-                # images sequentially instead of the one monolithic flavor image, so the
-                # peak working set is lower than the amd64 path it is being compared to.
-                # IF A SCAN OOMs, this number is the first thing to raise — and ff-oci1
-                # (34% used) can take it long before ff-oci2 can. No CPU limit (repo
-                # convention).
-                memory: 4Gi
+                # whole scan. MegaLinter needs several GB; 512Mi OOM-kills it. Carried
+                # over unchanged from the StatefulSet, where it was arrived at the hard
+                # way, and kept at 6Gi rather than trimmed to match the arm64 pool's 4Gi:
+                # this pool runs the MONOLITHIC MegaLinter flavor image (the arm64 pool
+                # substitutes smaller per-linter images), which is the heavier of the two
+                # working sets, and ff-vm1 has the room. No CPU limit (repo convention).
+                memory: 6Gi
             volumeMounts:
               - name: work
                 mountPath: /home/runner/_work
@@ -397,17 +351,12 @@ spec:
                 value: "/opt/gh:/opt/dotnet:/opt/dotnet/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
             resources:
               requests:
-                # 50m for the same reason as dind above — the pod's total CPU request is
-                # what has to fit in ~235m of free reservation, and 50m + 50m = 100m does
-                # with room to spare where 200m would not.
-                cpu: 50m
+                cpu: 100m
                 memory: 256Mi
               limits:
                 # No CPU limit (repo convention). Headroom for the agent plus the
                 # checked-out job itself; the heavy container work happens in dind.
-                # 1Gi rather than the amd64 pool's 2Gi — same reasoning as the dind limit
-                # above: the pod's worst case has to fit what ff-oci2 actually has free.
-                memory: 1Gi
+                memory: 2Gi
             volumeMounts:
               - name: work
                 mountPath: /home/runner/_work
@@ -426,14 +375,10 @@ spec:
             # Fresh per job now, which is what retires the StatefulSet's root-owned-
             # leftovers problem and its sudo chown JOB_STARTED hook.
             #
-            # 10Gi, half the amd64 pool's 20Gi: the OCI nodes have ~41.9Gi of allocatable
-            # ephemeral storage each (vs ff-vm1's ~277Gi), and they must ALSO hold dind's
-            # /var/lib/docker — which is the container's own writable layer, not a volume,
-            # so it is not covered by this limit. On arm64 that layer holds MegaLinter's
-            # per-linter images (many small ones rather than one flavor image), so leaving
-            # the node the larger share of 42Gi is the right split.
+            # 20Gi, double the arm64 pool's 10Gi, because ff-vm1 has ~277Gi of allocatable
+            # ephemeral storage against the OCI nodes' ~41.9Gi and can afford it.
             emptyDir:
-              sizeLimit: 10Gi
+              sizeLimit: 20Gi
           - name: dind-sock
             emptyDir: {}
           - name: dind-externals
