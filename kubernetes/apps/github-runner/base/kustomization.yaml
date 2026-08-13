@@ -5,7 +5,12 @@ resources:
   - helmrepository.yaml
   - externalsecret.yaml
   - helmrelease-controller.yaml
+  # Two scale sets, one controller. `firefly` (arm64, ff-oci1 + ff-oci2, max 2) is the
+  # DEFAULT pool that the org variable points at; `firefly-amd64` (ff-vm1, max 1) is the
+  # opt-in escape hatch for jobs that cannot run on arm64. The two files are deliberately
+  # near-identical — diff them when changing either, and keep the shared blocks in sync.
   - helmrelease-runner-set.yaml
+  - helmrelease-runner-set-amd64.yaml
 # NO kustomize `labels:` block, deliberately — and this is the opposite of what the
 # retired StatefulSet needed. Every workload here is rendered by a Helm chart, so a
 # `placement.sargeant.co/tier` label would land on the HelmRelease, which none of the

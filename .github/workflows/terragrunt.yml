@@ -2,12 +2,21 @@
 # Atlantis replacement, per cleanup.md's appendix.
 #
 # Differences from the appendix sketch, all deliberate:
-#   - runs-on is `firefly`, the ARC runner scale set's NAME. This is not a label
+#   - runs-on is `firefly-amd64`, an ARC runner scale set NAME. This is not a label
 #     array and cannot be one: actions-runner-controller matches a job to a scale
 #     set by name only, so `[self-hosted, Linux, X64]` would never be picked up
 #     even though those labels describe the runner accurately. The appendix
 #     sketch's `samenlevingszaken` label belongs to a different organisation and
 #     matches nothing here either.
+#
+#     It says `firefly-amd64` rather than plain `firefly` for two reasons. `firefly`
+#     now names the two-node arm64 OCI pool, and (a) the terraform provider binaries
+#     this pulls are not all published for linux/arm64 — a provider that is not would
+#     fail at `init`, per stack, with an error that reads like a network problem; and
+#     (b) this repo is PUBLIC, and the arm64 pool is deliberately reserved for the
+#     private repos whose GitHub-hosted minutes are metered. `firefly-amd64` is ff-vm1,
+#     the exact node these jobs already run on, so this pin is a no-op today and only
+#     exists to KEEP it a no-op.
 #   - the OCI provider is configured from OCI_* environment variables (see
 #     terraform/root.hcl), so those are passed explicitly rather than relying on a
 #     ~/.oci/config that a runner will not have.
@@ -49,7 +58,7 @@ jobs:
     # A self-hosted runner must never execute untrusted fork code with private
     # cloud credentials. Same-repository pull requests still receive plan output.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-    runs-on: firefly
+    runs-on: firefly-amd64
     outputs:
       matrix: ${{ steps.stacks.outputs.matrix }}
       has_stacks: ${{ steps.stacks.outputs.has_stacks }}
@@ -83,7 +92,7 @@ jobs:
   plan:
     needs: discover
     if: needs.discover.outputs.has_stacks == 'true'
-    runs-on: firefly
+    runs-on: firefly-amd64
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -178,7 +187,7 @@ jobs:
     # environments already do that, and hand-rolled approval checks are easy to
     # get subtly wrong.
     if: github.event_name == 'push' && needs.discover.outputs.has_stacks == 'true' && needs.plan.result == 'success'
-    runs-on: firefly
+    runs-on: firefly-amd64
     environment: all/deploy
     strategy:
       fail-fast: false
