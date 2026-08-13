@@ -121,8 +121,10 @@ The repository uses SOPS (Secrets Operations) with GPG for encrypting sensitive 
 The main cluster is bootstrapped via Ansible. Refer to `/ansible/pi-k3s-bootstrap.yml` in the parent repository for the full bootstrap procedure, which installs:
 - K3s
 - Flux v2
-- GitHub Private Runner
 - SOPS/GPG secrets support
+
+The self-hosted GitHub runner is deployed by Flux (not Ansible) from
+`kubernetes/apps/github-runner`, using GitHub's actions-runner-controller (ARC).
 
 ### NFS Storage
 

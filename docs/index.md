@@ -59,7 +59,9 @@ cd ansible
 ansible-playbook -i hosts pi-k3s-bootstrap.yml
 ```
 
-This will install k3s, deploy a GitHub Private Runner, and set up necessary tools.
+This will install k3s and set up necessary tools. The self-hosted GitHub runner
+is no longer part of the Ansible bootstrap — it is deployed by Flux from
+`kubernetes/apps/github-runner` using GitHub's actions-runner-controller (ARC).
 
 ### Deploy Applications
 
