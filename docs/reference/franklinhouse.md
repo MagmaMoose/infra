@@ -161,6 +161,23 @@ their image tags are bumped there by `ImageUpdateAutomation`.
     `/home/caleb/.ssh/authorized_keys`, then unmount, `vgchange -an`,
     `losetup -d`, `qm start`.
 
+## Out-of-band dependencies
+
+These are **not** installed by franklinhouse's GitOps — its controllers tier
+contains only CNPG. They exist on the running cluster but a clean rebuild will
+not recreate them, and several things fail silently without them:
+
+| Dependency | Needed by | Symptom if missing |
+|---|---|---|
+| `external-secrets` operator | `access-control` deploy-key `ExternalSecret` | The `access-control-deploy-key` Secret never materialises, so the `access-control` GitRepository cannot authenticate and neither env reconciles |
+| `azure-keyvault` `ClusterSecretStore` | same | same |
+| `sops-keys` Secret (`flux-system`) | bootstrap Kustomization decryption | The whole `flux-system` Kustomization fails, so nothing reconciles at all |
+| `flux-system` Secret (deploy key) | `flux-system` GitRepository | No sync from this repo |
+
+Either add the operator and store to
+`clusters/franklinhouse/infrastructure/controllers/stack/` alongside CNPG, or
+treat this table as the rebuild checklist. Today they are manual.
+
 ## Known risks
 
 These are real, currently-unmitigated, and all three contributed to the
@@ -248,7 +265,11 @@ syncs from `infra-v2` until its `GitRepository` is repointed. To cut over:
 2. Ensure the `sops-keys` Secret exists in `flux-system` on franklinhouse. This
    is new: infra-v2 used no SOPS at all, but the bootstrap Kustomization now
    sets `decryption.provider: sops` for the encrypted pull secret, so without
-   it the whole `flux-system` Kustomization fails to reconcile.
+   it the whole `flux-system` Kustomization fails to reconcile. The Secret's
+   data key is `age.agekey` (firefly's convention; the
+   `ansible/roles/k3s-sops-age-secret` role still says `identity.agekey` and is
+   stale), and it must hold the key matching the **current** `.sops.yaml`
+   recipient — rotated 2026-08-07, so an older copy cannot decrypt this repo.
 3. Apply the updated `gotk-sync.yaml` (url → `MagmaMoose/infra`, path →
    `./kubernetes/clusters/franklinhouse/flux-system`), then
    `flux reconcile source git flux-system -n flux-system`.
