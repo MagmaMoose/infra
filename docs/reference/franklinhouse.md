@@ -239,14 +239,17 @@ kubectl delete pod -n <ns> <pod> --force --grace-period=0
 Moving the files here does **not** move the cluster. franklinhouse's Flux still
 syncs from `infra-v2` until its `GitRepository` is repointed. To cut over:
 
-1. Ensure this repo's deploy key is attached to `CalebSargeant/infra` and
-   readable by franklinhouse's `flux-system` Secret. A Flux deploy key can only
-   be attached to one GitHub repo at a time — this bit the original infra-v2
-   migration.
-2. Ensure the `sops-keys` Secret exists in `flux-system` on franklinhouse; the
-   bootstrap Kustomization now sets `decryption.provider: sops` for the
-   encrypted pull secret.
-3. Apply the updated `gotk-sync.yaml` (url → `CalebSargeant/infra`, path →
+1. Give franklinhouse its own read-write deploy key on **`MagmaMoose/infra`**
+   (the canonical name; `CalebSargeant/infra` only resolves via a GitHub
+   redirect) and write the private key into franklinhouse's `flux-system`
+   Secret. A single deploy key can only be attached to one repo at a time —
+   this bit the original infra-v2 migration — so generate a *new* key rather
+   than reusing firefly's.
+2. Ensure the `sops-keys` Secret exists in `flux-system` on franklinhouse. This
+   is new: infra-v2 used no SOPS at all, but the bootstrap Kustomization now
+   sets `decryption.provider: sops` for the encrypted pull secret, so without
+   it the whole `flux-system` Kustomization fails to reconcile.
+3. Apply the updated `gotk-sync.yaml` (url → `MagmaMoose/infra`, path →
    `./kubernetes/clusters/franklinhouse/flux-system`), then
    `flux reconcile source git flux-system -n flux-system`.
 4. Archive `calebsargeant/infra-v2` once reconciliation is healthy.
