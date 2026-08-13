@@ -270,10 +270,17 @@ syncs from `infra-v2` until its `GitRepository` is repointed. To cut over:
    `ansible/roles/k3s-sops-age-secret` role still says `identity.agekey` and is
    stale), and it must hold the key matching the **current** `.sops.yaml`
    recipient — rotated 2026-08-07, so an older copy cannot decrypt this repo.
-3. Apply the updated `gotk-sync.yaml` (url → `MagmaMoose/infra`, path →
+3. Ensure the **external-secrets operator** is running and the **`azure-keyvault`
+   `ClusterSecretStore`** exists on franklinhouse. The `access-control` app's
+   `ExternalSecret` depends on both to project the deploy key into
+   `gitrepository.yaml`; if either is absent on a clean rebuild, the Secret
+   never materialises and the app's source auth fails silently. franklinhouse's
+   GitOps reconciles only CNPG in its controllers tier — ESO and the store are
+   installed out of band and must pre-exist before `access-control` reconciles.
+4. Apply the updated `gotk-sync.yaml` (url → `MagmaMoose/infra`, path →
    `./kubernetes/clusters/franklinhouse/flux-system`), then
    `flux reconcile source git flux-system -n flux-system`.
-4. Archive `calebsargeant/infra-v2` once reconciliation is healthy.
+5. Archive `calebsargeant/infra-v2` once reconciliation is healthy.
 
 !!! danger "Rotate the GHCR token"
     `ghcr-pull-secret` is SOPS-encrypted here, but the same token sat as plain

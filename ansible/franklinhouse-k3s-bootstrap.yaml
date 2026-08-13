@@ -66,7 +66,7 @@
       environment:
         K3S_TOKEN: "{{ lookup('ansible.builtin.env', 'K3S_TOKEN') }}"
         INSTALL_K3S_EXEC: >-
-          server --cluster-init --write-kubeconfig-mode 644
+          server --cluster-init --write-kubeconfig-mode 600
           --node-taint {{ k3s_server_taint }} --node-label node-role=system
 
     - name: Wait for kube-api on first control-plane
@@ -103,7 +103,7 @@
         K3S_TOKEN: "{{ lookup('ansible.builtin.env', 'K3S_TOKEN') }}"
         INSTALL_K3S_EXEC: >-
           server --server https://{{ k3s_api_endpoint }}:6443
-          --write-kubeconfig-mode 644
+          --write-kubeconfig-mode 600
           --node-taint {{ k3s_server_taint }} --node-label node-role=system
 
 - name: Join worker nodes
