@@ -8,14 +8,12 @@ on:
       - "n8n-v*"
       - "openfortivpn-v*"
       - "atlantis-firefly-v*"
-      - "github-runner-firefly-v*"
       - "mem0-server-v*"
   pull_request:
     paths:
       - "dockerfiles/n8n/**"
       - "dockerfiles/openfortivpn/**"
       - "dockerfiles/atlantis-firefly/**"
-      - "dockerfiles/github-runner-firefly/**"
       - "dockerfiles/mem0-server/**"
 
 jobs:
@@ -31,7 +29,6 @@ jobs:
       build_n8n: ${{ steps.filter.outputs.n8n }}
       build_openfortivpn: ${{ steps.filter.outputs.openfortivpn }}
       build_atlantis_firefly: ${{ steps.filter.outputs.atlantis_firefly }}
-      build_github_runner_firefly: ${{ steps.filter.outputs.github_runner_firefly }}
       build_mem0_server: ${{ steps.filter.outputs.mem0_server }}
     steps:
       - name: Checkout repository
@@ -48,8 +45,6 @@ jobs:
               - 'dockerfiles/openfortivpn/**'
             atlantis_firefly:
               - 'dockerfiles/atlantis-firefly/**'
-            github_runner_firefly:
-              - 'dockerfiles/github-runner-firefly/**'
             mem0_server:
               - 'dockerfiles/mem0-server/**'
 
@@ -76,7 +71,6 @@ jobs:
           - { name: "n8n", path: "dockerfiles/n8n", tag_prefix: "n8n-v", registry_name: "n8n", registry_owner: "calebsargeant", platforms: "linux/amd64,linux/arm64" }
           - { name: "openfortivpn", path: "dockerfiles/openfortivpn", tag_prefix: "openfortivpn-v", registry_name: "openfortivpn", registry_owner: "calebsargeant", platforms: "linux/amd64,linux/arm64" }
           - { name: "atlantis_firefly", path: "dockerfiles/atlantis-firefly", tag_prefix: "atlantis-firefly-v", registry_name: "atlantis-firefly", registry_owner: "calebsargeant", platforms: "linux/amd64,linux/arm64" }
-          - { name: "github_runner_firefly", path: "dockerfiles/github-runner-firefly", tag_prefix: "github-runner-firefly-v", registry_name: "github-runner-firefly", registry_owner: "calebsargeant", platforms: "linux/amd64,linux/arm64" }
           # arm64 ONLY: the mem0/mem0-api-server base publishes a manifest index with
           # linux/arm64 and nothing else, so an amd64 leg fails the build outright. The
           # Deployment is correspondingly pinned to the native-cloud (arm64) node tier.
