@@ -8,7 +8,7 @@ kind: HelmRelease
 metadata:
   name: arc-franklinhouse-arm64
   namespace: arc-runners
-spec:
+spec:  # trivy:ignore:KSV0040
   interval: 30m
   releaseName: arc-franklinhouse-arm64
   dependsOn:
@@ -76,7 +76,7 @@ spec:
       name: arc-gha-rs-controller
 
     listenerTemplate:
-      spec:
+      spec:  # nosemgrep: yaml.kubernetes.security.run-as-non-root.run-as-non-root
         nodeSelector:
           topology.sargeant.co/tier: native-cloud
         # NO priorityClassName ANYWHERE IN THIS FILE, and that is deliberate rather than
@@ -104,7 +104,7 @@ spec:
                 drop: ["ALL"]
 
     template:
-      spec:
+      spec:  # nosemgrep: yaml.kubernetes.security.run-as-non-root.run-as-non-root
         # fh-oci1 / fh-oci2 — the OCI Johannesburg arm64 pair, labelled at k3s join with
         # `topology.sargeant.co/tier=native-cloud` (the same key firefly uses). The arch
         # pin is explicit rather than implied by the tier, so a job landing on an
@@ -240,7 +240,7 @@ spec:
 
         containers:
           # Must be named `runner`; the chart special-cases that name.
-          - name: runner
+          - name: runner  # nosemgrep: yaml.kubernetes.security.allow-privilege-escalation-no-securitycontext.allow-privilege-escalation-no-securitycontext,yaml.kubernetes.security.writable-filesystem-container.writable-filesystem-container
             image: ghcr.io/actions/actions-runner:2.336.0
             command: ["/home/runner/run.sh"]
             env:

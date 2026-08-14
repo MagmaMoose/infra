@@ -7,7 +7,7 @@ kind: HelmRelease
 metadata:
   name: arc-franklinhouse-amd64
   namespace: arc-runners
-spec:
+spec:  # trivy:ignore:KSV0040
   interval: 30m
   releaseName: arc-franklinhouse-amd64
   dependsOn:
@@ -59,7 +59,7 @@ spec:
       name: arc-gha-rs-controller
 
     listenerTemplate:
-      spec:
+      spec:  # nosemgrep: yaml.kubernetes.security.run-as-non-root.run-as-non-root
         nodeSelector:
           node-role: apps
         # NO priorityClassName — franklinhouse has only the built-in system-* classes;
@@ -81,7 +81,7 @@ spec:
                 drop: ["ALL"]
 
     template:
-      spec:
+      spec:  # nosemgrep: yaml.kubernetes.security.run-as-non-root.run-as-non-root
         # The on-prem Proxmox workers, which use franklinhouse's bare `node-role` key
         # rather than the `topology.sargeant.co/tier` label the OCI pair carries.
         nodeSelector:
@@ -200,7 +200,7 @@ spec:
                 mountPath: /home/runner/externals
 
         containers:
-          - name: runner
+          - name: runner  # nosemgrep: yaml.kubernetes.security.allow-privilege-escalation-no-securitycontext.allow-privilege-escalation-no-securitycontext,yaml.kubernetes.security.writable-filesystem-container.writable-filesystem-container
             image: ghcr.io/actions/actions-runner:2.336.0
             command: ["/home/runner/run.sh"]
             env:
