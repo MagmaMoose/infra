@@ -199,7 +199,7 @@ spec:
         # therefore exactly where it would put them.
         #
         # The label is ARC's own, verified on a live runner pod:
-        #   actions.github.com/scale-set-name=firefly
+        #   actions.github.com/scale-set-name=firefly-arm64
         # It matches only this scale set, so a `firefly-amd64` runner on ff-vm1 is not
         # repelled by it (different value) and the two pools never interfere.
         #
@@ -212,7 +212,7 @@ spec:
               - topologyKey: kubernetes.io/hostname
                 labelSelector:
                   matchLabels:
-                    actions.github.com/scale-set-name: firefly
+                    actions.github.com/scale-set-name: firefly-arm64
         # `low` = "non-essential: batch, background jobs, restartable without impact",
         # which is exactly a CI job — GitHub re-queues it. The retired StatefulSet ran at
         # priority 0, so this is a promotion, and it keeps a build from evicting anything

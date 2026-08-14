@@ -34,7 +34,7 @@ spec:
   #
   # NOTHING ROUTES HERE BY DEFAULT. A job reaches this pool only if its repo sets a
   # REPO-level `SELFHOSTED_GITHUB_RUNNER` variable to `firefly-amd64`, which overrides
-  # the org-level `firefly`. Reach for that when a job genuinely cannot run on arm64:
+  # the org-level `firefly-arm64`. Reach for that when a job genuinely cannot run on arm64:
   #   * a build that needs `linux/amd64` natively rather than under emulation;
   #   * a tool with no arm64 build at all;
   #   * Chargate with `arch_strategy: flavor` (the monolithic MegaLinter flavor image is
