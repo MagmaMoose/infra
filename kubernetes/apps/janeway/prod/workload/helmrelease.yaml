@@ -6,6 +6,7 @@
 # Janeway, from the chart MagmaMoose/charts publishes as an OCI artifact.
 # Everything firefly-specific is in `values` here; the chart stays generic, the
 # same way platform2 and github-usage-dashboard split chart from deploy config.
+# trivy:ignore:KSV-0040
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:

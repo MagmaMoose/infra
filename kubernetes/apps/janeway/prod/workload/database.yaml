@@ -26,6 +26,7 @@
 # retain, not delete: this holds the editorial record — submissions, reviews,
 # revisions, and the publication history. A `prune` that removed this CR must
 # not take the data with it.
+# trivy:ignore:KSV-0040
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:

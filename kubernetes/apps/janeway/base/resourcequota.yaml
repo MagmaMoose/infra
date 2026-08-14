@@ -16,6 +16,7 @@
 # Sized for the worst legitimate moment rather than steady state — a Helm upgrade
 # where the pre-upgrade migrate Job, the post-upgrade bootstrap Job, the old web
 # pod and a CronJob can briefly coexist.
+# trivy:ignore:KSV-0040
 apiVersion: v1
 kind: ResourceQuota
 metadata:
