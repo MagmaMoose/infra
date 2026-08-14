@@ -19,7 +19,7 @@
 # the same reasoning as kubernetes/apps/github-runner/base/helmrepository.yaml.
 # The IMAGE is a different question — it is private and in another org, and gets
 # its own credential in the workload overlay.
-# trivy:ignore:KSV-0040
+# trivy:ignore:KSV0040
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
