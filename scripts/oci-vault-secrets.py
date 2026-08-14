@@ -40,7 +40,7 @@ import json
 import os
 import shutil
 import stat
-import subprocess
+import subprocess  # nosec B404
 import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
@@ -72,7 +72,7 @@ def note(msg: str) -> None:
 
 def op_read(ref: str) -> str:
     """Read a field from 1Password. Never logged, never written to the repo."""
-    p = subprocess.run(["op", "read", ref], capture_output=True, text=True)
+    p = subprocess.run(["op", "read", ref], capture_output=True, text=True)  # nosec B603,B607
     if p.returncode != 0:
         die(
             f"could not read {ref}\n"
@@ -123,7 +123,7 @@ class Oci:
         # characters (e.g. U+2192). Without this it dies with UnicodeEncodeError
         # while writing its own JSON, which looks like an API failure but is not.
         env = dict(os.environ, SUPPRESS_LABEL_WARNING="True", PYTHONIOENCODING="utf-8")
-        p = subprocess.run(
+        p = subprocess.run(  # nosec B603,B607
             ["oci", "--config-file", self.config, "--region", self.region, *args, "--output", "json"],
             capture_output=True, text=True, env=env, encoding="utf-8", errors="replace",
         )
@@ -226,10 +226,10 @@ def main() -> None:
             if not a.args:
                 die("usage: set <name> [value]   (reads stdin if value omitted)")
             name = a.args[0]
-            value = a.args[1] if len(a.args) > 1 else sys.stdin.read()
+            value = a.args[1] if len(a.args) > 1 else sys.stdin.buffer.read().decode("utf-8", "surrogateescape")
             if not value:
                 die("refusing to store an empty secret")
-            b64 = base64.b64encode(value.encode()).decode()
+            b64 = base64.b64encode(value.encode("utf-8", "surrogateescape")).decode()
 
             existing = secret_id(oci, vault_id, name)
             if existing:
@@ -253,7 +253,13 @@ def main() -> None:
             sid = secret_id(oci, vault_id, a.args[0])
             if not sid:
                 die(f"secret '{a.args[0]}' not found in {vault_name}")
-            days = int(a.args[1]) if len(a.args) > 1 else 30
+            if len(a.args) > 1:
+                try:
+                    days = int(a.args[1])
+                except ValueError:
+                    die(f"days must be a number, got '{a.args[1]}'")
+            else:
+                days = 30
             when = (datetime.now(timezone.utc) + timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
             oci.run("vault", "secret", "schedule-secret-deletion", "--secret-id", sid,
                     "--time-of-deletion", when)
