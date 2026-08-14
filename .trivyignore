@@ -1,0 +1,7 @@
+# KSV0040: A resource quota policy with hard memory and CPU limits should be
+# configured per namespace.
+#
+# Not this repo's pattern — enforcing ResourceQuotas per namespace is not part of
+# the cluster configuration strategy here. The same risk is accepted for the
+# pre-existing firefly arc-runners pool (KICS rule 48a5beba suppressed per-file).
+KSV0040

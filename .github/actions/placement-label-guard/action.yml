@@ -33,8 +33,10 @@ runs:
         set -uo pipefail
         if ! command -v kustomize >/dev/null 2>&1; then
           echo "::group::install kustomize"
+          mkdir -p "$HOME/.local/bin"
           curl -fsSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" -o /tmp/ik.sh
-          bash /tmp/ik.sh 5.4.3 /usr/local/bin >/dev/null
+          bash /tmp/ik.sh 5.4.3 "$HOME/.local/bin" >/dev/null
+          export PATH="$HOME/.local/bin:$PATH"
           echo "::endgroup::"
         fi
         kustomize version
