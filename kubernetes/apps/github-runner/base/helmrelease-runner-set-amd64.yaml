@@ -29,7 +29,7 @@ spec:
   # This is the ff-vm1 runner that used to be called `firefly`. It kept its node and its
   # sizing and lost its name: `firefly` now belongs to the two-node arm64 OCI pool
   # (helmrelease-runner-set.yaml), because that is the value the ORG variable
-  # `SELFHOSTED_GITHUB_RUNNER` already holds and pointing the default at the bigger pool
+  # `SELFHOSTED_GITHUB_RUNNER` already holds and pointing the default at the bigger pool (now `firefly-arm64`)
   # required no org-admin action.
   #
   # NOTHING ROUTES HERE BY DEFAULT. A job reaches this pool only if its repo sets a
