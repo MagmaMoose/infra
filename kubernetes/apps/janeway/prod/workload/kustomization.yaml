@@ -6,7 +6,6 @@ kind: Kustomization
 # in `janeway` — so no `namespace:` directive here.
 resources:
   - database.yaml
-  - db-credentials.yaml
   - externalsecret.yaml
   - ghcr-pull-secret.yaml
   - helmrelease.yaml

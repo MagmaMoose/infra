@@ -34,6 +34,6 @@ spec:
   cluster:
     name: postgres-oci
   name: janeway
-  owner: app
+  owner: janeway
   encoding: UTF8
   databaseReclaimPolicy: retain

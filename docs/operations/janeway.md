@@ -9,7 +9,7 @@ journals, preprints, conference proceedings and books. It runs at
 | Namespace | `janeway` |
 | Chart | `oci://ghcr.io/magmamoose/charts/janeway` ([source](https://github.com/MagmaMoose/charts)) |
 | Image | `ghcr.io/tengen-systems/janeway` ([source](https://github.com/tengen-systems/janeway)) |
-| Database | `janeway` on `postgres-oci` (namespace `database-oci`), owner `app` |
+| Database | `janeway` on `postgres-oci` (namespace `database-oci`), owner `janeway` |
 | Cache | shared Valkey, **database index 6** |
 | Storage | `longhorn` RWO, 8Gi, at `src/files`, `src/media`, `src/transform/xsl` |
 | Placement | native-cloud tier (`ff-oci1` / `ff-oci2`), priority `high` |
@@ -36,8 +36,15 @@ latency. Measured from a pod on `ff-oci1`:
 | `ff-oci1` (`postgres-oci`) | 0.081 ms |
 
 A 50-query page would spend ~280 ms in network wait on the on-prem cluster
-versus ~4 ms on `postgres-oci`. Hence `postgres-oci`, whose owner role is `app`
-rather than the `neondb_owner` convention used by the `postgres` cluster.
+versus ~4 ms on `postgres-oci`.
+
+The database is owned by a dedicated `janeway` LOGIN role, declared in that
+cluster's managed-roles block with its password enforced from OCI Vault
+(`janeway-db-password`). Not the `app` role that dunmir uses on the same
+cluster: `app` owns dunmir's database too, so sharing it would let either
+application's credentials read the other's data. Rotating the vault entry
+rotates both ends — CNPG reconciles the role's password from it, and the
+application reads the same key — so the two cannot drift.
 
 ## Operating it
 

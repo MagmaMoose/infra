@@ -286,13 +286,35 @@ wrong cluster).
 - workload on the **native-cloud** tier → `postgres-oci` in `database-oci`
 - workload on the **on-prem/worker** tier → `postgres` in `database`
 
-The owner role differs and is not interchangeable: `postgres` uses
-`neondb_owner` (password in OCI Vault, `neondb-owner-password`), while
-`postgres-oci` uses `app` — the role CNPG generated at initdb, published as the
-`postgres-oci-app` Secret in `database-oci`. Reaching that Secret from another
-namespace needs the ServiceAccount + Role + kubernetes-provider `SecretStore`
-hop; copy `kubernetes/apps/janeway/prod/workload/db-credentials.yaml` or
-`dunmir-pro`'s equivalent. `postgres-oci` runs `enableSuperuserAccess: false`.
+**Give each app its own LOGIN role**, declared in the cluster's `managed.roles`
+block with `passwordSecret` pointing at an ExternalSecret from OCI Vault — the
+shape `neondb_owner` and `admin` already use on `postgres`, and `janeway` now
+uses on `postgres-oci`. CNPG then reconciles the password from the vault, so it
+cannot drift, and rotating the vault entry rotates the credential.
+
+Do NOT reuse the cluster's `app` role (dunmir does, for historical reasons). It
+owns other applications' databases, so sharing it means either application's
+credentials can read the other's data — and because CNPG generates that
+password rather than taking it from the vault, reading it needs a
+ServiceAccount + Role + RoleBinding + kubernetes-provider `SecretStore` hop, a
+Role whose whole purpose is reading Secrets. A managed role removes all four
+objects. `postgres-oci` runs `enableSuperuserAccess: false`; that is fine,
+because `citext` and `btree_gin` are TRUSTED extensions in PG13+ and a database
+owner can create them.
+
+### Trivy KSV-0040: do not add a per-namespace ResourceQuota
+
+Counter-intuitive, and it cost an afternoon. Trivy's KSV-0040 ("a resource quota
+policy with hard memory and CPU limits should be configured per namespace") is
+evaluated per FILE across a directory scan: adding a `ResourceQuota` anywhere in
+an app tree makes it fire on **every other file in that tree**, and satisfying
+it in one file does not satisfy the others. Removing the ResourceQuota removes
+all of them. Since Kyverno's `default-limitrange` policy already generates a
+LimitRange in every namespace, and no other app here has a quota, the answer is
+simply not to add one. Namespaces also belong in
+`kubernetes/infrastructure/configs/namespaces/` rather than beside app
+manifests — that directory holds nothing but Namespace objects, so it stays
+clean.
 
 ### Shared Valkey — database index registry
 

@@ -11,6 +11,4 @@ kind: Kustomization
 # inside the chart's spec.values instead — which is what
 # .github/actions/placement-label-guard checks for.
 resources:
-  - namespace.yaml
-  - resourcequota.yaml
   - helmrepository.yaml

@@ -109,9 +109,10 @@ spec:
     database:
       host: postgres-oci-rw.database-oci.svc.cluster.local
       name: janeway
-      # The role CNPG generated at initdb for postgres-oci; the same role owns
-      # the Database CR in database.yaml.
-      user: app
+      # A dedicated LOGIN role declared in postgres-oci's managed-roles block,
+      # owning only the janeway database. Its password is enforced from OCI Vault
+      # at both ends, so it cannot drift.
+      user: janeway
       existingSecret: janeway-db
       existingSecretKey: password
 
