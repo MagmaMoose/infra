@@ -202,6 +202,25 @@ Secrets must be created in `vault-franklinhouse` with the exact names the
 for the app repo) and `access-control-secret`. Until they exist, both
 `ExternalSecret`s report NotReady and the apps cannot start.
 
+### Managing vault secrets
+
+Use `scripts/oci-vault-secrets.py` rather than the OCI console. It targets
+either tenancy by name and pulls that account's API credentials from 1Password
+at run time (into a 0700 temp dir, removed on exit — nothing is written to the
+repo and no OCI profile is needed):
+
+```bash
+scripts/oci-vault-secrets.py -c franklinhouse list
+```
+
+```bash
+cat id_ed25519 | scripts/oci-vault-secrets.py -c franklinhouse set access-control-deploy-key
+```
+
+`vaults`, `list`, `get`, `set` and `delete` are supported; `-V` overrides the
+vault by name. `get` writes to stdout, so redirect it rather than letting a
+secret land in your scrollback.
+
 ## Known risks
 
 These are real, currently-unmitigated, and all three contributed to the
