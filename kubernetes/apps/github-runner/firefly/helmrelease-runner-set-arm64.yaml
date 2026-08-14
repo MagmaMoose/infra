@@ -108,18 +108,23 @@ spec:
     # AutoscalingRunnerSet); this chart is pinned to 0.14.2, so it is available. The
     # earlier note here said this was "unverified" — it is now verified and used.
     #
-    # Two labels, doing two different jobs:
-    #   firefly-arm64  — the unique, cluster-specific name. Use it to pin a job to THIS
-    #                    cluster's arm64 pool.
-    #   pool-arm64     — shared with franklinhouse's arm64 set. `runs-on: pool-arm64`
-    #                    dispatches to whichever cluster has capacity, which is how you
-    #                    get real parallelism across both sites from one label.
+    # Three labels, doing three different jobs:
+    #   firefly-arm64     — the unique, cluster-specific name. Use it to pin a job to THIS
+    #                       cluster's arm64 pool.
+    #   pool-arm64        — shared with franklinhouse's arm64 set. `runs-on: pool-arm64`
+    #                       dispatches to whichever cluster has capacity, which is how you
+    #                       get real parallelism across both sites from one label.
+    #   pool-self-hosted  — carried by EVERY scale set in both clusters and both arches.
+    #                       `runs-on: pool-self-hosted` means "any self-hosted runner we
+    #                       own", the widest possible target, for arch-agnostic jobs that
+    #                       just need to be off GitHub-hosted infrastructure.
     #
     # `runs-on: [a, b]` means "runner has ALL of these", never "any of", so a unique
-    # label plus a shared one is what gives both targeting AND pooling at once.
+    # label plus shared ones is what gives targeting AND pooling at once.
     #
     # The `pool-` prefix is deliberate: `arm64`, `x64`, `self-hosted`, `linux` are
-    # GitHub-RESERVED runner labels and must not be claimed here.
+    # GitHub-RESERVED runner labels and must not be claimed here — which is exactly why
+    # the org-wide label is `pool-self-hosted` and not the reserved `self-hosted`.
     #
     # !! Labels do NOT update in place !!  Editing runnerScaleSetLabels on a live
     # AutoscalingRunnerSet does not re-register them with GitHub — the scale set has to
@@ -128,6 +133,7 @@ spec:
     scaleSetLabels:
       - firefly-arm64
       - pool-arm64
+      - pool-self-hosted
 
     # Scale to ZERO when idle. This is the whole capacity argument for ARC on this
     # cluster: the retired StatefulSet held 200m CPU + 768Mi of reservation 24/7 for a

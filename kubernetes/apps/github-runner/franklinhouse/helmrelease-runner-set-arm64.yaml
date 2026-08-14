@@ -1,0 +1,292 @@
+# Accepted Chargate/KICS findings for this privileged docker-in-docker CI runner — the
+# same set firefly's scale sets carry, for the same reasons. See
+# ../firefly/helmrelease-runner-set-arm64.yaml for the per-rule justification; keeping
+# the lists identical is deliberate so the four files stay diff-able.
+# kics-scan disable=dd29336b-fe57-445b-a26e-e6aa867ae609,5572cc5e-1e4c-4113-92a6-7a8a3bd25e6d,dbbc6705-d541-43b0-b166-dd4be8208b54,268ca686-7fb7-4ae9-b129-955a2a89064e,cf34805e-3872-4c08-bf92-6ff7bb0cfadb,02323c00-cdc3-4fdc-a310-4f2b3e7a1660,a9c2f49d-0671-4fc9-9ece-f4e261e128d0,f377b83e-bd07-4f48-a591-60c82b14a78b,4ac0e2b7-d2d2-4af7-8799-e8de6721ccda,583053b7-e632-46f0-b989-f81ff8045385,7c81d34c-8e5a-402b-9798-9f442630e678,a659f3b5-9bf0-438a-bd9a-7d3a6427f1e3,ade74944-a674-4e00-859e-c6eab5bde441,8b36775e-183d-4d46-b0f7-96a6f34a723f,4a20ebac-1060-4c81-95d1-1f7f620e983b,48a5beba-e4c0-4584-a2aa-e6894e4cf424,1db3a5a5-bf75-44e5-9e44-c56cfc8b1ac5,3e2d3b2f-c22a-4df1-9cc6-a7a0aebb0c99
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: arc-franklinhouse-arm64
+  namespace: arc-runners
+spec:
+  interval: 30m
+  releaseName: arc-franklinhouse-arm64
+  dependsOn:
+    - name: arc
+      namespace: arc-systems
+  chart:
+    spec:
+      chart: gha-runner-scale-set
+      # Pinned to exactly the controller's version — ARC does not support skew between
+      # the controller and the AutoscalingRunnerSet CRs it reconciles. Bump both in one
+      # commit, and keep it equal to firefly's pin so one chart bump covers both clusters.
+      version: "0.14.2"
+      sourceRef:
+        kind: HelmRepository
+        name: actions-runner-controller-charts
+        namespace: flux-system
+      interval: 30m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    # SAME GitHub org as firefly. Both clusters register scale sets against MagmaMoose
+    # and share one GitHub App — which is why base/externalsecret.yaml is cluster-neutral
+    # and why `nievah-github-private-key` had to be copied into vault-franklinhouse
+    # (the two clusters read from two SEPARATE OCI tenancies' vaults).
+    githubConfigUrl: https://github.com/magmamoose
+    githubConfigSecret: arc-github-app # kics-scan ignore-line - Secret NAME reference, not a credential
+    runnerGroup: default
+    runnerScaleSetName: franklinhouse-arm64
+
+    # Multi-label routing — ARC 0.14.0+ (pinned here at 0.14.2) supports multiple labels
+    # per scale set via `scaleSetLabels` -> `runnerScaleSetLabels`.
+    #
+    #   franklinhouse-arm64 — unique name; pins a job to THIS cluster's arm64 pool.
+    #   pool-arm64          — shared with firefly-arm64, so `runs-on: pool-arm64` lands on
+    #                         whichever cluster has capacity. This is what gives real
+    #                         cross-site parallelism from a single label.
+    #   pool-self-hosted    — carried by all four scale sets; the widest "any runner we
+    #                         own" target.
+    #
+    # `runs-on: [a, b]` means the runner has ALL of those labels, never "any of".
+    # `pool-` prefix because `arm64`/`x64`/`self-hosted`/`linux` are GitHub-RESERVED.
+    # Labels do not update in place (actions/actions-runner-controller#4424) — changing
+    # them requires the scale set to be recreated.
+    scaleSetLabels:
+      - franklinhouse-arm64
+      - pool-arm64
+      - pool-self-hosted
+
+    minRunners: 0
+    # Two nodes in the tier (fh-oci1, fh-oci2), one runner each — enforced by the
+    # REQUIRED pod anti-affinity below, not merely hoped for.
+    maxRunners: 2
+
+    # Empty map, NOT `type: dind` — the chart's built-in dind helper cannot express
+    # `--mtu` or resource limits, both of which this setup needs. See the long note in
+    # ../firefly/helmrelease-runner-set-arm64.yaml.
+    containerMode: {}
+
+    controllerServiceAccount:
+      namespace: arc-systems
+      name: arc-gha-rs-controller
+
+    listenerTemplate:
+      spec:
+        nodeSelector:
+          topology.sargeant.co/tier: native-cloud
+        # NO priorityClassName ANYWHERE IN THIS FILE, and that is deliberate rather than
+        # an omission. franklinhouse has only the two built-in system-* PriorityClasses;
+        # `low`/`medium`/`high` exist on firefly but were never created here. Naming a
+        # PriorityClass that does not exist makes the pod UNSCHEDULABLE outright, so
+        # copying firefly's `priorityClassName: medium` across would have produced
+        # permanently-Pending listeners. Create the classes on franklinhouse first if you
+        # want priority here.
+        containers:
+          # The container MUST be named `listener` — any other name is treated as a
+          # side-car and this config would not reach the listener process.
+          - name: listener
+            resources:
+              requests:
+                cpu: 20m
+                memory: 64Mi
+              limits:
+                memory: 192Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              runAsNonRoot: true
+              capabilities:
+                drop: ["ALL"]
+
+    template:
+      spec:
+        # fh-oci1 / fh-oci2 — the OCI Johannesburg arm64 pair, labelled at k3s join with
+        # `topology.sargeant.co/tier=native-cloud` (the same key firefly uses). The arch
+        # pin is explicit rather than implied by the tier, so a job landing on an
+        # unexpected arch is a scheduling error instead of a confusing runtime failure.
+        #
+        # NOTE the on-prem workers use bare `node-role=apps`, NOT this key — the tier
+        # label is carried only by the cloud pair, which is what keeps CI off the
+        # Proxmox nodes that hold the Postgres volumes.
+        nodeSelector:
+          topology.sargeant.co/tier: native-cloud
+          kubernetes.io/arch: arm64
+
+        # ONE RUNNER PER NODE, required rather than preferred: with only two nodes in the
+        # tier, a soft rule would let the scheduler stack both runners on whichever node
+        # has more free memory and leave the other idle.
+        affinity:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    actions.github.com/scale-set-name: franklinhouse-arm64
+        restartPolicy: Never
+
+        initContainers:
+          - name: init-dind-externals
+            image: ghcr.io/actions/actions-runner:2.336.0
+            command: ["cp"]
+            args: ["-r", "/home/runner/externals/.", "/home/runner/tmpDir/"]
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            volumeMounts:
+              - name: dind-externals
+                mountPath: /home/runner/tmpDir
+
+          - name: install-dotnet
+            image: mcr.microsoft.com/dotnet/sdk:8.0
+            command: ["sh", "-c", "cp -a /usr/share/dotnet/. /opt/dotnet/"]
+            securityContext:
+              runAsUser: 0
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            volumeMounts:
+              - name: dotnet
+                mountPath: /opt/dotnet
+
+          - name: install-gh
+            image: ghcr.io/actions/actions-runner:2.336.0
+            command: ["bash", "-c"]
+            args:
+              - |
+                set -euo pipefail
+                GH_VERSION=2.96.0
+                case "$(uname -m)" in
+                  x86_64)  GH_ARCH=amd64 ;;
+                  aarch64) GH_ARCH=arm64 ;;
+                  *)       echo "unsupported arch $(uname -m)" >&2; exit 1 ;;
+                esac
+                curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${GH_ARCH}.tar.gz" -o /tmp/gh.tar.gz
+                tar -xzf /tmp/gh.tar.gz -C /tmp
+                install -m 0755 "/tmp/gh_${GH_VERSION}_linux_${GH_ARCH}/bin/gh" /opt/gh/gh
+                /opt/gh/gh --version
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                memory: 128Mi
+            volumeMounts:
+              - name: gh
+                mountPath: /opt/gh
+
+          # NATIVE SIDECAR (restartPolicy: Always on an initContainer) — the shape ARC
+          # itself uses on Kubernetes >= 1.29; franklinhouse is on 1.34.
+          - name: dind
+            image: docker:29.7.1-dind
+            args:
+              - dockerd
+              - --host=unix:///var/run/docker.sock
+              - --group=$(DOCKER_GROUP_GID)
+              # Matches firefly's value so the four templates stay diff-able. Never wrong,
+              # only ever suboptimal on a larger-MTU pod network.
+              - --mtu=1450
+            env:
+              - name: DOCKER_GROUP_GID
+                value: "123"
+            restartPolicy: Always
+            securityContext:
+              privileged: true
+            startupProbe:
+              exec:
+                command: ["docker", "info"]
+              initialDelaySeconds: 0
+              failureThreshold: 24
+              periodSeconds: 5
+            resources:
+              requests:
+                # 100m here where firefly's arm64 pool uses 50m: fh-oci1/fh-oci2 are
+                # freshly built and carry nothing but k3s, whereas firefly's OCI pair was
+                # already ~88% CPU-requested when that number was chosen. No CPU limit
+                # (repo convention), so this is a scheduling floor, not a cap.
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                # 6Gi, matching firefly's AMD64 pool rather than its cramped arm64 one —
+                # these nodes are 12GB with an otherwise empty workload set, so the
+                # worst case (6Gi dind + 2Gi runner) still leaves headroom. Limits are
+                # NOT scheduler-reserved (COMMON_MISTAKES #14), so this is the number to
+                # raise first if a MegaLinter scan OOMs.
+                memory: 6Gi
+            volumeMounts:
+              - name: work
+                mountPath: /home/runner/_work
+              - name: dind-sock
+                mountPath: /var/run
+              - name: dind-externals
+                mountPath: /home/runner/externals
+
+        containers:
+          # Must be named `runner`; the chart special-cases that name.
+          - name: runner
+            image: ghcr.io/actions/actions-runner:2.336.0
+            command: ["/home/runner/run.sh"]
+            env:
+              - name: DOCKER_HOST
+                value: unix:///var/run/docker.sock
+              - name: RUNNER_WAIT_FOR_DOCKER_IN_SECONDS
+                value: "120"
+              - name: DOTNET_ROOT
+                value: /opt/dotnet
+              - name: DOTNET_CLI_TELEMETRY_OPTOUT
+                value: "1"
+              - name: DOTNET_NOLOGO
+                value: "1"
+              # k8s REPLACES the image PATH rather than appending, so this must restate
+              # the image's own PATH verbatim plus the two staged toolchains.
+              - name: PATH
+                value: "/opt/gh:/opt/dotnet:/opt/dotnet/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                # No CPU limit (repo convention).
+                memory: 2Gi
+            volumeMounts:
+              - name: work
+                mountPath: /home/runner/_work
+              - name: dind-sock
+                mountPath: /var/run
+              - name: dotnet
+                mountPath: /opt/dotnet
+              - name: gh
+                mountPath: /opt/gh
+
+        volumes:
+          - name: work
+            # Disk-backed (NOT medium: Memory) — a Memory emptyDir would count multi-GB
+            # image layers and MegaLinter output against pod memory and OOM the node.
+            emptyDir:
+              sizeLimit: 10Gi
+          - name: dind-sock
+            emptyDir: {}
+          - name: dind-externals
+            emptyDir: {}
+          - name: dotnet
+            emptyDir: {}
+          - name: gh
+            emptyDir: {}

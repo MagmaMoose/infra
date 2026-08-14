@@ -1,0 +1,39 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# franklinhouse's ARC overlay: the shared, cluster-neutral pieces from ../base plus this
+# cluster's two scale sets.
+#
+#   franklinhouse-arm64 — fh-oci1 + fh-oci2, the OCI Johannesburg pair (max 2)
+#   franklinhouse-amd64 — the on-prem Proxmox workers (max 1, deliberately — they hold
+#                         the Postgres volumes)
+#
+# Diff against ../firefly when changing either: the label taxonomy
+# (`<cluster>-<arch>` + `pool-<arch>` + `pool-self-hosted`) only works if both clusters
+# spell it identically.
+resources:
+  - ../base
+  - helmrelease-runner-set-arm64.yaml
+  - helmrelease-runner-set-amd64.yaml
+
+# Placement for the shared ARC controller, which ../base deliberately leaves unset.
+#
+# nodeSelector ONLY — no priorityClassName, unlike firefly's sibling patch. franklinhouse
+# defines only the two built-in system-* PriorityClasses, and naming one that does not
+# exist makes the pod unschedulable outright. Add `medium` here the day those classes are
+# created on this cluster, not before.
+#
+# The controller lands on the OCI pair (fh-oci1/fh-oci2) rather than the on-prem workers:
+# it is small, always-on, and keeping it off the Proxmox nodes leaves their memory for the
+# app workloads and the Postgres primaries.
+#
+# A `patches:` target that matches NOTHING fails silently (COMMON_MISTAKES #17).
+patches:
+  - target:
+      kind: HelmRelease
+      name: arc
+      namespace: arc-systems
+    patch: |-
+      - op: add
+        path: /spec/values/nodeSelector
+        value:
+          topology.sargeant.co/tier: native-cloud

@@ -95,16 +95,20 @@ spec:
     # Short version: ARC 0.14.0+ (pinned here at 0.14.2) supports multiple labels per
     # scale set via `scaleSetLabels`.
     #
-    #   firefly-amd64  — unique name; pins a job to THIS cluster's amd64 pool.
-    #   pool-amd64     — shared with franklinhouse's amd64 set, so `runs-on: pool-amd64`
-    #                    lands on whichever cluster has capacity.
+    #   firefly-amd64     — unique name; pins a job to THIS cluster's amd64 pool.
+    #   pool-amd64        — shared with franklinhouse's amd64 set, so `runs-on: pool-amd64`
+    #                       lands on whichever cluster has capacity.
+    #   pool-self-hosted  — carried by every scale set in both clusters and both arches;
+    #                       the widest "any runner we own" target.
     #
-    # `pool-` prefix because `x64`/`self-hosted`/`linux` are GitHub-reserved labels.
+    # `pool-` prefix because `x64`/`self-hosted`/`linux` are GitHub-reserved labels — which
+    # is why the org-wide label is `pool-self-hosted`, not the reserved `self-hosted`.
     # Labels do not update in place (actions/actions-runner-controller#4424) — changing
     # them requires the scale set to be recreated.
     scaleSetLabels:
       - firefly-amd64
       - pool-amd64
+      - pool-self-hosted
 
     # Scale to ZERO when idle. This is the whole capacity argument for ARC on this
     # cluster: the retired StatefulSet held 200m CPU + 768Mi of reservation 24/7 for a
