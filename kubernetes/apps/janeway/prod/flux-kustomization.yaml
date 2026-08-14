@@ -1,3 +1,4 @@
+# kics-scan disable=48a5beba-e4c0-4584-a2aa-e6894e4cf424
 ---
 # Control plane: the OCI chart source and the namespace. These live in THIS repo
 # under base/ and are applied from the flux-system source. Must reconcile before

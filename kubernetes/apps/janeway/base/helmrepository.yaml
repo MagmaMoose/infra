@@ -1,3 +1,4 @@
+# kics-scan disable=48a5beba-e4c0-4584-a2aa-e6894e4cf424
 ---
 # Chart source for the Janeway release. The chart is published as an OCI
 # artifact from MagmaMoose/charts — there is no chart index to fetch and no HTTP

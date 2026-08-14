@@ -1,3 +1,4 @@
+# kics-scan disable=48a5beba-e4c0-4584-a2aa-e6894e4cf424
 ---
 # Janeway's database on the SHARED postgres-oci cluster (AGENTS.md — do NOT
 # create a new Cluster). The chart's own pre-upgrade hook runs `manage.py

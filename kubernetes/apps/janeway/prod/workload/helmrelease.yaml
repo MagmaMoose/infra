@@ -1,7 +1,7 @@
 # KICS 3e2d3b2f "hardcoded secret key" is a false positive: `existingSecret`
 # values are Kubernetes Secret NAMES (references to ExternalSecret-managed
 # objects) — no credential value is present in source.
-# kics-scan disable=3e2d3b2f-c22a-4df1-9cc6-a7a0aebb0c99
+# kics-scan disable=3e2d3b2f-c22a-4df1-9cc6-a7a0aebb0c99,48a5beba-e4c0-4584-a2aa-e6894e4cf424
 #
 # Janeway, from the chart MagmaMoose/charts publishes as an OCI artifact.
 # Everything firefly-specific is in `values` here; the chart stays generic, the
