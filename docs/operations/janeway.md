@@ -74,7 +74,7 @@ silently bouncing off the site. Update the row as well:
 
 ```bash
 kubectl -n database-oci exec -it postgres-oci-1 -- \
-  psql -U app -d janeway -c "UPDATE press_press SET domain = 'new.example.com';"
+  psql -U janeway -d janeway -c "UPDATE press_press SET domain = 'new.example.com';"
 ```
 
 Keep the hostname **one label deep** under `magmamoose.com`. The zone's
