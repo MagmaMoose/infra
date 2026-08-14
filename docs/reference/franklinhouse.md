@@ -163,20 +163,44 @@ their image tags are bumped there by `ImageUpdateAutomation`.
 
 ## Out-of-band dependencies
 
-These are **not** installed by franklinhouse's GitOps — its controllers tier
-contains only CNPG. They exist on the running cluster but a clean rebuild will
-not recreate them, and several things fail silently without them:
+The `external-secrets` operator and its `oci-vault` `ClusterSecretStore` are now
+reconciled by franklinhouse's own controllers tier
+(`clusters/franklinhouse/infrastructure/controllers/stack/external-secrets`), so
+they are no longer manual. What remains out-of-band:
 
 | Dependency | Needed by | Symptom if missing |
 |---|---|---|
-| `external-secrets` operator | `access-control` deploy-key `ExternalSecret` | The `access-control-deploy-key` Secret never materialises, so the `access-control` GitRepository cannot authenticate and neither env reconciles |
-| `azure-keyvault` `ClusterSecretStore` | same | same |
 | `sops-keys` Secret (`flux-system`) | bootstrap Kustomization decryption | The whole `flux-system` Kustomization fails, so nothing reconciles at all |
 | `flux-system` Secret (deploy key) | `flux-system` GitRepository | No sync from this repo |
+| `access-control-deploy-key` **in OCI Vault** | the deploy-key `ExternalSecret` | Secret never materialises → `access-control` GitRepository cannot authenticate → neither env reconciles |
+| `access-control-secret` **in OCI Vault** | the app's own `ExternalSecret` (defined in the **external** app repo) | Backends stay in `CreateContainerConfigError` |
 
-Either add the operator and store to
-`clusters/franklinhouse/infrastructure/controllers/stack/` alongside CNPG, or
-treat this table as the rebuild checklist. Today they are manual.
+## OCI Vault
+
+franklinhouse uses **its own OCI tenancy** — a separate account from firefly's,
+in a different region. Do not mix the two sets of OCIDs; neither resolves in the
+other's account.
+
+| | franklinhouse | firefly |
+|---|---|---|
+| Region | `af-johannesburg-1` | `eu-amsterdam-1` |
+| Vault | `vault-franklinhouse` | `vault-prod` |
+| Store name | `oci-vault` | `oci-vault` |
+
+The store is deliberately named `oci-vault` on both clusters so `ExternalSecret`
+manifests read identically either side.
+
+!!! warning "Known IaC drift"
+    `vault-franklinhouse` and its `key-franklinhouse` master key were created
+    **via the OCI CLI on 2026-08-14**, not Terraform, because franklinhouse's OCI
+    tenancy has no Terragrunt coverage in this repo at all (the only franklinhouse
+    resources there are VPN tunnel PSKs, managed from the other tenancy). Adopting
+    this vault into a Terragrunt leaf is outstanding work.
+
+Secrets must be created in `vault-franklinhouse` with the exact names the
+`ExternalSecret`s reference — `access-control-deploy-key` (an SSH private key
+for the app repo) and `access-control-secret`. Until they exist, both
+`ExternalSecret`s report NotReady and the apps cannot start.
 
 ## Known risks
 

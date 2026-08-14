@@ -1,0 +1,13 @@
+---
+# franklinhouse-local: firefly declares its HelmRepositories centrally in
+# kubernetes/infrastructure/flux/helmrepositories.yaml, which this cluster does
+# not reconcile, so the chart source is declared alongside its HelmRelease —
+# same pattern as ../cloudnative-pg/helmrepository.yaml.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: external-secrets
+  namespace: flux-system
+spec:
+  interval: 1h
+  url: https://charts.external-secrets.io

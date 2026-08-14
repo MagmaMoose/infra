@@ -1,0 +1,87 @@
+---
+# external-secrets for franklinhouse. Mirrors firefly's
+# kubernetes/infrastructure/controllers/external-secrets/base/helmrelease.yaml,
+# with two deliberate differences:
+#
+#   1. Placement uses franklinhouse's label/taint scheme (`node-role: system`
+#      plus a control-plane toleration), not firefly's
+#      `node-role.kubernetes.io/system`. See
+#      kubernetes/components/node-selectors/franklinhouse-system.
+#   2. No priorityClassName — franklinhouse has no `critical`/`high`/`medium`
+#      PriorityClasses defined (those come from firefly's configs tier, which
+#      this cluster does not reconcile). Naming a non-existent PriorityClass
+#      makes the pods unschedulable.
+#
+# Placement is set in CHART VALUES, not via a kustomize label: this bundle emits
+# a HelmRelease, so a kustomize label would land on the HelmRelease and never
+# reach the Deployments the chart renders.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: external-secrets
+  namespace: external-secrets
+spec:
+  interval: 1h
+  chart:
+    spec:
+      chart: external-secrets
+      version: "0.11.*"
+      sourceRef:
+        kind: HelmRepository
+        name: external-secrets
+        namespace: flux-system
+      interval: 1h
+  install:
+    # The namespace is created by namespace.yaml in this same bundle.
+    createNamespace: false
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    installCRDs: true
+    nodeSelector:
+      node-role: system
+    tolerations: &systemTolerations
+      - key: node-role.kubernetes.io/control-plane
+        operator: Equal
+        value: "true"
+        effect: NoSchedule
+    image:
+      repository: ghcr.io/external-secrets/external-secrets
+      tag: v0.11.0
+    resources:
+      requests:
+        cpu: 10m
+        memory: 100Mi
+      limits:
+        memory: 100Mi
+    webhook:
+      nodeSelector:
+        node-role: system
+      tolerations: *systemTolerations
+      port: 9443
+      image:
+        repository: ghcr.io/external-secrets/external-secrets
+        tag: v0.11.0
+      resources:
+        requests:
+          cpu: 10m
+          memory: 100Mi
+        limits:
+          memory: 100Mi
+    certController:
+      create: true
+      nodeSelector:
+        node-role: system
+      tolerations: *systemTolerations
+      image:
+        repository: ghcr.io/external-secrets/external-secrets
+        tag: v0.11.0
+      resources:
+        requests:
+          cpu: 10m
+          memory: 100Mi
+        limits:
+          memory: 100Mi
