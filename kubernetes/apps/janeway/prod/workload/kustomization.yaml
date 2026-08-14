@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# The workload for prod, applied by the `prod-janeway` Flux Kustomization (see
+# ../flux-kustomization.yaml). Each resource carries its own metadata.namespace
+# — the CNPG Database and the RBAC grant live in `database-oci`, everything else
+# in `janeway` — so no `namespace:` directive here.
+resources:
+  - database.yaml
+  - db-credentials.yaml
+  - externalsecret.yaml
+  - ghcr-pull-secret.yaml
+  - helmrelease.yaml

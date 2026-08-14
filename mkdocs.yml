@@ -51,6 +51,7 @@ nav:
       - AppSec and Dev Tooling: operations/appsec-dev-tooling.md
       - Delivery & Automation: operations/delivery-and-automation.md
       - Identity (Authentik): operations/identity-authentik.md
+      - Janeway: operations/janeway.md
       - Runtime & Continuous Security: operations/runtime-continuous-security.md
       - DefectDojo: operations/defectdojo.md
       - Backup and Restore: operations/backup-and-restore.md

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: janeway
+  labels:
+    # Deliberately NOT labelled `ghcr-pull-secret: sync`. That Kyverno policy
+    # (infrastructure/configs/rbac/sync-ghcr-pull-secret-policy.yaml) clones the
+    # flux-system `ghcr-pull-secret`, which is a MagmaMoose-org token and cannot
+    # read ghcr.io/tengen-systems/*. Janeway's image lives in that other org, so
+    # its pull credential is projected separately from OCI Vault — see
+    # ../prod/workload/ghcr-pull-secret.yaml.
+    app.kubernetes.io/name: janeway

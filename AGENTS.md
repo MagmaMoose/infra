@@ -274,6 +274,48 @@ spec:
   owner: myapp
 ```
 
+### Which cluster: `postgres` or `postgres-oci`
+
+Co-locate the database with the workload. The two clusters are on opposite sides
+of the site-to-site link, and the round trip is not negligible — measured from a
+pod on ff-oci1: **5.604 ms to ff-vm1, 0.081 ms to ff-oci1**. For a chatty ORM
+application that is the dominant term in page latency (Janeway issues dozens of
+queries per render, so a 50-query page is ~280 ms of pure network wait on the
+wrong cluster).
+
+- workload on the **native-cloud** tier → `postgres-oci` in `database-oci`
+- workload on the **on-prem/worker** tier → `postgres` in `database`
+
+The owner role differs and is not interchangeable: `postgres` uses
+`neondb_owner` (password in OCI Vault, `neondb-owner-password`), while
+`postgres-oci` uses `app` — the role CNPG generated at initdb, published as the
+`postgres-oci-app` Secret in `database-oci`. Reaching that Secret from another
+namespace needs the ServiceAccount + Role + kubernetes-provider `SecretStore`
+hop; copy `kubernetes/apps/janeway/prod/workload/db-credentials.yaml` or
+`dunmir-pro`'s equivalent. `postgres-oci` runs `enableSuperuserAccess: false`.
+
+### Shared Valkey — database index registry
+
+`valkey.database.svc.cluster.local:6379` is authless and shared. **Claim an
+unused database index and record it here**, because Django's
+`RedisCache.clear()` (and any client's `FLUSHDB`) wipes a whole index — an app
+pointed at someone else's index destroys their data on an ordinary operation.
+
+| index | consumer |
+|---|---|
+| 0 | DefectDojo (Celery broker) |
+| 4 | authentik |
+| 6 | Janeway (Django cache) |
+
+It is configured as a **broker**, not a cache: `--appendonly yes
+--maxmemory 1gb --maxmemory-policy noeviction`. `noeviction` is deliberate (a
+queue that drops keys loses tasks) but means a full instance returns write
+errors rather than evicting, so a cache consumer must set TTLs on everything it
+writes. If a consumer ever needs untimed keys, move to `volatile-lru` — which
+evicts only keys that have an expiry, leaving broker queues alone — rather than
+raising `maxmemory` again. Keep the container memory request above `maxmemory`
+or the kubelet OOM-kills it before Valkey applies its own policy.
+
 ### Migrating Away from SQLite
 
 **If you encounter an app using SQLite, migrate it to CNPG.** SQLite binds data to a single disk and breaks portability, HA, and backups. It is not acceptable for persistent workloads in this cluster.

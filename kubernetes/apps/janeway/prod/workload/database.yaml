@@ -1,0 +1,39 @@
+---
+# Janeway's database on the SHARED postgres-oci cluster (AGENTS.md — do NOT
+# create a new Cluster). The chart's own pre-upgrade hook runs `manage.py
+# migrate`, so all it needs here is an empty database it owns.
+#
+# postgres-oci rather than the `postgres` cluster in `database`, and that is a
+# placement decision rather than a preference. Janeway issues dozens of queries
+# per page — SiteSettingsMiddleware resolves the press, the session engine is
+# DB-backed, and every settings lookup is a row — so the round trip to the
+# database is the dominant term in page latency. Measured from a pod on ff-oci1:
+#
+#   ff-oci1 -> ff-vm1  (the `postgres` cluster)  5.604 ms avg RTT
+#   ff-oci1 -> ff-oci1 (postgres-oci)            0.081 ms avg RTT
+#
+# A 50-query page would therefore spend ~280 ms in network wait on the on-prem
+# cluster and ~4 ms here. The workload itself is on the native-cloud tier
+# because the only amd64 node is the most contended in the fleet, so co-locating
+# the database with it is what keeps both on the same side of the VPN.
+#
+# owner `app`, not `neondb_owner`: that is postgres-oci's convention (the role
+# CNPG generated at initdb and publishes as the postgres-oci-app Secret), and it
+# is what dunmir uses on the same cluster. The `neondb_owner` convention belongs
+# to the `postgres` cluster in `database`.
+#
+# retain, not delete: this holds the editorial record — submissions, reviews,
+# revisions, and the publication history. A `prune` that removed this CR must
+# not take the data with it.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: janeway
+  namespace: database-oci
+spec:
+  cluster:
+    name: postgres-oci
+  name: janeway
+  owner: app
+  encoding: UTF8
+  databaseReclaimPolicy: retain

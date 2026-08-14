@@ -51,8 +51,27 @@ spec:
             # evict (a broker dropping keys = lost tasks).
             - "--appendonly"
             - "yes"
+            # Raised 200mb -> 1gb when Janeway started using this instance as a
+            # Django cache (db index 6) alongside DefectDojo's Celery broker on
+            # db0.
+            #
+            # The size is insurance against the eviction policy, not against
+            # demand. `noeviction` is correct for a broker — a queue that drops
+            # keys loses tasks — but it means that once the instance is full,
+            # writes ERROR rather than evicting. A cache filling this up would
+            # therefore take DefectDojo down with it. Measured before the
+            # change: 1.75 MB used of 200 MB, 1110 keys, all with TTLs. So the
+            # headroom was never the binding constraint; the cost of hitting the
+            # ceiling was.
+            #
+            # Janeway's cache keys all carry a TTL (its function_cache decorator
+            # always passes one), so its footprint is bounded and self-expiring.
+            # If a third consumer ever arrives without TTLs, revisit
+            # `volatile-lru` rather than raising this again: it would evict only
+            # keys that have an expiry, leaving the broker's queues — which have
+            # none — untouched.
             - "--maxmemory"
-            - "200mb"
+            - "1gb"
             - "--maxmemory-policy"
             - "noeviction"
           ports:
@@ -61,9 +80,15 @@ spec:
           resources:
             requests:
               cpu: 25m
-              memory: 64Mi
+              # Must exceed --maxmemory, or the kubelet OOM-kills the container
+              # before Valkey ever applies its own policy — which would be a
+              # hard restart of the broker instead of a controlled write error.
+              # 1.25Gi against a 1gb ceiling leaves room for the AOF rewrite
+              # buffer, client output buffers and allocator fragmentation
+              # (measured at ratio 4.79 on a near-empty dataset).
+              memory: 1280Mi
             limits:
-              memory: 256Mi
+              memory: 1280Mi
           readinessProbe:
             exec:
               command: ["valkey-cli", "ping"]
