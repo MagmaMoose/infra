@@ -1,8 +1,19 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+# Operator only. The `oci-vault` ClusterSecretStore and its credentials live in
+# the SERVICES tier (../../../services/stack/external-secrets), not here, for two
+# independent reasons:
+#
+#   1. CRD ordering. Flux server-side dry-runs the whole bundle before applying
+#      any of it. On a cluster where external-secrets has never been installed,
+#      `kind: ClusterSecretStore` does not resolve, the dry-run fails, and NOTHING
+#      in the bundle applies — including the HelmRelease that would have created
+#      that very CRD. The services tier dependsOn this one with wait: true, so by
+#      the time it runs the CRDs exist.
+#   2. Decryption. This tier's Flux Kustomization has no `decryption:` stanza, so
+#      a SOPS-encrypted Secret placed here would never decrypt. The services tier
+#      has one.
 resources:
   - namespace.yaml
   - helmrepository.yaml
   - helmrelease.yaml
-  - oci-vault-credentials.enc.yaml
-  - secret-store.yaml
