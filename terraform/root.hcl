@@ -14,6 +14,22 @@ locals {
   provider = local.provider_vars.inputs.provider
   region  = local.region_vars.locals.region
   environment = local.environment_vars.locals.environment
+
+  # Which OCI TENANCY a leaf belongs to, expressed as the prefix of the four env
+  # vars that carry its API credentials. `find_in_parent_folders("provider.hcl")`
+  # resolves to the NEAREST one, so a subtree can shadow the default simply by
+  # having its own provider.hcl — that is how a second tenancy lives in this repo
+  # without every leaf sharing one credential set.
+  #
+  # Defaults to "OCI" so terraform/oci/provider.hcl (and every leaf under it)
+  # keeps reading OCI_TENANCY_OCID / OCI_USER_OCID / OCI_FINGERPRINT /
+  # OCI_PRIVATE_KEY_PATH exactly as before — this change is a no-op for them.
+  oci_env_prefix = try(local.provider_vars.locals.env_prefix, "OCI")
+
+  oci_tenancy_ocid     = get_env("${local.oci_env_prefix}_TENANCY_OCID", "")
+  oci_user_ocid        = get_env("${local.oci_env_prefix}_USER_OCID", "")
+  oci_private_key_path = get_env("${local.oci_env_prefix}_PRIVATE_KEY_PATH", "")
+  oci_fingerprint      = get_env("${local.oci_env_prefix}_FINGERPRINT", "")
 }
 
 inputs = merge(
@@ -73,12 +89,16 @@ terraform {
   }
 }
 
+# Credentials come from the \${local.oci_env_prefix}_* env vars — see the
+# oci_env_prefix local in this file. Region comes from the leaf's region.hcl
+# rather than an env var, so a second tenancy in a different region cannot pick up
+# the wrong one from the ambient environment.
 provider "oci" {
-  tenancy_ocid     = "${get_env("OCI_TENANCY_OCID", "")}"
-  user_ocid        = "${get_env("OCI_USER_OCID", "")}"
-  private_key_path = "${get_env("OCI_PRIVATE_KEY_PATH", "")}"
-  fingerprint      = "${get_env("OCI_FINGERPRINT", "")}"
-  region           = "${get_env("OCI_REGION", "ap-sydney-1")}"
+  tenancy_ocid     = "${local.oci_tenancy_ocid}"
+  user_ocid        = "${local.oci_user_ocid}"
+  private_key_path = "${local.oci_private_key_path}"
+  fingerprint      = "${local.oci_fingerprint}"
+  region           = "${local.region}"
 }
 EOF
 }
