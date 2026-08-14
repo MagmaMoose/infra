@@ -1,0 +1,28 @@
+# A ceiling on what Janeway can consume in this namespace.
+#
+# Worth having on this cluster specifically: the native-cloud nodes are 2 vCPU /
+# 12 GB each, and this namespace runs a web Deployment plus two Helm hook Jobs
+# plus seven CronJobs — so a runaway or a badly-tuned CronJob has plenty of
+# shapes in which to crowd out postgres-oci and valkey, which share those nodes.
+# A quota is a cap, not a reservation, so it costs nothing until it bites.
+#
+# NO `limits.cpu` key, deliberately. Including one would force every pod in the
+# namespace to declare a CPU limit, which is the opposite of the house
+# convention recorded in cleanup.md: "Set CPU requests, omit CPU limits — CPU is
+# compressible". A quota that quietly mandated CPU limits would reintroduce
+# throttling across the whole namespace.
+#
+# Sized for the worst legitimate moment rather than steady state — a Helm upgrade
+# where the pre-upgrade migrate Job, the post-upgrade bootstrap Job, the old web
+# pod and a CronJob can briefly coexist.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: janeway
+  namespace: janeway
+spec:
+  hard:
+    requests.cpu: "2"
+    requests.memory: 5Gi
+    limits.memory: 6Gi
+    pods: "20"

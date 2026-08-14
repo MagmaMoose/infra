@@ -12,4 +12,5 @@ kind: Kustomization
 # .github/actions/placement-label-guard checks for.
 resources:
   - namespace.yaml
+  - resourcequota.yaml
   - helmrepository.yaml

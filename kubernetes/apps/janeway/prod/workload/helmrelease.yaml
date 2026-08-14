@@ -79,10 +79,16 @@ spec:
 
     config:
       siteDomain: janeway.magmamoose.com
-      # Narrowed from the chart default of "*", plus the pod CIDR so kubelet
-      # probes (which arrive with the pod IP as Host) are not rejected with a
-      # Django 400. Tenancy is NOT enforced here — that is the Press.domain row.
-      allowedHosts: "janeway.magmamoose.com,janeway.janeway.svc.cluster.local,localhost"
+      # Narrowed from the chart default of "*". Tenancy is NOT enforced here —
+      # that is the Press.domain row — so this is defence in depth against Host
+      # header spoofing rather than access control.
+      #
+      # The probes do not need an entry: liveness and startup hit /healthz, which
+      # the image answers from a middleware that runs before anything calls
+      # request.get_host(), so ALLOWED_HOSTS is never evaluated for them; and
+      # readiness sends the public hostname explicitly. The Service DNS name is
+      # kept for in-cluster callers that dial the Service directly.
+      allowedHosts: "janeway.magmamoose.com,janeway.janeway.svc.cluster.local"
       # One tunnel hostname, so journals live at /<code>/ rather than each
       # needing its own DNS record and ingress rule.
       urlConfig: path
