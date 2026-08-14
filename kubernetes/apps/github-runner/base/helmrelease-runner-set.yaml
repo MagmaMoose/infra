@@ -103,11 +103,31 @@ spec:
     runnerGroup: default
     runnerScaleSetName: firefly-arm64
 
-    # scaleSetLabels is intentionally NOT set. It would be the only way to keep the
-    # literal `[self-hosted, Linux, X64]` array in terragrunt.yml working, but
-    # self-hosted/Linux/X64 are GitHub-reserved runner labels and their acceptance on a
-    # scale set is unverified here. Changing the three `runs-on:` lines is deterministic;
-    # this is not.
+    # Multi-label routing. ARC 0.14.0 added support for assigning MORE THAN ONE label
+    # to a scale set (chart value `scaleSetLabels` -> `runnerScaleSetLabels` on the
+    # AutoscalingRunnerSet); this chart is pinned to 0.14.2, so it is available. The
+    # earlier note here said this was "unverified" — it is now verified and used.
+    #
+    # Two labels, doing two different jobs:
+    #   firefly-arm64  — the unique, cluster-specific name. Use it to pin a job to THIS
+    #                    cluster's arm64 pool.
+    #   pool-arm64     — shared with franklinhouse's arm64 set. `runs-on: pool-arm64`
+    #                    dispatches to whichever cluster has capacity, which is how you
+    #                    get real parallelism across both sites from one label.
+    #
+    # `runs-on: [a, b]` means "runner has ALL of these", never "any of", so a unique
+    # label plus a shared one is what gives both targeting AND pooling at once.
+    #
+    # The `pool-` prefix is deliberate: `arm64`, `x64`, `self-hosted`, `linux` are
+    # GitHub-RESERVED runner labels and must not be claimed here.
+    #
+    # !! Labels do NOT update in place !!  Editing runnerScaleSetLabels on a live
+    # AutoscalingRunnerSet does not re-register them with GitHub — the scale set has to
+    # be destroyed and recreated. See actions/actions-runner-controller#4424. Expect a
+    # gap in runner availability whenever these change.
+    scaleSetLabels:
+      - firefly-arm64
+      - pool-arm64
 
     # Scale to ZERO when idle. This is the whole capacity argument for ARC on this
     # cluster: the retired StatefulSet held 200m CPU + 768Mi of reservation 24/7 for a
