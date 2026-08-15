@@ -8,4 +8,6 @@ resources:
   - ghcr-pull-secret.yaml
   - externalsecret.yaml
   - helmrelease.yaml
-  - ingress.yaml
+  # ingress.yaml intentionally omitted until the Cloudflare Access policy in
+  # terraform/cloudflare/zero-trust/prod exists -- add it back with that change.
+  # - ingress.yaml
