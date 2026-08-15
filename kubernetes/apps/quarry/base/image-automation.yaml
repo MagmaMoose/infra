@@ -1,0 +1,34 @@
+---
+# Image automation for the quarry tag. The tag marker lives HERE in infra
+# (prod/.../workload/helmrelease.yaml `.spec.values.image.tag`), under
+# ./kubernetes/apps which the shared `media` ImageUpdateAutomation
+# (infrastructure/configs/flux/image-automation.yaml) already scans -- so it does
+# the bump and pushes to infra's main. No dedicated ImageUpdateAutomation here;
+# adding one would give the same marker two writers. Only the ImageRepository +
+# ImagePolicy are needed, same as github-contributions / github-timesheet.
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: quarry
+  namespace: flux-system
+spec:
+  image: ghcr.io/magmamoose/quarry
+  interval: 5m
+  provider: generic
+  secretRef:
+    name: ghcr-pull-secret
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: quarry
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: quarry
+  filterTags:
+    pattern: '^v[0-9]+\.[0-9]+\.[0-9]+$'
+    extract: '$0'
+  policy:
+    semver:
+      range: '>=0.0.0'

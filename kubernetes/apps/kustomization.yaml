@@ -52,6 +52,11 @@ resources:
   - ./nievah
   # OpenHands V1 autonomous-coding engine; selected explicitly by Nievah's harness config.
   - ./openhands
+  # Quarry — consolidates github-timesheet and github-contributions into one
+  # engine with three reports (Uren, Throughput, Billing). Both of the apps it
+  # supersedes are still listed above and still running; retiring them is a
+  # separate decision, and their OCI Vault entries are now read by Quarry too.
+  - ./quarry
   # tengen-systems products (private repo; OCI-published charts, not a GitRepository)
   #
   # janeway splits the two: the CHART comes from MagmaMoose/charts (public, same

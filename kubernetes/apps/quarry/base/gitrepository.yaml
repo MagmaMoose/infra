@@ -1,0 +1,22 @@
+---
+# Chart source: the quarry Helm chart lives in the external MagmaMoose/quarry
+# repo under ./charts/quarry. Same shape as github-contributions and
+# github-timesheet, the two apps quarry consolidates: the app repo ships a chart,
+# so the prod workload is a Flux HelmRelease that references this source, while
+# the deploy VALUES (sources, identity, connector ids, secret refs) are
+# firefly-specific and live in this infra repo's HelmRelease, not the chart.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: quarry
+  namespace: flux-system
+spec:
+  interval: 10m
+  provider: github
+  ref:
+    branch: main
+  secretRef:
+    # magmamoose-org repo; uses the MagmaMoose-org App installation, same as
+    # github-contributions, github-timesheet, nievah, caldrith and diatreme-pro.
+    name: github-app-magmamoose
+  url: https://github.com/magmamoose/quarry

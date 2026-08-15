@@ -1,0 +1,32 @@
+# Cross-namespace RBAC in flux-system that lets the quarry namespace
+# ServiceAccount `quarry-ghcr-reader` read the SOPS-managed `ghcr-pull-secret`
+# (which provably pulls ghcr.io/magmamoose/*). Paired with the SecretStore +
+# ExternalSecret in the workload's ghcr-pull-secret.yaml. Mirrors
+# github-contributions / github-timesheet / nievah / caldrith.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: quarry-ghcr-reader
+  namespace: flux-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["ghcr-pull-secret"]
+    # Already scoped to a single named secret (resourceNames above); ExternalSecrets
+    # needs get to resolve the ghcr-pull-secret into the workload namespace.
+    # kics-scan ignore-line
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: quarry-ghcr-reader
+  namespace: flux-system
+subjects:
+  - kind: ServiceAccount
+    name: quarry-ghcr-reader
+    namespace: quarry
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: quarry-ghcr-reader

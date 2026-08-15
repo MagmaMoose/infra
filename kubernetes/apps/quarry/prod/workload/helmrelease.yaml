@@ -1,0 +1,153 @@
+# Deploys the quarry Helm chart from MagmaMoose/quarry (charts/quarry) via the
+# GitRepository source in base/. All firefly-specific deploy config lives here in
+# values; the chart stays generic.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: quarry
+  namespace: quarry
+spec:
+  interval: 30m
+  releaseName: quarry
+  chart:
+    spec:
+      chart: charts/quarry
+      reconcileStrategy: Revision # re-render when main advances
+      sourceRef:
+        kind: GitRepository
+        name: quarry
+        namespace: flux-system
+      interval: 10m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  # Priority class via a postRenderer, NOT chart values.
+  #
+  # This chart renders no priorityClassName field at all, so a values key would be
+  # silently ignored -- Helm accepts unknown keys without error, which would leave
+  # this workload at priority 0 while the manifest claimed otherwise. That silent
+  # no-op is the failure the github-contributions / github-timesheet migrations
+  # kept tripping over, so the class is patched onto the rendered output instead,
+  # where it cannot be ignored.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+            patch: |
+              - op: add
+                path: /spec/template/spec/priorityClassName
+                value: low
+  values:
+    image:
+      repository: ghcr.io/magmamoose/quarry
+      # Auto-bumped by Flux image automation -- do NOT hand-edit the tag; the
+      # `$imagepolicy` marker below is the setter. The ImageRepository + ImagePolicy
+      # live in base/image-automation.yaml; the shared `media` ImageUpdateAutomation
+      # scans ./kubernetes/apps and pushes the bump to main.
+      # v0.0.1 is a placeholder until the repo publishes its first release tag --
+      # until then the pod ImagePullBackOffs, which is the visible, correct state
+      # for "the image does not exist yet".
+      tag: v0.0.1 # {"$imagepolicy": "flux-system:quarry:tag"}
+      pullPolicy: IfNotPresent
+      pullSecrets:
+        - name: ghcr-pull-secret
+    # Multi-source GitHub crawl, carried over unchanged from github-contributions.
+    # NON-secret: references token env vars by name (token_env); the tokens come
+    # from the quarry-env secret (externalsecret.yaml). Rendered into the ConfigMap
+    # as GITHUB_SOURCES, which db/bootstrap.py imports ONCE into the `source`
+    # table -- after that first boot, Settings in the app is the authority and
+    # edits here stop taking effect.
+    sources: '[{"name":"pinkroccade","host":"pinkroccade.ghe.com","scope":"enterprise","target":"pinkroccade","token_env":"GHES_TOKEN"},{"name":"magmamoose","host":"github.com","scope":"org","target":"magmamoose","token_env":"GH_TOKEN"},{"name":"personal","host":"github.com","scope":"user","target":"CalebSargeant","token_env":"GH_TOKEN"}]'
+    # Connectors: the NON-secret half only. Every credential is in
+    # externalsecret.yaml. Keys here track charts/quarry/values.yaml exactly --
+    # Helm accepts an unknown key silently, so a stale name is a setting that
+    # looks applied and does nothing.
+    connectors:
+      # github.apiUrl keeps the chart default (https://api.github.com).
+      ghes:
+        # Derived from the pinkroccade source above (GHES REST lives at
+        # /api/v3). Settings requires this alongside GHES_TOKEN before it will
+        # report the enterprise connector as configured at all.
+        apiUrl: "https://pinkroccade.ghe.com/api/v3"
+      m365:
+        # icsUrl is deliberately NOT set here. The chart renders it into the
+        # ConfigMap, and the published-calendar link is a bearer URL -- anyone
+        # holding it reads the calendar. It arrives as the M365_ICS_URL env var
+        # from OCI Vault instead (externalsecret.yaml); envFrom applies the
+        # Secret after the ConfigMap, so the secret value is what the app sees.
+        icsUrl: ""
+        # DELIBERATELY EMPTY. The real tenant/client/user ids are not known to
+        # this repo, and a plausible-looking placeholder is the one thing that
+        # must never reach these reports: a wrong id yields a connector that
+        # authenticates, matches nothing, and quietly shrinks a timesheet. Empty
+        # is the honest state -- the chart omits the key, Settings reports the
+        # connector as never-configured, and the reports render an explicit gap
+        # rather than a smaller number. Fill in when the values are known.
+        tenantId: ""
+        clientId: ""
+        userId: ""
+      teams:
+        # Blank means Teams rides on Graph rather than a dedicated token/scope.
+        teamIds: ""
+      clickup:
+        # Required alongside CLICKUP_TOKEN before ClickUp counts as configured.
+        teamId: ""
+    # AI layer via the in-cluster LiteLLM proxy (LITELLM_API_KEY is a secret).
+    # It only writes the Dutch one-line block labels in Mode 1; with the model
+    # unset the summariser is off and labels come from the deterministic rules.
+    # Either way it cannot move a single minute.
+    ai:
+      litellmBaseUrl: "http://litellm.automation.svc.cluster.local:8080"
+      # deepseek-v4-flash to match github-contributions, which switched off
+      # claude-sonnet-4-6 while Anthropic credits were low. Sonnet is still the
+      # PREFERRED model -- switch back once credits are topped up.
+      litellmModel: "deepseek-v4-flash"
+    config:
+      publicUrl: "https://quarry.magmamoose.com"
+      # Amsterdam, not UTC: month boundaries and every rendered clock time on the
+      # Uren sheet have to match how a human in NL files them.
+      timezone: "Europe/Amsterdam"
+      # No currency key: billing currency is stored per client alongside the
+      # rate, not configured globally. See charts/quarry/values.yaml.
+      #
+      # The cloudflared tunnel routes STRAIGHT to this Service (see ingress.yaml),
+      # so there is exactly one hop in front of the app.
+      trustedProxyCount: 1
+      logLevel: "INFO"
+      cocomoModel: "organic"
+      # Background re-ingest, hourly. The app defaults this to 0 because
+      # unattended ingestion into an invoice source of truth is opt-in; this line
+      # IS that opt-in, recorded in GitOps rather than inherited from a chart
+      # default. Ingestion only measures what already happened -- it cannot
+      # invent a signal -- and the live Uren view is stale without it.
+      refreshIntervalMinutes: 60
+    anchored:
+      # OFF until Caleb is actually on the rota. Enabled, this stamps a fixed
+      # 07:30 + 75min block onto every day it covers; on days he was not on call
+      # that is invented time in an employment record. Turn it on together with
+      # the real rota dates, never speculatively.
+      rotaEnabled: false
+    # Secrets (DATABASE_URL + the GitHub/Graph/Slack/Teams/ClickUp/LiteLLM
+    # credentials) come from the ExternalSecret in workload/externalsecret.yaml,
+    # referenced by name here.
+    secrets:
+      existingSecretName: quarry-env
+    externalSecret:
+      enabled: false
+    # Ingress is DNS-only and hand-written (workload/ingress.yaml) to match the
+    # firefly cloudflared-tunnel pattern; the chart's own Ingress stays off. Note
+    # the chart's own warning: enabling it without the Cloudflare Access policy
+    # publishes an employment record and a set of client invoices.
+    ingress:
+      enabled: false
+    # Pin to the OCI free-tier ARM workers (ff-oci1/ff-oci2), same as the sibling
+    # dashboards. The image MUST be published multi-arch (linux/amd64 +
+    # linux/arm64) or the pod will never start on these nodes. There is no PVC to
+    # bind it to a node -- quarry is Postgres-only. Nodes are untainted, so
+    # nodeSelector alone is enough. See kubernetes/components/node-selectors/native-cloud.
+    nodeSelector:
+      topology.sargeant.co/tier: native-cloud

@@ -1,0 +1,27 @@
+---
+# Empty database on the SHARED CNPG cluster (do NOT create a new Cluster).
+# Quarry creates its own schema on first boot (db/bootstrap.py create_all), so it
+# only needs an empty database it owns. Owned by the shared `neondb_owner` role
+# (password enforced by CNPG from OCI Vault `neondb-owner-password`, surfaced to
+# the app as DATABASE_URL via externalsecret.yaml).
+#
+# The brief for this app said "CNPG as a Cluster resource"; firefly runs ONE
+# postgres Cluster in the `database` namespace and every app takes a Database CR
+# against it (github-contributions, github-timesheet, github-usage-dashboard,
+# authentik, defectdojo). A second Cluster would mean a second set of
+# instances, backups and WAL archiving for one small reporting app.
+#
+# retain, not delete: this database is the source of truth behind an employment
+# record (Report 1) and client invoices (Report 3). Pruning the CR must never be
+# what deletes the underlying data.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: quarry
+  namespace: database
+spec:
+  cluster:
+    name: postgres
+  name: quarry
+  owner: neondb_owner
+  databaseReclaimPolicy: retain
