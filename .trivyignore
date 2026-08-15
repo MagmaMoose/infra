@@ -3,7 +3,7 @@
 # KSV-0040 — "resource quota usage": every namespace should carry a ResourceQuota
 # with hard CPU and memory limits. Not this repo's pattern; the identical risk is
 # already accepted at KICS level as rule 48a5beba in each runner manifest, and
-# Trivy raises it on 1379 objects here, all but a handful pre-existing.
+# Trivy raises it on 561 objects here, all but a handful pre-existing.
 #
 # WHY REPO-WIDE AND NOT PER-FILE. Chargate gates on NET-NEW findings, and every
 # result in a brand-new file is net-new by definition (docs/net-new.md, "Brand-new
