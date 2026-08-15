@@ -24,16 +24,22 @@ metadata:
   namespace: arc-runners
 spec:
   interval: 30m
-  # The scale set name is what GitHub matches `runs-on` against. `firefly` is the value
-  # the ORG variable `SELFHOSTED_GITHUB_RUNNER` is set to, so this set is the DEFAULT
-  # self-hosted pool for every repo that consults that variable.
+  # The scale set name is what GitHub matches `runs-on` against.
   #
-  # THIS IS THE arm64 / OCI POOL. It used to be the amd64 ff-vm1 pool; the two swapped
-  # deliberately, and the name stayed here rather than moving to the amd64 set, because
-  # `firefly` is what the org variable already says. Keeping the name on the pool we want
-  # jobs to land on by default means the routing change needs no org-admin action at all.
-  # The amd64 ff-vm1 pool now lives in helmrelease-runner-set-amd64.yaml under the name
-  # `firefly-amd64` and is opt-in per repo.
+  # THIS IS THE arm64 / OCI POOL, and it is now named `firefly-arm64` rather than the
+  # bare `firefly` it carried historically. The rename exists because a second cluster
+  # (franklinhouse) is gaining its own runners: with `firefly` meaning "firefly arm64"
+  # implicitly while `firefly-amd64` was explicit, four pools across two clusters would
+  # have been unreadable. The taxonomy is now uniformly `<cluster>-<arch>`:
+  #
+  #     firefly-arm64        (this set)        firefly-amd64
+  #     franklinhouse-arm64                    franklinhouse-amd64
+  #
+  # !! COORDINATED CHANGE !! The ORG variable `SELFHOSTED_GITHUB_RUNNER` was set to
+  # `firefly`. Renaming this set WITHOUT updating that variable to `firefly-arm64` leaves
+  # every repo that consults it dispatching to a label no scale set answers to, and those
+  # jobs queue forever rather than failing loudly. The variable and this file must change
+  # together.
   #
   # WHY the OCI pair is the default and not ff-vm1:
   #   * CAPACITY — two nodes means two concurrent jobs instead of one. That is the whole
@@ -95,13 +101,39 @@ spec:
     # optional: a self-hosted runner executing fork-PR code with OCI credentials is the
     # precise scenario GitHub warns about, and the group setting no longer blocks it.
     runnerGroup: default
-    runnerScaleSetName: firefly
+    runnerScaleSetName: firefly-arm64
 
-    # scaleSetLabels is intentionally NOT set. It would be the only way to keep the
-    # literal `[self-hosted, Linux, X64]` array in terragrunt.yml working, but
-    # self-hosted/Linux/X64 are GitHub-reserved runner labels and their acceptance on a
-    # scale set is unverified here. Changing the three `runs-on:` lines is deterministic;
-    # this is not.
+    # Multi-label routing. ARC 0.14.0 added support for assigning MORE THAN ONE label
+    # to a scale set (chart value `scaleSetLabels` -> `runnerScaleSetLabels` on the
+    # AutoscalingRunnerSet); this chart is pinned to 0.14.2, so it is available. The
+    # earlier note here said this was "unverified" — it is now verified and used.
+    #
+    # Three labels, doing three different jobs:
+    #   firefly-arm64     — the unique, cluster-specific name. Use it to pin a job to THIS
+    #                       cluster's arm64 pool.
+    #   pool-arm64        — shared with franklinhouse's arm64 set. `runs-on: pool-arm64`
+    #                       dispatches to whichever cluster has capacity, which is how you
+    #                       get real parallelism across both sites from one label.
+    #   pool-self-hosted  — carried by EVERY scale set in both clusters and both arches.
+    #                       `runs-on: pool-self-hosted` means "any self-hosted runner we
+    #                       own", the widest possible target, for arch-agnostic jobs that
+    #                       just need to be off GitHub-hosted infrastructure.
+    #
+    # `runs-on: [a, b]` means "runner has ALL of these", never "any of", so a unique
+    # label plus shared ones is what gives targeting AND pooling at once.
+    #
+    # The `pool-` prefix is deliberate: `arm64`, `x64`, `self-hosted`, `linux` are
+    # GitHub-RESERVED runner labels and must not be claimed here — which is exactly why
+    # the org-wide label is `pool-self-hosted` and not the reserved `self-hosted`.
+    #
+    # !! Labels do NOT update in place !!  Editing runnerScaleSetLabels on a live
+    # AutoscalingRunnerSet does not re-register them with GitHub — the scale set has to
+    # be destroyed and recreated. See actions/actions-runner-controller#4424. Expect a
+    # gap in runner availability whenever these change.
+    scaleSetLabels:
+      - firefly-arm64
+      - pool-arm64
+      - pool-self-hosted
 
     # Scale to ZERO when idle. This is the whole capacity argument for ARC on this
     # cluster: the retired StatefulSet held 200m CPU + 768Mi of reservation 24/7 for a
@@ -193,7 +225,7 @@ spec:
         # therefore exactly where it would put them.
         #
         # The label is ARC's own, verified on a live runner pod:
-        #   actions.github.com/scale-set-name=firefly
+        #   actions.github.com/scale-set-name=firefly-arm64
         # It matches only this scale set, so a `firefly-amd64` runner on ff-vm1 is not
         # repelled by it (different value) and the two pools never interfere.
         #
@@ -206,7 +238,7 @@ spec:
               - topologyKey: kubernetes.io/hostname
                 labelSelector:
                   matchLabels:
-                    actions.github.com/scale-set-name: firefly
+                    actions.github.com/scale-set-name: firefly-arm64
         # `low` = "non-essential: batch, background jobs, restartable without impact",
         # which is exactly a CI job — GitHub re-queues it. The retired StatefulSet ran at
         # priority 0, so this is a promotion, and it keeps a build from evicting anything

@@ -26,16 +26,39 @@ inputs:
 runs:
   using: composite
   steps:
+    # guard.py imports PyYAML, which the ARC runner image does not ship. On
+    # ubuntu-latest it was there by accident — the GitHub-hosted image bundles it —
+    # so moving this job to the self-hosted pool turned a working import into a
+    # ModuleNotFoundError, and the guard stopped gating anything.
+    #
+    # Same setup-python + pinned-requirements shape as the sibling
+    # external-secret-vault-guard, which is precisely why THAT guard came through
+    # the same runner move green while this one did not. Keep the two in step.
+    - name: Set up Python
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: "3.12"
+
+    - name: Install dependencies
+      shell: bash
+      run: python -m pip install -r "${{ github.action_path }}/requirements.txt"
+
     - shell: bash
       env:
         ROOT: ${{ inputs.root }}
       run: |
         set -uo pipefail
+        # $HOME/.local/bin, not /usr/local/bin: the runner user cannot write the
+        # latter, which is what failed the first time this ran self-hosted.
         if ! command -v kustomize >/dev/null 2>&1; then
           echo "::group::install kustomize"
+          mkdir -p "$HOME/.local/bin"
           curl -fsSL "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" -o /tmp/ik.sh
-          bash /tmp/ik.sh 5.4.3 /usr/local/bin >/dev/null
+          bash /tmp/ik.sh 5.4.3 "$HOME/.local/bin" >/dev/null
+          export PATH="$HOME/.local/bin:$PATH"
           echo "::endgroup::"
         fi
         kustomize version
-        python3 "${GITHUB_ACTION_PATH}/guard.py"
+        # `python`, not `python3`: this must be the interpreter setup-python put on
+        # PATH — the one the requirements above were installed into.
+        python "${GITHUB_ACTION_PATH}/guard.py"

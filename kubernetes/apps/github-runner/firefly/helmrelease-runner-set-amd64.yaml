@@ -29,12 +29,12 @@ spec:
   # This is the ff-vm1 runner that used to be called `firefly`. It kept its node and its
   # sizing and lost its name: `firefly` now belongs to the two-node arm64 OCI pool
   # (helmrelease-runner-set.yaml), because that is the value the ORG variable
-  # `SELFHOSTED_GITHUB_RUNNER` already holds and pointing the default at the bigger pool
+  # `SELFHOSTED_GITHUB_RUNNER` already holds and pointing the default at the bigger pool (now `firefly-arm64`)
   # required no org-admin action.
   #
   # NOTHING ROUTES HERE BY DEFAULT. A job reaches this pool only if its repo sets a
   # REPO-level `SELFHOSTED_GITHUB_RUNNER` variable to `firefly-amd64`, which overrides
-  # the org-level `firefly`. Reach for that when a job genuinely cannot run on arm64:
+  # the org-level `firefly-arm64`. Reach for that when a job genuinely cannot run on arm64:
   #   * a build that needs `linux/amd64` natively rather than under emulation;
   #   * a tool with no arm64 build at all;
   #   * Chargate with `arch_strategy: flavor` (the monolithic MegaLinter flavor image is
@@ -91,11 +91,24 @@ spec:
     runnerGroup: default
     runnerScaleSetName: firefly-amd64
 
-    # scaleSetLabels is intentionally NOT set. It would be the only way to keep the
-    # literal `[self-hosted, Linux, X64]` array in terragrunt.yml working, but
-    # self-hosted/Linux/X64 are GitHub-reserved runner labels and their acceptance on a
-    # scale set is unverified here. Changing the three `runs-on:` lines is deterministic;
-    # this is not.
+    # Multi-label routing — see the fuller note in helmrelease-runner-set.yaml.
+    # Short version: ARC 0.14.0+ (pinned here at 0.14.2) supports multiple labels per
+    # scale set via `scaleSetLabels`.
+    #
+    #   firefly-amd64     — unique name; pins a job to THIS cluster's amd64 pool.
+    #   pool-amd64        — shared with franklinhouse's amd64 set, so `runs-on: pool-amd64`
+    #                       lands on whichever cluster has capacity.
+    #   pool-self-hosted  — carried by every scale set in both clusters and both arches;
+    #                       the widest "any runner we own" target.
+    #
+    # `pool-` prefix because `x64`/`self-hosted`/`linux` are GitHub-reserved labels — which
+    # is why the org-wide label is `pool-self-hosted`, not the reserved `self-hosted`.
+    # Labels do not update in place (actions/actions-runner-controller#4424) — changing
+    # them requires the scale set to be recreated.
+    scaleSetLabels:
+      - firefly-amd64
+      - pool-amd64
+      - pool-self-hosted
 
     # Scale to ZERO when idle. This is the whole capacity argument for ARC on this
     # cluster: the retired StatefulSet held 200m CPU + 768Mi of reservation 24/7 for a

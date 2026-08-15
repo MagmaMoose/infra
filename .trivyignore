@@ -1,0 +1,31 @@
+# Trivy check IDs accepted repo-wide.
+#
+# KSV-0040 — "resource quota usage": every namespace should carry a ResourceQuota
+# with hard CPU and memory limits. Not this repo's pattern; the identical risk is
+# already accepted at KICS level as rule 48a5beba in each runner manifest, and
+# Trivy raises it on 561 objects here, all but a handful pre-existing.
+#
+# WHY REPO-WIDE AND NOT PER-FILE. Chargate gates on NET-NEW findings, and every
+# result in a brand-new file is net-new by definition (docs/net-new.md, "Brand-new
+# file → all results net-new"). Trivy raises KSV-0040 on essentially every
+# Kubernetes manifest, so a per-file suppression only ever fixes the PR in front of
+# you: the next PR that adds a manifest fails the gate again, on a rule the repo
+# has already decided not to follow.
+#
+# THE ID FORMAT IS LOAD-BEARING. This scanner reports the check as `KSV-0040`,
+# hyphenated — that is the literal SARIF `ruleId` in the chargate artifact, and it
+# matches the AVD slug (https://avd.aquasec.com/misconfig/ksv-0040). The
+# unhyphenated `KSV0040` tried previously — both here and as inline
+# `# trivy:ignore:` comments — matched nothing, and the failure is silent: an
+# unmatched entry is not an error, the finding simply keeps gating. All three
+# spellings are listed because the form has moved between Trivy versions and an
+# entry that matches nothing costs nothing.
+#
+# Note that in-source `# trivy:ignore:` comments would not help chargate anyway.
+# Chargate counts a finding as suppressed only when the SARIF result carries a
+# `suppressions` array (SARIF 2.1.0 §3.27.23) — semgrep's `# nosemgrep` is the only
+# mechanism in this repo that produces one. Trivy does not emit suppressions; it
+# drops ignored findings from its output entirely, which is what this file does.
+KSV-0040
+KSV0040
+AVD-KSV-0040

@@ -1,0 +1,246 @@
+# kics-scan disable=dd29336b-fe57-445b-a26e-e6aa867ae609,5572cc5e-1e4c-4113-92a6-7a8a3bd25e6d,dbbc6705-d541-43b0-b166-dd4be8208b54,268ca686-7fb7-4ae9-b129-955a2a89064e,cf34805e-3872-4c08-bf92-6ff7bb0cfadb,02323c00-cdc3-4fdc-a310-4f2b3e7a1660,a9c2f49d-0671-4fc9-9ece-f4e261e128d0,f377b83e-bd07-4f48-a591-60c82b14a78b,4ac0e2b7-d2d2-4af7-8799-e8de6721ccda,583053b7-e632-46f0-b989-f81ff8045385,7c81d34c-8e5a-402b-9798-9f442630e678,a659f3b5-9bf0-438a-bd9a-7d3a6427f1e3,ade74944-a674-4e00-859e-c6eab5bde441,8b36775e-183d-4d46-b0f7-96a6f34a723f,4a20ebac-1060-4c81-95d1-1f7f620e983b,48a5beba-e4c0-4584-a2aa-e6894e4cf424,1db3a5a5-bf75-44e5-9e44-c56cfc8b1ac5,3e2d3b2f-c22a-4df1-9cc6-a7a0aebb0c99
+# Accepted Chargate/KICS findings for this privileged docker-in-docker CI runner — the
+# same set the other three scale sets carry. See
+# ../firefly/helmrelease-runner-set-arm64.yaml for the per-rule justification.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: arc-franklinhouse-amd64
+  namespace: arc-runners
+spec:
+  interval: 30m
+  releaseName: arc-franklinhouse-amd64
+  dependsOn:
+    - name: arc
+      namespace: arc-systems
+  chart:
+    spec:
+      chart: gha-runner-scale-set
+      version: "0.14.2"
+      sourceRef:
+        kind: HelmRepository
+        name: actions-runner-controller-charts
+        namespace: flux-system
+      interval: 30m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    githubConfigUrl: https://github.com/magmamoose
+    githubConfigSecret: arc-github-app # kics-scan ignore-line - Secret NAME reference, not a credential
+    runnerGroup: default
+    runnerScaleSetName: franklinhouse-amd64
+
+    # See the fuller label note in ./helmrelease-runner-set-arm64.yaml.
+    #   franklinhouse-amd64 — unique name; pins a job to THIS cluster's amd64 pool.
+    #   pool-amd64          — shared with firefly-amd64.
+    #   pool-self-hosted    — carried by all four scale sets.
+    scaleSetLabels:
+      - franklinhouse-amd64
+      - pool-amd64
+      - pool-self-hosted
+
+    minRunners: 0
+    # ONE, not two. The amd64 tier here is the on-prem Proxmox workers, which also hold
+    # the app workloads AND the CNPG Postgres volumes (local-path, node-pinned, no
+    # backups — see docs/reference/franklinhouse.md). Only fh-worker-vm3 is currently
+    # Ready at all; two hosts are down. A second concurrent CI job on that hardware is
+    # how you OOM the node that holds the database. Raise it once the cluster is whole
+    # and the memory headroom has actually been measured.
+    maxRunners: 1
+
+    containerMode: {}
+
+    controllerServiceAccount:
+      namespace: arc-systems
+      name: arc-gha-rs-controller
+
+    listenerTemplate:
+      spec:  # nosemgrep: yaml.kubernetes.security.run-as-non-root.run-as-non-root
+        nodeSelector:
+          node-role: apps
+        # NO priorityClassName — franklinhouse has only the built-in system-* classes;
+        # naming a non-existent PriorityClass makes the pod unschedulable. See the note
+        # in ./helmrelease-runner-set-arm64.yaml.
+        containers:
+          - name: listener
+            resources:
+              requests:
+                cpu: 20m
+                memory: 64Mi
+              limits:
+                memory: 192Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              runAsNonRoot: true
+              capabilities:
+                drop: ["ALL"]
+
+    template:
+      spec:  # nosemgrep: yaml.kubernetes.security.run-as-non-root.run-as-non-root
+        # The on-prem Proxmox workers, which use franklinhouse's bare `node-role` key
+        # rather than the `topology.sargeant.co/tier` label the OCI pair carries.
+        nodeSelector:
+          node-role: apps
+          kubernetes.io/arch: amd64
+
+        # Kept even at maxRunners: 1 so that raising maxRunners later cannot silently
+        # stack two dind pods onto one worker.
+        affinity:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    actions.github.com/scale-set-name: franklinhouse-amd64
+        restartPolicy: Never
+
+        initContainers:
+          - name: init-dind-externals
+            image: ghcr.io/actions/actions-runner:2.336.0
+            command: ["cp"]
+            args: ["-r", "/home/runner/externals/.", "/home/runner/tmpDir/"]
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            volumeMounts:
+              - name: dind-externals
+                mountPath: /home/runner/tmpDir
+
+          - name: install-dotnet
+            image: mcr.microsoft.com/dotnet/sdk:8.0
+            command: ["sh", "-c", "cp -a /usr/share/dotnet/. /opt/dotnet/"]
+            securityContext:
+              runAsUser: 0
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            volumeMounts:
+              - name: dotnet
+                mountPath: /opt/dotnet
+
+          - name: install-gh
+            image: ghcr.io/actions/actions-runner:2.336.0
+            command: ["bash", "-c"]
+            args:
+              - |
+                set -euo pipefail
+                GH_VERSION=2.96.0
+                case "$(uname -m)" in
+                  x86_64)  GH_ARCH=amd64 ;;
+                  aarch64) GH_ARCH=arm64 ;;
+                  *)       echo "unsupported arch $(uname -m)" >&2; exit 1 ;;
+                esac
+                curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${GH_ARCH}.tar.gz" -o /tmp/gh.tar.gz
+                tar -xzf /tmp/gh.tar.gz -C /tmp
+                install -m 0755 "/tmp/gh_${GH_VERSION}_linux_${GH_ARCH}/bin/gh" /opt/gh/gh
+                /opt/gh/gh --version
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                memory: 128Mi
+            volumeMounts:
+              - name: gh
+                mountPath: /opt/gh
+
+          - name: dind
+            image: docker:29.7.1-dind
+            args:
+              - dockerd
+              - --host=unix:///var/run/docker.sock
+              - --group=$(DOCKER_GROUP_GID)
+              - --mtu=1450
+            env:
+              - name: DOCKER_GROUP_GID
+                value: "123"
+            restartPolicy: Always
+            securityContext:
+              privileged: true
+            startupProbe:
+              exec:
+                command: ["docker", "info"]
+              initialDelaySeconds: 0
+              failureThreshold: 24
+              periodSeconds: 5
+            resources:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                # 4Gi, NOT the 6Gi the OCI pool gets: this lands on a worker that is also
+                # running the app workloads and a Postgres primary. Limits are not
+                # scheduler-reserved, so an over-generous cap here is a node OOM, not a
+                # scheduling failure (COMMON_MISTAKES #14).
+                memory: 4Gi
+            volumeMounts:
+              - name: work
+                mountPath: /home/runner/_work
+              - name: dind-sock
+                mountPath: /var/run
+              - name: dind-externals
+                mountPath: /home/runner/externals
+
+        containers:
+          - name: runner  # nosemgrep: yaml.kubernetes.security.allow-privilege-escalation-no-securitycontext.allow-privilege-escalation-no-securitycontext,yaml.kubernetes.security.writable-filesystem-container.writable-filesystem-container
+            image: ghcr.io/actions/actions-runner:2.336.0
+            command: ["/home/runner/run.sh"]
+            env:
+              - name: DOCKER_HOST
+                value: unix:///var/run/docker.sock
+              - name: RUNNER_WAIT_FOR_DOCKER_IN_SECONDS
+                value: "120"
+              - name: DOTNET_ROOT
+                value: /opt/dotnet
+              - name: DOTNET_CLI_TELEMETRY_OPTOUT
+                value: "1"
+              - name: DOTNET_NOLOGO
+                value: "1"
+              - name: PATH
+                value: "/opt/gh:/opt/dotnet:/opt/dotnet/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                memory: 2Gi
+            volumeMounts:
+              - name: work
+                mountPath: /home/runner/_work
+              - name: dind-sock
+                mountPath: /var/run
+              - name: dotnet
+                mountPath: /opt/dotnet
+              - name: gh
+                mountPath: /opt/gh
+
+        volumes:
+          - name: work
+            emptyDir:
+              sizeLimit: 10Gi
+          - name: dind-sock
+            emptyDir: {}
+          - name: dind-externals
+            emptyDir: {}
+          - name: dotnet
+            emptyDir: {}
+          - name: gh
+            emptyDir: {}

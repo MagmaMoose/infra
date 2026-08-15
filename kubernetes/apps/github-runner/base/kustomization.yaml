@@ -1,16 +1,20 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+# CLUSTER-NEUTRAL. Everything here is identical on firefly and franklinhouse: the
+# namespaces, the chart repo, the ExternalSecret that projects the shared MagmaMoose
+# GitHub App, and the one ARC controller. Nothing in this directory may name a cluster,
+# a node label, a PriorityClass or a scale set — those belong in the per-cluster
+# overlays (../firefly, ../franklinhouse), which each include this base.
+#
+# The scale sets used to live here. They moved out when franklinhouse gained its own
+# runners: a scale set carries a cluster-unique name, cluster-specific placement and
+# node-sized resource limits, so keeping them in a "base" that two clusters share would
+# have meant one cluster silently inheriting the other's node selectors.
 resources:
   - namespace.yaml
   - helmrepository.yaml
   - externalsecret.yaml
   - helmrelease-controller.yaml
-  # Two scale sets, one controller. `firefly` (arm64, ff-oci1 + ff-oci2, max 2) is the
-  # DEFAULT pool that the org variable points at; `firefly-amd64` (ff-vm1, max 1) is the
-  # opt-in escape hatch for jobs that cannot run on arm64. The two files are deliberately
-  # near-identical — diff them when changing either, and keep the shared blocks in sync.
-  - helmrelease-runner-set.yaml
-  - helmrelease-runner-set-amd64.yaml
 # NO kustomize `labels:` block, deliberately — and this is the opposite of what the
 # retired StatefulSet needed. Every workload here is rendered by a Helm chart, so a
 # `placement.sargeant.co/tier` label would land on the HelmRelease, which none of the
