@@ -7,7 +7,7 @@ kind: HelmRelease
 metadata:
   name: arc-franklinhouse-amd64
   namespace: arc-runners
-spec:  # trivy:ignore:KSV0040
+spec:
   interval: 30m
   releaseName: arc-franklinhouse-amd64
   dependsOn:
