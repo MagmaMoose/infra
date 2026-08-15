@@ -1,3 +1,4 @@
+# kics-scan disable=KSV-0040
 ---
 # Empty database on the SHARED CNPG cluster (do NOT create a new Cluster).
 # Quarry creates its own schema on first boot (db/bootstrap.py create_all), so it

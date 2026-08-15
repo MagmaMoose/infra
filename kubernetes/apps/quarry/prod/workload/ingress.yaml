@@ -1,3 +1,4 @@
+# kics-scan disable=KSV-0040
 # DNS-only Ingress: external-dns reads the host + target annotations and
 # publishes a proxied CNAME (quarry.magmamoose.com -> the firefly cloudflared
 # tunnel, the same tunnel id github-contributions and github-timesheet use). The

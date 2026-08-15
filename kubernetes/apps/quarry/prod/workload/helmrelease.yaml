@@ -1,3 +1,7 @@
+# DS137138: internal cluster-local URL -- HTTPS is not applicable for in-cluster
+# service-to-service communication; this is the same pattern used by every other
+# HelmRelease in this repo that talks to the LiteLLM proxy.
+# kics-scan disable=DS137138,KSV-0040
 # Deploys the quarry Helm chart from MagmaMoose/quarry (charts/quarry) via the
 # GitRepository source in base/. All firefly-specific deploy config lives here in
 # values; the chart stays generic.

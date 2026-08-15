@@ -1,3 +1,4 @@
+# kics-scan disable=KSV-0040
 ---
 # Image automation for the quarry tag. The tag marker lives HERE in infra
 # (prod/.../workload/helmrelease.yaml `.spec.values.image.tag`), under

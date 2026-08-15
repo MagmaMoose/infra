@@ -3,6 +3,12 @@
 # (which provably pulls ghcr.io/magmamoose/*). Paired with the SecretStore +
 # ExternalSecret in the workload's ghcr-pull-secret.yaml. Mirrors
 # github-contributions / github-timesheet / nievah / caldrith.
+#
+# Chargate/KICS suppressions: this Role's purpose is to read one Secret; the
+# checks flag every RBAC rule that touches `secrets`, which is what we explicitly
+# want here. The grant is scoped -- resourceNames limits it to a single Secret,
+# and the subject is a single SA in one namespace.
+# kics-scan disable=b7bca5c4-1dab-4c2c-8cbe-3050b9d59b14,056ac60e-fe07-4acc-9b34-8e1d51716ab9
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -14,7 +20,6 @@ rules:
     resourceNames: ["ghcr-pull-secret"]
     # Already scoped to a single named secret (resourceNames above); ExternalSecrets
     # needs get to resolve the ghcr-pull-secret into the workload namespace.
-    # kics-scan ignore-line
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

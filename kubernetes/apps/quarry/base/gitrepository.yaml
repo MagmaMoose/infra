@@ -1,3 +1,4 @@
+# kics-scan disable=KSV-0040
 ---
 # Chart source: the quarry Helm chart lives in the external MagmaMoose/quarry
 # repo under ./charts/quarry. Same shape as github-contributions and

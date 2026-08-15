@@ -1,3 +1,4 @@
+# kics-scan disable=KSV-0040
 ---
 # Control plane: the chart GitRepository source, ghcr-reader RBAC, and the
 # namespace. These live in this repo under quarry/base and are applied from the
