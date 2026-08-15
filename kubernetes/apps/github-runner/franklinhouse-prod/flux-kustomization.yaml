@@ -14,8 +14,15 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  # Three Helm installs (controller + two scale sets), one of which lays down four CRDs
-  # and waits on a controller Deployment.
+  # ONE Helm install today (the controller), which lays down four CRDs and waits on a
+  # controller Deployment. Both scale sets are held out of the overlay until franklinhouse
+  # has capacity for them — see the deployment gate in ../franklinhouse/kustomization.yaml.
+  # Restore "three Helm installs" here when both are re-added.
+  #
+  # `wait: true` is what turned an unschedulable controller pod into a Stalled
+  # HelmRelease rather than a silent no-op, so it stays: with these two scale sets
+  # depending on the controller, a controller that is Ready-in-name-only is worse than a
+  # loud failure.
   timeout: 10m
   wait: true
   # base/externalsecret.yaml needs external-secrets reconciling before it can produce

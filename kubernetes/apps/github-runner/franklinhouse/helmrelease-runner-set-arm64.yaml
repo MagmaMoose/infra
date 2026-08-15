@@ -105,10 +105,16 @@ spec:
 
     template:
       spec:  # nosemgrep: yaml.kubernetes.security.run-as-non-root.run-as-non-root
-        # fh-oci1 / fh-oci2 — the OCI Johannesburg arm64 pair, labelled at k3s join with
-        # `topology.sargeant.co/tier=native-cloud` (the same key firefly uses). The arch
-        # pin is explicit rather than implied by the tier, so a job landing on an
-        # unexpected arch is a scheduling error instead of a confusing runtime failure.
+        # fh-oci1 / fh-oci2 — the OCI Johannesburg arm64 pair. NEITHER NODE EXISTS YET:
+        # franklinhouse is six amd64 Proxmox VMs today and carries no
+        # `topology.sargeant.co/*` label at all, which is why this whole file is held out
+        # of ../franklinhouse/kustomization.yaml. The two machines must join labelled
+        # `topology.sargeant.co/tier=native-cloud` (the same key firefly uses) before this
+        # selector means anything — confirm with
+        # `kubectl get nodes -L topology.sargeant.co/tier,kubernetes.io/arch`, then re-add
+        # the resource line. The arch pin is explicit rather than implied by the tier, so
+        # a job landing on an unexpected arch is a scheduling error instead of a confusing
+        # runtime failure.
         #
         # NOTE the on-prem workers use bare `node-role=apps`, NOT this key — the tier
         # label is carried only by the cloud pair, which is what keeps CI off the
