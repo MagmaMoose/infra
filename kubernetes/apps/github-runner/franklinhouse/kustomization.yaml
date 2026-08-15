@@ -1,7 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# franklinhouse's ARC overlay: the shared, cluster-neutral pieces from ../base plus this
-# cluster's two scale sets.
+# franklinhouse's ARC overlay: currently the shared, cluster-neutral pieces from ../base
+# and NOTHING ELSE. Both scale sets are written and ready but deliberately NOT deployed —
+# see the gate below.
 #
 #   franklinhouse-arm64 — fh-oci1 + fh-oci2, the OCI Johannesburg pair (max 2)
 #   franklinhouse-amd64 — the on-prem Proxmox workers (max 1, deliberately — they hold
@@ -12,8 +13,36 @@ kind: Kustomization
 # spell it identically.
 resources:
   - ../base
-  - helmrelease-runner-set-arm64.yaml
-  - helmrelease-runner-set-amd64.yaml
+  # ---------------------------------------------------------------------------------
+  # DEPLOYMENT GATE — do not re-add either line until the hardware below actually exists.
+  #
+  # Every scale set here advertises `pool-self-hosted`, which is the org-wide, arch-
+  # agnostic pool that BOTH clusters serve. A registered scale set acquires jobs from that
+  # pool the moment its listener starts, and it acquires them whether or not it can
+  # schedule a runner pod. So a scale set pointed at absent capacity does not fail
+  # visibly — it silently swallows other people's CI, exactly the shape of
+  # COMMON_MISTAKES #20, and the blast radius is every private repo in the org.
+  #
+  # This is why the arc controller being unschedulable (fixed below) was the SAFE
+  # failure: with it broken, neither scale set could register at all.
+  #
+  #   helmrelease-runner-set-arm64.yaml
+  #     Blocked on hardware that does not exist yet. franklinhouse has no arm64 node and
+  #     no `topology.sargeant.co/tier` label of any kind — it is six amd64 Proxmox VMs.
+  #     The file targets `topology.sargeant.co/tier: native-cloud` on an fh-oci1/fh-oci2
+  #     pair that is planned but not yet provisioned. Re-add this line once those two
+  #     machines have joined and carry that label; verify with
+  #     `kubectl get nodes -L topology.sargeant.co/tier,kubernetes.io/arch` first.
+  #
+  #   helmrelease-runner-set-amd64.yaml
+  #     Placement is CORRECT (`node-role: apps` + amd64) — this one is blocked purely on
+  #     capacity. The runner pod requests 350m/960Mi and the only Ready worker,
+  #     fh-worker-vm3, is the smallest of the three (2 CPU / 1967Mi allocatable) and is
+  #     already ~71% memory-requested, leaving ~553Mi. Both larger workers are NotReady:
+  #     fh-worker-vm1 (6 CPU / 58Gi) and fh-worker-vm2 (2 CPU / 25Gi). Re-add this line
+  #     once one of them is back — `kubectl describe node <n> | grep -A8 'Allocated'` must
+  #     show ≥960Mi of unrequested memory, not merely a Ready node.
+  # ---------------------------------------------------------------------------------
 
 # Placement for the shared ARC controller, which ../base deliberately leaves unset.
 #
@@ -22,9 +51,31 @@ resources:
 # exist makes the pod unschedulable outright. Add `medium` here the day those classes are
 # created on this cluster, not before.
 #
-# The controller lands on the OCI pair (fh-oci1/fh-oci2) rather than the on-prem workers:
-# it is small, always-on, and keeping it off the Proxmox nodes leaves their memory for the
-# app workloads and the Postgres primaries.
+# The controller lands on the SYSTEM tier (fh-system-vm1/2/3), which is where every other
+# franklinhouse platform controller lives — Traefik, external-secrets and the Flux
+# controllers are all pinned there. It is small (25m/96Mi) and always-on, so it belongs
+# with the control plane rather than competing with app workloads for worker memory.
+#
+# This originally read `topology.sargeant.co/tier: native-cloud`, copied from firefly's
+# sibling patch, and that was a hard outage: franklinhouse carries NO
+# `topology.sargeant.co/*` label on any node, so the Deployment applied cleanly and the
+# pod was simply refused. Helm then blocked on a rollout that could never complete, failed
+# with `context deadline exceeded`, exhausted its four retries and went `Stalled` — which
+# took both scale sets down with it via `dependency 'arc-systems/arc' is not ready`.
+# A nodeSelector is only real if it names a label the TARGET cluster actually has
+# (COMMON_MISTAKES #16/#18); `kubectl get nodes --show-labels` is the one-command check.
+#
+# nodeSelector + tolerations must travel TOGETHER here. franklinhouse's system nodes are
+# tainted `node-role.kubernetes.io/control-plane=true:NoSchedule`, so selecting them
+# without tolerating that taint just reproduces the unschedulable pod in a new disguise.
+# This mirrors components/node-selectors/franklinhouse-system, which exists for exactly
+# this pairing but cannot be used here: it patches `kind: Deployment`, and this workload
+# is rendered by a Helm chart, so the values are the only reachable surface.
+#
+# Still nodeSelector ONLY — no priorityClassName, unlike firefly's sibling patch.
+# franklinhouse defines only the two built-in system-* PriorityClasses, and naming one
+# that does not exist makes the pod unschedulable outright. Add `medium` here the day
+# those classes are created on this cluster, not before.
 #
 # A `patches:` target that matches NOTHING fails silently (COMMON_MISTAKES #17).
 patches:
@@ -36,4 +87,11 @@ patches:
       - op: add
         path: /spec/values/nodeSelector
         value:
-          topology.sargeant.co/tier: native-cloud
+          node-role: system
+      - op: add
+        path: /spec/values/tolerations
+        value:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Equal
+            value: "true"
+            effect: NoSchedule
