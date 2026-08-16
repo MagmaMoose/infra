@@ -437,9 +437,43 @@ spec:
               limits:
                 # No CPU limit (repo convention). Headroom for the agent plus the
                 # checked-out job itself; the heavy container work happens in dind.
-                # 1Gi rather than the amd64 pool's 2Gi — same reasoning as the dind limit
-                # above: the pod's worst case has to fit what ff-oci2 actually has free.
-                memory: 1Gi
+                #
+                # 2Gi, matching the amd64 pool. This was 1Gi, and 1Gi is what every
+                # long job on this pool has been dying against:
+                #
+                #   kubectl -n arc-runners get pod <runner> -o json
+                #     container: runner   limits.memory: 1Gi
+                #     terminated: exitCode 137
+                #
+                # 137 is SIGKILL — the kernel OOM-killing the RUNNER container, not
+                # dind. GitHub cannot tell an OOM-killed agent from a dead machine, so
+                # it reports "The self-hosted runner lost communication with the
+                # server", which reads as a network or node fault and sends you looking
+                # at the node. The node was fine: ff-oci1 was at 31% real usage while
+                # its runner was being killed.
+                #
+                # The tell is which jobs fail. Short, light ones (ci, build) always
+                # pass; the ones that die are the long ones — Chargate at ~12 min,
+                # Diatreme at ~17 — and they die PART WAY IN rather than at startup.
+                # Five failures across four dunmir PRs on 2026-08-16, every one of them
+                # this, none of them a real finding.
+                #
+                # The 1Gi note this replaces said the pod's worst case "has to fit what
+                # ff-oci2 actually has free", which conflates a limit with a
+                # reservation — the very thing COMMON_MISTAKES #14 is about, applied
+                # backwards. Limits are NOT scheduler-reserved: `requests` (256Mi,
+                # unchanged) is what has to fit, and a higher ceiling costs zero
+                # schedulable capacity. What a lower ceiling buys is not safety for the
+                # node, it is a guaranteed kill of any job that crosses it.
+                #
+                # The pod's worst case does go 5Gi -> 6Gi (4Gi dind + this), and that
+                # ceiling is above what ff-oci2 has free today. That was already true
+                # at 5Gi. It is a ceiling, not an allocation, and the anti-affinity
+                # above keeps the two runners on separate nodes; ff-oci1 (31% used) is
+                # where the headroom is. If node pressure ever does materialise, lower
+                # maxRunners — do not re-lower this, or the OOMs come straight back
+                # wearing the same misleading message.
+                memory: 2Gi
             volumeMounts:
               - name: work
                 mountPath: /home/runner/_work
