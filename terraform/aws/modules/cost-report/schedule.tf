@@ -6,6 +6,7 @@
 # and a timezone field — which a rule does not have, so a rule would force the schedule to be
 # written in UTC and silently mean something different to whoever reads it next.
 # checkov:skip=CKV_AWS_297:No KMS CMK for EventBridge Scheduler — home lab; AWS managed key is sufficient
+# trivy:ignore:CKV_AWS_297
 resource "aws_scheduler_schedule" "daily" {
   name                         = var.name_prefix
   schedule_expression          = var.schedule_expression

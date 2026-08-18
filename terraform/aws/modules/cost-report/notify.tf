@@ -3,6 +3,7 @@
 
 # checkov:skip=CKV_AWS_26:No KMS CMK for SNS — home lab; AES256 default encryption is sufficient
 # trivy:ignore:AVD-AWS-0095
+# trivy:ignore:CKV_AWS_26
 resource "aws_sns_topic" "cost" {
   name = var.name_prefix
 }
@@ -42,6 +43,7 @@ resource "aws_iam_role" "chatbot" {
 # pre-rendered in the SNS payload, so Chatbot needs to read nothing at all to deliver it; the
 # CloudWatch reads below exist only so the error alarm renders with its metric graph.
 # checkov:skip=CKV_AWS_355:CloudWatch Describe/Get/List actions do not support resource-level restrictions
+# trivy:ignore:CKV_AWS_355
 resource "aws_iam_role_policy" "chatbot" {
   count = var.slack_workspace_id == "" ? 0 : 1
   name  = "${var.name_prefix}-chatbot"

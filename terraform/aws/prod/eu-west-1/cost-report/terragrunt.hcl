@@ -76,9 +76,8 @@ inputs = {
   region      = local.region_vars.locals.region
   environment = local.environment_vars.locals.environment
 
-  # 07:00 UTC daily. The report covers the previous day, and Cost Explorer has settled the
-  # prior day well before this — CE finalises within a few hours of midnight UTC, and the
-  # figures are marked Estimated until the bill closes either way.
+  # 07:00 UTC daily. The report covers the previous day, and CUR has settled by this time —
+  # AWS writes the daily export within a few hours of midnight UTC.
   schedule_expression = "cron(0 7 * * ? *)"
   schedule_timezone   = "UTC"
 

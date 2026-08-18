@@ -420,9 +420,14 @@ def handler(event, context):  # noqa: ARG001 - Lambda signature
     # forecast against it are AWS's numbers, and re-deriving them from line items would be
     # guessing at limits AWS already publishes. GetFreeTierUsage is free to call.
     try:
-        usages = boto3.client("freetier", region_name=FREETIER_REGION).get_free_tier_usage().get(
-            "freeTierUsages", []
-        )
+        ft = boto3.client("freetier", region_name=FREETIER_REGION)
+        usages, token = [], None
+        while True:
+            resp = ft.get_free_tier_usage(**{"nextToken": token} if token else {})
+            usages += resp.get("freeTierUsages", [])
+            token = resp.get("nextToken")
+            if not token:
+                break
         ft_title, ft_body = build_freetier_report(usages, usage, names, today)
         _publish(sns, topic_arn, ft_title, ft_body)
     except Exception:  # noqa: BLE001 - the cost report is already out; do not lose it too

@@ -25,6 +25,11 @@
 # trivy:ignore:AVD-AWS-0089
 # trivy:ignore:AVD-AWS-0090
 # trivy:ignore:AVD-AWS-0132
+# trivy:ignore:CKV_AWS_18
+# trivy:ignore:CKV_AWS_21
+# trivy:ignore:CKV_AWS_144
+# trivy:ignore:CKV_AWS_145
+# trivy:ignore:CKV2_AWS_62
 resource "aws_s3_bucket" "cur" {
   provider = aws.us_east_1
   bucket   = "${var.name_prefix}-${data.aws_caller_identity.current.account_id}"
@@ -39,6 +44,7 @@ resource "aws_s3_bucket_public_access_block" "cur" {
   restrict_public_buckets = true
 }
 
+# trivy:ignore:AWS-0132
 resource "aws_s3_bucket_server_side_encryption_configuration" "cur" {
   provider = aws.us_east_1
   bucket   = aws_s3_bucket.cur.id

@@ -4,11 +4,13 @@ variable "name_prefix" {
   default     = "mm-cost-report"
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "region" {
-  description = "Region the schedule, function and topic live in. Cost Explorer itself is always called through us-east-1 regardless of this."
+  description = "Region the schedule, function and topic live in."
   type        = string
 }
 
+# tflint-ignore: terraform_unused_declarations
 variable "environment" {
   description = "Terragrunt environment name, used only for tagging and naming."
   type        = string

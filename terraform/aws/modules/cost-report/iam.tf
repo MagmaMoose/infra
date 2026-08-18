@@ -22,11 +22,9 @@ resource "aws_iam_role" "report" {
   })
 }
 
-# Cost Explorer and Organizations do not support resource-level permissions on these actions —
+# Organizations and Free Tier do not support resource-level permissions on these read actions —
 # the API is account-scoped and there is no ARN to name — so "*" is not laziness here, it is
-# the only form the actions accept. `ce:GetCostAndUsage` is the single Cost Explorer call the
-# handler makes; no forecast, no recommendations, no rightsizing, all of which cost money per
-# request where GetCostAndUsage does not.
+# the only form the actions accept. S3 access is scoped to the export bucket by ARN.
 # checkov:skip=CKV_AWS_355:organizations/freetier read actions do not support resource-level restrictions
 resource "aws_iam_role_policy" "report" {
   name = var.name_prefix
