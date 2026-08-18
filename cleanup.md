@@ -452,7 +452,7 @@ description: "Non-essential: dashboards, reporting, background jobs. Restartable
 
 ### Terragrunt GitHub Workflow Atlantis Replacement Example
 
-The below monstrosity should rather be put into magmamoose/tremvok (needs a new name), where it'll become a marketplace action for infrastructure deployments, much like how Diateme was created for Release Management. Then this infra repo must consume/call the Marketplace/Composite GitHub Action.
+The below monstrosity should rather be put into a dedicated repo (name TBD — the retired Sitnalta slot was earmarked for this), where it'll become a marketplace action for infrastructure deployments, much like how Diateme was created for Release Management. Then this infra repo must consume/call the Marketplace/Composite GitHub Action.
 
 ```yaml
 name: Terragrunt
