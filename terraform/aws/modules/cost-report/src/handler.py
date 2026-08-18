@@ -176,7 +176,7 @@ def read_cur(s3, bucket: str, prefix: str) -> tuple[dict, dict]:
                     totals[((row.get(COL_DATE) or "")[:10], acct, row.get(COL_SERVICE) or "unknown")] += cost
 
     logger.info("read %d CUR object(s) under %s, %d nonzero rows", objects, prefix, len(totals))
-    return dict(totals), {k: dict(v) for k, v in usage.items()}
+    return dict(totals), {k: dict(v) for k, v in usage.items()}, objects
 
 
 def build_report(rows: dict, names: dict[str, str], today: dt.date, delivered: bool) -> tuple[str, str]:
@@ -397,13 +397,13 @@ def handler(event, context):  # noqa: ARG001 - Lambda signature
     # client, the redirect costs a round trip on every object and fails outright for some
     # request shapes. Naming it is cheaper than relying on the fallback.
     s3 = boto3.client("s3", region_name=os.environ.get("CUR_BUCKET_REGION") or None)
-    rows, usage = read_cur(s3, bucket, _data_prefix(prefix, export_name, today))
+    rows, usage, objects = read_cur(s3, bucket, _data_prefix(prefix, export_name, today))
 
     # A new billing period starts empty: on the 1st, yesterday belongs to LAST month's file,
     # so that period has to be read too or the first of every month reports nothing.
     if today.day <= 2:
         last_month = today.replace(day=1) - dt.timedelta(days=1)
-        older, older_usage = read_cur(s3, bucket, _data_prefix(prefix, export_name, last_month))
+        older, older_usage, _ = read_cur(s3, bucket, _data_prefix(prefix, export_name, last_month))
         rows |= older
         for k, v in older_usage.items():
             usage.setdefault(k, {})
@@ -413,7 +413,7 @@ def handler(event, context):  # noqa: ARG001 - Lambda signature
     names = _account_names(boto3.client("organizations", region_name=ORG_REGION))
     sns = boto3.client("sns")
 
-    cost_title, cost_body = build_report(rows, names, today, delivered=bool(rows))
+    cost_title, cost_body = build_report(rows, names, today, delivered=objects > 0)
     _publish(sns, topic_arn, cost_title, cost_body)
 
     # Free-tier usage comes from its own API rather than from CUR: the ALLOWANCE and the
