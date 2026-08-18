@@ -75,18 +75,34 @@ inputs = {
   # Empty until DNS is decided: the distribution's own *.cloudfront.net name works, and the
   # GitHub App's webhook URL is one field to repoint later. A hostname here also needs an ACM
   # certificate in us-east-1, which CloudFront reads from that region regardless of this one.
-  domain_name     = ""
-  certificate_arn = ""
+  # A clean hostname for the GitHub App's webhook URL. The module requests its own REGIONAL
+  # ACM certificate (see api.tf); `certificate_arn` is only for reusing one managed elsewhere.
+  #
+  # TWO-PHASE, because the DNS validation record lives in another Terraform state
+  # (terraform/cloudflare/dns-magmamoose/prod — a Cloudflare zone is a hard provider boundary).
+  # Phase 1 requested the certificate and printed the CNAME; that record is now in the
+  # Cloudflare leaf, the certificate is ISSUED, so phase 2 can create the domain and mapping.
+  domain_name          = "hooks.nievah.magmamoose.com"
+  certificate_arn      = ""
+  enable_custom_domain = true
 
   # FALSE until k8s/base/cronjob.yaml's two CronJobs are suspended in MagmaMoose/nievah.
   # Both firing means two planner runs with different ARQ job ids that `unique=True` will not
   # collapse — duplicate issues. Suspend first, then flip this. The other order is the bug.
   enable_ticks = false
 
-  # Alarms. AWS Chatbot needs a one-time OAuth handshake in its console that Terraform cannot
-  # perform; until then, leave the workspace empty and the ops topic simply has no subscriber
-  # beyond the email.
-  ops_email          = ""
+  # ── Where the alarms and the budget go ──────────────────────────────────────────────────
+  #
+  # Email is set because an alarm nobody receives is worse than no alarm, and this stack's
+  # budget guard is the thing standing between an abusive burst and a personally-funded bill.
+  # AWS sends a confirmation link once; until it is clicked the subscription is pending and
+  # delivers nothing, which Terraform reports as "created" either way.
+  ops_email = "caleb@magmamoose.com"
+
+  # Slack #finance. The CHANNEL id is known; the WORKSPACE id is not, because AWS Chatbot
+  # requires a one-time OAuth handshake in its console before a workspace exists to reference
+  # and Terraform cannot perform it. Do that once (AWS Chatbot -> Configure new client ->
+  # Slack), paste the team id here, and this wires itself. Chatbot is free.
   slack_workspace_id = ""
-  slack_channel_id   = ""
+  slack_channel_id   = "C08BHHDGC0K"
 }

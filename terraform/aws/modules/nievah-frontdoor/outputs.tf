@@ -59,3 +59,32 @@ output "cluster_secret_access_key" {
   value       = aws_iam_access_key.cluster.secret
   sensitive   = true
 }
+
+# --- custom domain, phase by phase ----------------------------------------------------------
+
+# Phase 1: the CNAME that proves domain ownership to ACM. Add it to
+# terraform/cloudflare/dns-magmamoose/prod, DNS-only (grey cloud) — a proxied record answers
+# with Cloudflare's own value and validation never completes.
+output "certificate_validation_record" {
+  description = "name/value CNAME to add to Cloudflare so ACM can issue the certificate."
+  value = var.localstack || var.domain_name == "" ? null : {
+    name  = tolist(aws_acm_certificate.producer[0].domain_validation_options)[0].resource_record_name
+    value = tolist(aws_acm_certificate.producer[0].domain_validation_options)[0].resource_record_value
+    type  = tolist(aws_acm_certificate.producer[0].domain_validation_options)[0].resource_record_type
+  }
+}
+
+output "certificate_arn" {
+  description = "The requested certificate. Watch it reach ISSUED before enable_custom_domain."
+  value       = var.localstack || var.domain_name == "" ? "" : aws_acm_certificate.producer[0].arn
+}
+
+# Phase 2: what the hostname itself should CNAME to. NOT the execute-api hostname — that one
+# serves a certificate for *.execute-api.<region>.amazonaws.com and routes on the Host header,
+# so pointing a custom name at it fails the TLS handshake before any request is made.
+output "custom_domain_target" {
+  description = "CNAME target for domain_name. Empty until enable_custom_domain is true."
+  value = var.localstack || var.domain_name == "" || !var.enable_custom_domain ? "" : (
+    aws_apigatewayv2_domain_name.producer[0].domain_name_configuration[0].target_domain_name
+  )
+}

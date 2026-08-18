@@ -109,21 +109,58 @@ resource "aws_lambda_permission" "api" {
 # REGIONAL certificate, in this region. That is the quiet win over the CloudFront design,
 # which needed one in us-east-1 and therefore a second provider alias.
 resource "aws_apigatewayv2_domain_name" "producer" {
-  count = var.localstack || var.domain_name == "" ? 0 : 1
+  count = var.localstack || var.domain_name == "" || !var.enable_custom_domain ? 0 : 1
 
   domain_name = var.domain_name
 
   domain_name_configuration {
-    certificate_arn = var.certificate_arn
+    # The certificate this module requested, unless one is supplied explicitly (an existing
+    # certificate, or one managed elsewhere).
+    certificate_arn = var.certificate_arn != "" ? var.certificate_arn : aws_acm_certificate.producer[0].arn
     endpoint_type   = "REGIONAL"
     security_policy = "TLS_1_2"
   }
 }
 
 resource "aws_apigatewayv2_api_mapping" "producer" {
-  count = var.localstack || var.domain_name == "" ? 0 : 1
+  count = var.localstack || var.domain_name == "" || !var.enable_custom_domain ? 0 : 1
 
   api_id      = aws_apigatewayv2_api.producer[0].id
   domain_name = aws_apigatewayv2_domain_name.producer[0].id
   stage       = aws_apigatewayv2_stage.producer[0].id
+}
+
+# --- the certificate for the custom domain ---------------------------------------------------
+#
+# REGIONAL, in this region. The CloudFront design this replaced needed one in us-east-1 and
+# therefore a second provider alias; that is gone.
+#
+# TWO-PHASE ON PURPOSE, because DNS validation lives in a different Terraform state
+# (terraform/cloudflare/dns-magmamoose/prod — a Cloudflare zone is a hard provider boundary).
+# A single apply cannot create the certificate, write its validation record into another
+# leaf's zone, and wait for issuance. So:
+#
+#   1. set `domain_name`, leave `enable_custom_domain` false -> the certificate is requested
+#      and `certificate_validation_record` names the CNAME to add
+#   2. add that CNAME to the Cloudflare leaf and apply it; ACM issues within minutes
+#   3. set `enable_custom_domain` true -> the API Gateway domain and mapping are created
+#   4. CNAME the hostname at `custom_domain_target` from the same Cloudflare leaf
+#
+# Setting `enable_custom_domain` before the certificate reaches ISSUED fails the apply with a
+# BadRequestException naming the certificate, which is a clear error rather than a broken
+# endpoint — but it is still a wasted round trip, hence the flag rather than a guess.
+#
+# Public ACM certificates are free, and an API Gateway custom domain carries no additional
+# charge, so none of this moves the bill.
+resource "aws_acm_certificate" "producer" {
+  count = var.localstack || var.domain_name == "" ? 0 : 1
+
+  domain_name       = var.domain_name
+  validation_method = "DNS"
+
+  lifecycle {
+    # ACM cannot change a certificate's domain in place. Without this, editing `domain_name`
+    # destroys the certificate the live custom domain is using before the replacement exists.
+    create_before_destroy = true
+  }
 }

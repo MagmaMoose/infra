@@ -85,12 +85,25 @@ variable "domain_name" {
   default     = ""
 }
 
+variable "enable_custom_domain" {
+  description = <<-EOT
+    Create the API Gateway custom domain and its API mapping. Requires `domain_name`, and
+    requires the certificate to have reached ISSUED first — see the two-phase note in api.tf.
+
+    Default false because phase 1 (requesting the certificate) and phase 2 (using it) are
+    separated by a DNS record that lives in another Terraform state, so they cannot be one
+    apply. Flipping this early fails with a BadRequestException naming the certificate.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "certificate_arn" {
   description = <<-EOT
-    ACM certificate for `domain_name`. REGIONAL, in this stack's own region — an API Gateway
-    custom domain reads it from there. (The CloudFront design this replaced needed one in
-    us-east-1 and therefore a second provider alias; that is gone.) Required when
-    `domain_name` is set, ignored otherwise.
+    An EXISTING regional ACM certificate to use instead of the one this module requests.
+    Normally empty: setting `domain_name` makes the module request its own (see api.tf), which
+    is one less thing to create by hand. Supply this only to reuse a certificate managed
+    elsewhere.
   EOT
   type        = string
   default     = ""
