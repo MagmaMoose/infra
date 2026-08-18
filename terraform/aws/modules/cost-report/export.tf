@@ -37,6 +37,17 @@ resource "aws_bcmdataexports_export" "cur" {
 
       table_configurations = {
         COST_AND_USAGE_REPORT = {
+          # DECLARED BECAUSE AWS ADDS IT WHETHER OR NOT YOU DO. Omitting this does not fail
+          # the plan — it fails the APPLY, after the export has already been created, with
+          # "Provider produced inconsistent result after apply: new element BILLING_VIEW_ARN
+          # has appeared". The export ends up healthy in AWS and recorded in state, so the
+          # error is survivable, but every subsequent plan is dirty until the key is written
+          # here. Built from the caller identity rather than hardcoded: `primary` is the
+          # default billing view every account has.
+          #
+          # It is also the cheap one. Cost Explorer charges $0.01 per request PER SOURCE for
+          # a custom billing view that combines several; the primary view is a single source.
+          BILLING_VIEW_ARN = "arn:aws:billing::${data.aws_caller_identity.current.account_id}:billingview/primary"
           # DAILY is what makes "yesterday" answerable. HOURLY would multiply the row count
           # by 24 for a report that never asks a question finer than a day.
           TIME_GRANULARITY                      = "DAILY"
