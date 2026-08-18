@@ -59,9 +59,11 @@ variable "localstack" {
     resources the free LocalStack image cannot honour, and each removal is a real gap in what
     a local run proves:
 
-      CloudFront            Pro-only. Locally, requests go straight to the Lambda Function
-                            URL, so the OAC signing that makes that URL private in production
-                            is NOT exercised. Read edge.tf before trusting it.
+      API Gateway HTTP API  Paid feature on LocalStack free. Locally, requests go straight
+                            to a Lambda Function URL instead (see lambda.tf). Format 2.0 is
+                            the same event shape, so the handler, routing, and signature
+                            checks are identical. What is NOT covered is API Gateway's own
+                            config: the throttle, the $default stage, the integration.
       EventBridge Scheduler LocalStack accepts a schedule and never fires it, so none is
                             created. aws/localstack/smoke.py invokes the producer with a tick
                             payload directly, which covers everything downstream of the

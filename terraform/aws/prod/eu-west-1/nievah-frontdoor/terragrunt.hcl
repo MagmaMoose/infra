@@ -1,4 +1,4 @@
-# Nievah's webhook front door: CloudFront -> Lambda -> SQS FIFO -> the firefly cluster.
+# Nievah's webhook front door: API Gateway HTTP API -> Lambda -> SQS FIFO -> the firefly cluster.
 #
 # GitHub POSTs each delivery exactly once and never re-sends one it failed to place, so while
 # the cluster's ingress was the first hop, a 5xx or a reset lost the event outright — and one
@@ -72,9 +72,6 @@ inputs = {
   # ─────────────────────────────────────────────────────────────────────────────────────────
   edge_artifact_version = "1.41.3-gb5726f6"
 
-  # Empty until DNS is decided: the distribution's own *.cloudfront.net name works, and the
-  # GitHub App's webhook URL is one field to repoint later. A hostname here also needs an ACM
-  # certificate in us-east-1, which CloudFront reads from that region regardless of this one.
   # A clean hostname for the GitHub App's webhook URL. The module requests its own REGIONAL
   # ACM certificate (see api.tf); `certificate_arn` is only for reusing one managed elsewhere.
   #
