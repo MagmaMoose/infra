@@ -16,21 +16,16 @@
 #      cannot quietly start accumulating.
 # Any one of those failing still leaves the other two.
 
-# checkov:skip=CKV_AWS_18:No access logging — logging this bucket would cost more than the bucket
-# checkov:skip=CKV_AWS_21:Versioning is off ON PURPOSE; see the note above
-# checkov:skip=CKV_AWS_144:No cross-region replication — a regenerable daily export
-# checkov:skip=CKV_AWS_145:AES256 rather than a KMS CMK; a CMK costs $1/month, more than everything else here combined
-# checkov:skip=CKV2_AWS_62:No event notifications needed; the schedule drives the read
-# checkov:skip=CKV2_AWS_61:Lifecycle rule IS configured below
 # trivy:ignore:AVD-AWS-0089
 # trivy:ignore:AVD-AWS-0090
 # trivy:ignore:AVD-AWS-0132
-# trivy:ignore:CKV_AWS_18
-# trivy:ignore:CKV_AWS_21
-# trivy:ignore:CKV_AWS_144
-# trivy:ignore:CKV_AWS_145
-# trivy:ignore:CKV2_AWS_62
 resource "aws_s3_bucket" "cur" {
+  # checkov:skip=CKV_AWS_18:No access logging — logging this bucket would cost more than the bucket
+  # checkov:skip=CKV_AWS_21:Versioning is off ON PURPOSE; see the note above
+  # checkov:skip=CKV_AWS_144:No cross-region replication — a regenerable daily export
+  # checkov:skip=CKV_AWS_145:AES256 rather than a KMS CMK; a CMK costs $1/month, more than everything else here combined
+  # checkov:skip=CKV2_AWS_62:No event notifications needed; the schedule drives the read
+  # checkov:skip=CKV2_AWS_61:Lifecycle rule IS configured below
   provider = aws.us_east_1
   bucket   = "${var.name_prefix}-${data.aws_caller_identity.current.account_id}"
 }

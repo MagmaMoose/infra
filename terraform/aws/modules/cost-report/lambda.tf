@@ -26,32 +26,24 @@ data "archive_file" "report" {
 
 # Created explicitly rather than left to Lambda: a log group Lambda creates for itself has
 # retention set to NEVER EXPIRE, and CloudWatch Logs' free allowance is 5 GB stored.
-# checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
-# checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
 # trivy:ignore:AVD-AWS-0017
-# trivy:ignore:CKV_AWS_158
-# trivy:ignore:CKV_AWS_338
 resource "aws_cloudwatch_log_group" "report" {
+  # checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
+  # checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
   name              = "/aws/lambda/${var.name_prefix}"
   retention_in_days = var.log_retention_days
 }
 
-# checkov:skip=CKV_AWS_173:No KMS CMK for env vars — the only variable is a topic ARN, not a secret
-# checkov:skip=CKV_AWS_116:No DLQ — a missed daily report is re-sent by the next day's run; see the alarm in notify.tf
-# checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
-# checkov:skip=CKV_AWS_115:No reserved concurrency — one invocation a day cannot starve anything
-# checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to AWS APIs only
-# checkov:skip=CKV_AWS_50:X-Ray tracing not enabled — cost not justified for one invocation a day
 # trivy:ignore:AVD-AWS-0066
 # trivy:ignore:AWS-0066
-# trivy:ignore:CKV_AWS_173
-# trivy:ignore:CKV_AWS_116
-# trivy:ignore:CKV_AWS_272
-# trivy:ignore:CKV_AWS_115
-# trivy:ignore:CKV_AWS_117
-# trivy:ignore:CKV_AWS_50
 # nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
 resource "aws_lambda_function" "report" {
+  # checkov:skip=CKV_AWS_173:No KMS CMK for env vars — the only variable is a topic ARN, not a secret
+  # checkov:skip=CKV_AWS_116:No DLQ — a missed daily report is re-sent by the next day's run; see the alarm in notify.tf
+  # checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
+  # checkov:skip=CKV_AWS_115:No reserved concurrency — one invocation a day cannot starve anything
+  # checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to AWS APIs only
+  # checkov:skip=CKV_AWS_50:X-Ray tracing not enabled — cost not justified for one invocation a day
   function_name = var.name_prefix
   role          = aws_iam_role.report.arn
   handler       = "handler.handler"
