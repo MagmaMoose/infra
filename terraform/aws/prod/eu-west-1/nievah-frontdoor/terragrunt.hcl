@@ -70,7 +70,7 @@ inputs = {
   # Cold start: this must name an object that already exists. Apply ../artifacts, run the
   # publish workflow once, then set this to what it produced.
   # ─────────────────────────────────────────────────────────────────────────────────────────
-  edge_artifact_version = "1.41.3-g338800d"
+  edge_artifact_version = "1.41.3-gb5726f6"
 
   # Empty until DNS is decided: the distribution's own *.cloudfront.net name works, and the
   # GitHub App's webhook URL is one field to repoint later. A hostname here also needs an ACM
