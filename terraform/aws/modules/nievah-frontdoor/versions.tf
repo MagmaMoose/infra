@@ -12,9 +12,12 @@ terraform {
   required_providers {
     aws = {
       source = "hashicorp/aws"
-      # Pinned to a minor. The Lambda-function-URL origin access control this module depends
-      # on landed in 5.x, and an unpinned major would silently rewrite the CloudFront resource
-      # on the next `init`.
+      # Pinned to a major. This comment used to justify the pin by an OAC feature and a
+      # CloudFront resource, neither of which survived the pivot to an API Gateway HTTP API —
+      # a stale rationale is worse than none, because the next person trusts it. The real
+      # reason to pin: `aws_apigatewayv2_*`, `aws_scheduler_schedule` and the S3 tag reads
+      # (which go through S3 Control) all shift behaviour across majors, and an unpinned
+      # major would rewrite them on the next `init`.
       version = "~> 6.0"
     }
   }

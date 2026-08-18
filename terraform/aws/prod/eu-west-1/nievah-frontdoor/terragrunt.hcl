@@ -86,10 +86,13 @@ inputs = {
   certificate_arn      = ""
   enable_custom_domain = true
 
-  # FALSE until k8s/base/cronjob.yaml's two CronJobs are suspended in MagmaMoose/nievah.
-  # Both firing means two planner runs with different ARQ job ids that `unique=True` will not
-  # collapse — duplicate issues. Suspend first, then flip this. The other order is the bug.
-  enable_ticks = false
+  # TRUE since 2026-08-18, and only because k8s/base/cronjob.yaml's two CronJobs carry
+  # `suspend: true` in MagmaMoose/nievah first. That order is the whole safety property:
+  # `_window_id` prefers the Kubernetes Job name and falls back to a 10-minute bucket when
+  # there is no Job, so the two paths mint DIFFERENT ARQ job ids for the same window and
+  # `unique=True` cannot collapse them. Both live means two planner runs — duplicate issues.
+  # To roll back, reverse it: set this false, apply, THEN unsuspend the CronJobs.
+  enable_ticks = true
 
   # ── Where the alarms and the budget go ──────────────────────────────────────────────────
   #

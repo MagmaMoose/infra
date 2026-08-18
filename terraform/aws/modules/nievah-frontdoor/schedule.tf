@@ -19,7 +19,12 @@ locals {
     # that this replaces. PLANNER_HOURS in the ConfigMap does not schedule anything — it
     # feeds the catch-up interval — so this is the single thing deciding when a run starts.
     planner = "cron(7 6,8,10,12,14 * * ? *)"
-    standup = "cron(12 6 * * ? *)"
+    # 06:30 UTC, matching k8s/base/cronjob.yaml. This read `12` until 2026-08-18, which
+    # would have moved the standup 18 minutes earlier the moment ticks were enabled and cut
+    # the planner-to-standup gap from 23 minutes to 5 — the exact margin that file's own
+    # comment says to WIDEN, not shrink, since the standup reports on what the planner just
+    # did. A schedule copied between two systems has to be diffed, not eyeballed.
+    standup = "cron(30 6 * * ? *)"
   }
 }
 

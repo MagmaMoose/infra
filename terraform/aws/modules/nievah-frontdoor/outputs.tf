@@ -1,8 +1,14 @@
 locals {
   # The API's own hostname in production; the Function URL under LocalStack. Both end in a
   # trailing slash-free base, so the routes append cleanly.
+  #
+  # GATED ON enable_custom_domain, NOT ON domain_name ALONE. The custom domain bootstraps in
+  # two phases — the ACM cert is requested and validated before the domain is attached — and
+  # `domain_name` is set throughout both. Keying off it alone made `webhook_url` advertise a
+  # hostname that did not route yet during phase 1, which is a URL you would paste into a
+  # GitHub App and then spend a while wondering about.
   base_url = var.localstack ? trimsuffix(aws_lambda_function_url.producer[0].function_url, "/") : (
-    var.domain_name != "" ? "https://${var.domain_name}" : aws_apigatewayv2_api.producer[0].api_endpoint
+    var.domain_name != "" && var.enable_custom_domain ? "https://${var.domain_name}" : aws_apigatewayv2_api.producer[0].api_endpoint
   )
 }
 
