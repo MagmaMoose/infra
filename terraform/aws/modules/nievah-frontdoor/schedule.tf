@@ -43,6 +43,18 @@ locals {
       tick = "standup_tick"
       cron = "cron(30 6 * * ? *)"
     }
+    # THE EVALUATOR, not the schedule. Unlike the two above — which each ARE one job's
+    # schedule — this one only wakes the maintenance tick so it can read the per-repo crons in
+    # the admin repo's `.github/nievah-maintenance.yml` and decide what is owed. Hourly is the
+    # cadence, and it is a contract in two directions: a per-repo cron whose MINUTE is not one
+    # this fires at can never have a first run (`is_due` needs an exact minute match with no
+    # prior run), and the worker's MAINTENANCE_TICK_MINUTES must say the same minute this
+    # does. The tick alarms on any schedule it can never observe rather than letting it sit in
+    # config looking healthy — 24 fires a day against EventBridge's 14M/month free tier.
+    maintenance = {
+      tick = "maintenance_tick"
+      cron = "cron(0 * * * ? *)"
+    }
   }
 }
 
