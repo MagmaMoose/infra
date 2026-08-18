@@ -27,6 +27,42 @@ parallel_apply: false
 # explicitly lists every shared file it depends on via `..` relative paths.
 
 projects:
+  # ─── AWS ─────────────────────────────────────────────────────────────────
+  # TRANSITIONAL. Atlantis is slated for replacement by Effusion
+  # (CalebSargeant/agent-personal#9). These two entries exist because Atlantis is what runs
+  # today; when Effusion lands, the AWS leaves should be the FIRST to move — a GitHub Actions
+  # runner assumes an AWS role by OIDC per run, which removes the need for the long-lived
+  # `atlantis-aws` credential entirely rather than merely scoping it.
+  # ORDER MATTERS ON A COLD START. `artifacts` creates the bucket nievah publishes the Lambda
+  # zip into and the OIDC role it publishes with; `nievah-frontdoor` points at an object in
+  # that bucket. First run: apply artifacts, run nievah's publish-edge workflow once, then
+  # apply the front door. After that the terragrunt `dependency` block keeps them in order and
+  # a deploy is a one-line bump of `edge_artifact_version`.
+  #
+  # `parallel_apply: false` above already serialises applies, so the two cannot race.
+  - name: aws-artifacts-prod
+    dir: terraform/aws/prod/eu-west-1/artifacts
+    workspace: default
+    terraform_version: v1.11.3
+    workflow: terragrunt
+    autoplan:
+      when_modified: ["**/*.tf", "**/*.tfvars", "**/*.hcl"]
+      enabled: true
+    apply_requirements: [mergeable]
+
+  # `when_modified` globs are relative to `dir` and cannot reach `../../../modules/**`, so a
+  # change to the module alone does NOT autoplan this — see the note above. Comment
+  # `atlantis plan -p aws-nievah-frontdoor-prod` on the PR when only the module changed.
+  - name: aws-nievah-frontdoor-prod
+    dir: terraform/aws/prod/eu-west-1/nievah-frontdoor
+    workspace: default
+    terraform_version: v1.11.3
+    workflow: terragrunt
+    autoplan:
+      when_modified: ["**/*.tf", "**/*.tfvars", "**/*.hcl"]
+      enabled: true
+    apply_requirements: [mergeable]
+
   # ─── Cloudflare ──────────────────────────────────────────────────────────
   - name: cloudflare-dns-prod
     dir: terraform/cloudflare/dns/prod
