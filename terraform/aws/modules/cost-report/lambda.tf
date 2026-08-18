@@ -34,9 +34,8 @@ resource "aws_cloudwatch_log_group" "report" {
   retention_in_days = var.log_retention_days
 }
 
-# nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
 # trivy:ignore:AVD-AWS-0066
-resource "aws_lambda_function" "report" {
+resource "aws_lambda_function" "report" { # nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
   # checkov:skip=CKV_AWS_173:No KMS CMK for env vars — the only variable is a topic ARN, not a secret
   # checkov:skip=CKV_AWS_116:No DLQ — a missed daily report is re-sent by the next day's run; see the alarm in notify.tf
   # checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
