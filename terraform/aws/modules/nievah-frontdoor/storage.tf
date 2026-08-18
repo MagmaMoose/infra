@@ -1,3 +1,4 @@
+# kics-scan disable=CKV_AWS_28,CKV_AWS_119,CKV2_AWS_16,CKV2_AWS_62,CKV_AWS_144,CKV_AWS_21,CKV_AWS_18,CKV_AWS_145,CKV_AWS_300
 # Delivery dedup, and the overflow bucket for bodies too large to ride in a message.
 
 # PROVISIONED, NOT ON-DEMAND, and that is a free-tier decision rather than a capacity one.
@@ -8,7 +9,7 @@
 # checkov:skip=CKV_AWS_28:PITR off deliberately — every row is a 24h-TTL delivery id, nothing worth restoring
 # checkov:skip=CKV_AWS_119:No KMS CMK for DynamoDB — home lab; AWS managed key is sufficient
 # checkov:skip=CKV2_AWS_16:DynamoDB auto-scaling disabled deliberately — provisioned 2/2 to stay in always-free tier
-# checkov:skip=terraform.aws.security.aws-dynamodb-table-unencrypted:Using AWS managed key (AES256); CMK not required here
+# nosemgrep: terraform.aws.security.aws-dynamodb-table-unencrypted.aws-dynamodb-table-unencrypted
 resource "aws_dynamodb_table" "dedup" {
   name         = "${var.name_prefix}-dedup"
   billing_mode = "PROVISIONED"
@@ -91,6 +92,7 @@ resource "aws_s3_bucket_versioning" "overflow" {
   }
 }
 
+# checkov:skip=CKV_AWS_300:abort_incomplete_multipart_upload is configured inline within the rule block; scanner expects a top-level attribute that does not exist in this provider version
 resource "aws_s3_bucket_lifecycle_configuration" "overflow" {
   bucket = aws_s3_bucket.overflow.id
 

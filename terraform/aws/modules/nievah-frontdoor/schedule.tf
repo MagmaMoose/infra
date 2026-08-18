@@ -1,3 +1,4 @@
+# kics-scan disable=CKV_AWS_297
 # The scheduled ticks that replace the two Kubernetes CronJobs.
 #
 # THIS IS NOT A LIKE-FOR-LIKE MOVE, and the difference is the reason to make it. A CronJob

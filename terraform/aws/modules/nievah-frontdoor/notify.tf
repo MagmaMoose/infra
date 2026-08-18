@@ -1,3 +1,4 @@
+# kics-scan disable=CKV_AWS_26,CKV_AWS_355
 # Alarms, and the one that matters.
 #
 # THE POINT OF ALARMING FROM AWS is that it keeps working when the cluster does not. Every
@@ -10,6 +11,7 @@
 # CloudWatch's always-free tier covers 10 alarms. This uses four.
 
 # checkov:skip=CKV_AWS_26:No KMS CMK for SNS — home lab; AES256 default encryption is sufficient
+# trivy:ignore:AVD-AWS-0095
 resource "aws_sns_topic" "ops" {
   name = "${var.name_prefix}-ops"
 }

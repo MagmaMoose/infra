@@ -1,3 +1,4 @@
+# kics-scan disable=CKV_AWS_273,CKV_AWS_40
 # Least privilege, resource-scoped throughout. No wildcards on resources, no managed policies
 # beyond the two AWS publishes for Lambda logging, and — importantly — no role anywhere here
 # can read the App private key, the PAT or the SSH signing key, because those are not in this
@@ -147,6 +148,7 @@ resource "aws_iam_role_policy_attachment" "consumer_logs" {
 # by what a webhook already carries — and lets them do nothing else in the account.
 # checkov:skip=CKV_AWS_273:No SSO configured in this account; IAM user is the intended credential path for the k8s worker
 # checkov:skip=CKV_AWS_40:Policy attached directly to user by design — the cluster user has exactly one policy and no group makes sense here
+# trivy:ignore:AVD-AWS-0143
 resource "aws_iam_user" "cluster" {
   name = "${var.name_prefix}-cluster"
 }

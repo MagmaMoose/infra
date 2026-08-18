@@ -1,3 +1,4 @@
+# kics-scan disable=CKV2_AWS_62,CKV_AWS_144,CKV_AWS_18,CKV_AWS_145
 # Where nievah publishes the Lambda zip, and the identity it publishes with.
 #
 # THIS LEAF MUST BE APPLIED BEFORE `nievah-frontdoor`, and there is a real chicken-and-egg on
@@ -20,6 +21,7 @@ data "aws_caller_identity" "current" {}
 # checkov:skip=CKV_AWS_144:No cross-region replication — home lab single-region setup
 # checkov:skip=CKV_AWS_18:S3 access logging not enabled — cost not justified for a low-traffic artifact store
 # checkov:skip=CKV_AWS_145:Using SSE-S3 (AES256); KMS CMK not required here
+# trivy:ignore:AVD-AWS-0089
 resource "aws_s3_bucket" "artifacts" {
   bucket = "${var.name_prefix}-artifacts-${data.aws_caller_identity.current.account_id}"
 

@@ -1,3 +1,4 @@
+# kics-scan disable=CKV_AWS_158,CKV_AWS_338,CKV_AWS_173,CKV_AWS_116,CKV_AWS_272,CKV_AWS_115,CKV_AWS_117,CKV_AWS_50,CKV_AWS_258
 # The two functions, and where their code comes from.
 #
 # THE ZIP IS BUILT AND PUBLISHED BY NIEVAH, NOT BY TERRAFORM. `scripts/build_edge_zip.py` in
@@ -28,6 +29,7 @@ locals {
 # default quietly converts a free stack into a billed one over a year or two.
 # checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
 # checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
+# trivy:ignore:AVD-AWS-0017
 resource "aws_cloudwatch_log_group" "producer" {
   name              = "/aws/lambda/${var.name_prefix}-producer"
   retention_in_days = var.log_retention_days
@@ -35,6 +37,7 @@ resource "aws_cloudwatch_log_group" "producer" {
 
 # checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
 # checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
+# trivy:ignore:AVD-AWS-0017
 resource "aws_cloudwatch_log_group" "consumer" {
   name              = "/aws/lambda/${var.name_prefix}-consumer"
   retention_in_days = var.log_retention_days
@@ -46,6 +49,8 @@ resource "aws_cloudwatch_log_group" "consumer" {
 # checkov:skip=CKV_AWS_115:Account-level concurrency cap is 10; any reservation fails (InvalidParameterValueException)
 # checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to AWS services only, no VPC resources
 # checkov:skip=CKV_AWS_50:X-Ray tracing not enabled — cost not justified at this scale
+# trivy:ignore:AVD-AWS-0066
+# nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
 resource "aws_lambda_function" "producer" {
   function_name = "${var.name_prefix}-producer"
   role          = aws_iam_role.producer.arn
@@ -99,6 +104,8 @@ resource "aws_lambda_function" "producer" {
 # checkov:skip=CKV_AWS_115:Account-level concurrency cap is 10; any reservation fails (InvalidParameterValueException)
 # checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to AWS services only, no VPC resources
 # checkov:skip=CKV_AWS_50:X-Ray tracing not enabled — cost not justified at this scale
+# trivy:ignore:AVD-AWS-0066
+# nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
 resource "aws_lambda_function" "consumer" {
   function_name = "${var.name_prefix}-consumer"
   role          = aws_iam_role.consumer.arn

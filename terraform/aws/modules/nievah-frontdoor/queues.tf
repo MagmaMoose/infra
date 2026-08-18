@@ -1,3 +1,4 @@
+# kics-scan disable=CKV_AWS_27
 # The two queues, and why there are two.
 #
 # They fail differently, and one queue would force a single retry policy onto both.
@@ -20,6 +21,7 @@
 # of the first. FIFO's 300 TPS ceiling is four orders of magnitude above this fleet's rate.
 
 # checkov:skip=CKV_AWS_27:No KMS CMK for SQS — home lab; SSE-SQS (AES256) is sufficient
+# trivy:ignore:AVD-AWS-0096
 resource "aws_sqs_queue" "events" {
   name                        = "${var.name_prefix}-events.fifo"
   fifo_queue                  = true
@@ -37,6 +39,7 @@ resource "aws_sqs_queue" "events" {
 }
 
 # checkov:skip=CKV_AWS_27:No KMS CMK for SQS — home lab; SSE-SQS (AES256) is sufficient
+# trivy:ignore:AVD-AWS-0096
 resource "aws_sqs_queue" "events_dlq" {
   name                      = "${var.name_prefix}-events-dlq.fifo"
   fifo_queue                = true
@@ -44,6 +47,7 @@ resource "aws_sqs_queue" "events_dlq" {
 }
 
 # checkov:skip=CKV_AWS_27:No KMS CMK for SQS — home lab; SSE-SQS (AES256) is sufficient
+# trivy:ignore:AVD-AWS-0096
 resource "aws_sqs_queue" "jobs" {
   name                        = "${var.name_prefix}-jobs.fifo"
   fifo_queue                  = true
@@ -67,6 +71,7 @@ resource "aws_sqs_queue" "jobs" {
 }
 
 # checkov:skip=CKV_AWS_27:No KMS CMK for SQS — home lab; SSE-SQS (AES256) is sufficient
+# trivy:ignore:AVD-AWS-0096
 resource "aws_sqs_queue" "jobs_dlq" {
   name                      = "${var.name_prefix}-jobs-dlq.fifo"
   fifo_queue                = true
