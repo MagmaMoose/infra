@@ -1,4 +1,12 @@
-# AWS — Nievah's webhook front door
+# AWS
+
+Two unrelated stacks share this directory and almost nothing else. **Nievah's webhook front
+door** runs in `prd-nievah` (666802049426); the **daily cost report** runs in the organisation's
+management account, `Root` (857256953358), because that is the only account Cost Explorer will
+show the whole organisation from. Read the leaf before you apply it — path and account no
+longer agree here, which is why the cost-report leaf pins `allowed_account_ids`.
+
+## Nievah's webhook front door
 
 GitHub POSTs each webhook delivery **exactly once** and never re-sends one it failed to
 place. Nievah's ingest sat behind the firefly cluster's ingress, so a 5xx, a reset or a
@@ -32,12 +40,23 @@ and no ingress for Nievah at all.
 | `modules/nievah-frontdoor` | queues, Lambdas, DynamoDB, S3 overflow, CloudFront, schedules, alarms |
 | `prod/eu-west-1/artifacts` | leaf — **apply first** |
 | `prod/eu-west-1/nievah-frontdoor` | leaf — `edge_artifact_version` here is the deployment |
-| `localstack/` | a root that instantiates both modules against LocalStack |
+| `localstack/` | a root that instantiates both front-door modules against LocalStack |
+| `modules/cost-report` | daily per-account spend -> SNS -> Chatbot -> Slack `#finance` |
+| `prod/eu-west-1/cost-report` | leaf — **the only one that applies into 857256953358** |
 
 Each leaf generates its own `aws_provider.tf` rather than adding AWS to `root.hcl`. That
 keeps a new cloud out of the file every OCI, GCP, Cloudflare and MikroTik leaf includes —
-which, per COMMON_MISTAKES #6, Atlantis autoplan cannot see changes to anyway. A third AWS
-leaf is the point to extract it into a shared include.
+which, per COMMON_MISTAKES #6, Atlantis autoplan cannot see changes to anyway.
+
+**The third leaf has arrived and the block is still not extracted.** This paragraph used to
+say a third leaf was the point to extract it, so the deviation is deliberate and worth its
+reasons. `cost-report`'s block is not a copy of the other two: it carries a different account,
+a different tag set, and an `allowed_account_ids` guard that only it needs. A shared include
+would therefore have to be parameterised on all three, which is a bigger object than the 14
+lines it replaces — and extracting it means editing the generate block of two leaves that are
+already applied and serving live webhook traffic, to change nothing about what they render.
+Extract it when a **fourth** leaf appears, or when the front-door leaves are next touched for
+their own reasons, whichever comes first.
 
 ## Local development
 
@@ -205,3 +224,169 @@ by **OIDC** — a role assumed per run, nothing stored. That deletes this creden
 scoping it, which is the strongest single argument for the migration. These two leaves are the
 first thing that should move when Effusion lands, precisely because they are what makes the
 key necessary. If the AWS rollout is not urgent, waiting is the better trade.
+
+---
+
+## Daily cost + free-tier report
+
+Two Slack messages in `#finance` every morning at 07:00 UTC: what was spent, per account and
+per service, and how much of the organisation's free-tier allowance is left.
+
+```
+EventBridge Scheduler ─► mm-cost-report ─┬─► SNS ─► Chatbot ─► Slack #finance
+   cron(0 7 * * ? *)          │           │   ▲
+                              │           │   └── AWS Budgets (the backstop)
+              reads ──────────┘           └── 2 messages: spend, free-tier headroom
+                    │
+        s3://mm-cost-report-857256953358/cur/…   ← CUR 2.0, written daily by AWS, free
+                    +
+        freetier:GetFreeTierUsage                ← org-wide allowances, free to call
+```
+
+**It runs in the management account and cannot run anywhere else.** A member account's cost
+data covers only itself; the organisation-wide view exists only in `Root` (857256953358) or in
+an account registered as a billing delegated administrator, and none is registered. Apply with
+`AWS_PROFILE=mm-root`; the leaf's `allowed_account_ids` turns the wrong profile into a refusal
+rather than a duplicate stack.
+
+**No Slack token exists anywhere in this stack.** Chatbot already owns an authorised connection
+to the workspace and renders a [documented custom-notification envelope][cn] into Slack
+markdown, so delivery is `sns:Publish` on one topic and there is no secret to mint, store or
+rotate. The function's role can read one S3 prefix, one free billing API and the account list;
+it cannot spend money.
+
+[cn]: https://docs.aws.amazon.com/chatbot/latest/adminguide/custom-notifs.html
+
+### Why it reads a file instead of calling Cost Explorer
+
+The obvious implementation is `ce:GetCostAndUsage`, and the first version of this was exactly
+that. It was replaced because **the Cost Explorer API costs $0.01 per request with no free
+allowance** — $0.30/month for a once-a-day report, against an organisation whose entire spend
+is about **$0.00004/month**. The reporting would have cost roughly seven thousand times the
+thing it reports on.
+
+The free alternative was measured before it was rejected, not assumed: CloudWatch's
+`AWS/Billing` `EstimatedCharges` is **rounded to whole cents**, so every datapoint for every
+service in both accounts reads exactly `0.0`. It cannot express this organisation's spend at
+all.
+
+| source | sub-cent precision | cost/month |
+|---|---|---|
+| `ce:GetCostAndUsage` | yes | **$0.30** — $0.01/request, no free allowance |
+| CloudWatch `AWS/Billing` | **no** — rounds to $0.01 | $0.00 |
+| **CUR 2.0 export → S3** | yes | **~$0.000001** — export is free, S3 bytes only |
+
+### Staying free is a design constraint, not an aspiration
+
+Everything here sits inside a permanent always-free allowance — EventBridge Scheduler bills
+after 14 million invocations/month against the 30 this makes, Lambda after 400,000 GB-seconds
+against roughly 8, SNS after a million publishes against 60, and Chatbot, Data Exports,
+Organizations and the Free Tier API are all free to call. The only thing that bills at all is
+the S3 bucket, and it is capped **three independent ways** so that any one of them failing
+still leaves the other two:
+
+1. the export is `OVERWRITE_REPORT` — each delivery **replaces** the last rather than adding
+   to a pile;
+2. versioning is deliberately **off** — with it on, "overwrite" silently means "keep both",
+   which turns control 1 into unbounded growth;
+3. a lifecycle rule expires objects at `export_retention_days` regardless.
+
+`aws_budgets_budget.org` is the backstop that assumes all of the above is wrong. Two budgets
+are free per account and this account had none, so it costs nothing — **do not add a third
+without meaning to**, since AWS charges $0.02/budget/day beyond two, which would itself be a
+surprise bill. It reports rather than enforces: AWS Budgets cannot cap a bill, and nothing in
+AWS can.
+
+### The amounts are the point
+
+Every figure rounds to `$0.00` at two decimals, so `_money()` keeps **three significant
+figures** below a cent. That is the whole reason the report is legible rather than a wall of
+zeros:
+
+```
+*Org total* — $0.0000000801 on 2026-08-17 · $0.0000447 month-to-date (1–18 Aug 2026)
+
+*prd-nievah* · `666802049426`
+$0.0000000801 yesterday · $0.0000396 MTD
+        • AmazonS3 — $0.0000000801 yesterday · $0.0000396 MTD
+```
+
+The free-tier message answers a different question — not "what did this cost" but "what is
+about to start costing", which at this scale is by far the more useful of the two, since
+everything reads `$0.00` precisely because it sits inside an allowance:
+
+```
+*AWS Glue · Catalog-Request* (Always Free)
+54 of 1,000,000 Request used · forecast 93 (<0.1% of the allowance)
+        • prd-nievah — 40
+        • Root — 14
+
+_Free Tier allowances apply to the organisation as a whole, not per account._
+```
+
+**The allowance is org-wide and the API is not.** `GetFreeTierUsage` reports one number per
+service for the whole organisation — correctly, since that is how AWS applies it — and offers
+no account dimension. The per-account split therefore comes from the CUR file, matched on
+usage type, which is why `line_item_usage_type` and `line_item_usage_amount` are in the export
+query even though the cost report never reads them. Where that match fails the report **says
+so** rather than showing a split that is quietly wrong.
+
+Sorted by proportion of the limit *forecast* to be consumed, so the line most likely to start
+costing money is the first one read. Above 80% it warns; at 100% the title itself shouts.
+
+### Cold start
+
+**The Chatbot handshake comes first and Terraform cannot do it.** Chatbot authorises a Slack
+workspace *per AWS account* through an OAuth flow in the console. The front door's
+authorisation lives in 666802049426 and grants nothing here.
+
+```bash
+# 1. Authorise the workspace ONCE in 857256953358. Console only:
+#    Amazon Q Developer in chat applications -> Chat clients -> Configure new client -> Slack
+#    Applying before this fails on aws_chatbot_slack_channel_configuration, by design — a
+#    cost report that reports to nobody should not apply clean.
+
+# 2. Apply.
+cd terraform/aws/prod/eu-west-1/cost-report
+AWS_PROFILE=mm-root terragrunt apply
+
+# 3. Wait. AWS writes the first export within 24 hours of it being created; until then the
+#    cost message says "awaiting first export" rather than claiming $0.00. The free-tier
+#    message is correct immediately — it does not depend on the export.
+
+# 4. Prove it, without waiting for 07:00. Posts two real messages to #finance.
+AWS_PROFILE=mm-root aws lambda invoke \
+  --function-name "$(terragrunt output -raw function_name)" \
+  --region eu-west-1 /dev/stdout
+```
+
+### Changing the report
+
+`modules/cost-report/src/handler.py` is read at plan time by `archive_file`, so **editing it
+and running apply is the deployment** — no build, no bucket, no version to bump, unlike the
+front door next door.
+
+**The export query and the handler are one contract.** Every column in `export.tf`'s
+`query_statement` is a `COL_*` constant in `handler.py`. Removing one does not fail the apply
+and does not fail the function — it produces a report of zeros, which is the one failure mode
+a cost report must not have. Change them together, and run the tests:
+
+```bash
+python3 terraform/aws/modules/cost-report/tests/test_handler.py
+```
+
+Those tests exist because this could not be verified the way the Cost Explorer version was.
+CUR's first file appears up to 24 hours after the export is created, so the parsing was
+written before any real file existed to read it. They cover the ways a cost report goes wrong
+*quietly*: columns read by name so a reordered export cannot silently transpose values, a
+malformed row that must not cost the whole file, `$0.00` line items that must still count
+toward free-tier usage, an account that spent nothing still appearing, and the first-of-month
+case where yesterday belongs to the previous billing period's file.
+
+### Silence is the failure mode
+
+A daily report that stops arriving looks exactly like a quiet month — and on a stack whose
+entire purpose is making sub-cent spend visible, "no message" is indistinguishable from the
+good news it is supposed to be delivering. `mm-cost-report-failing` alarms on the function's
+`Errors` metric from CloudWatch, outside the function, into the same channel. While it is
+firing, silence in `#finance` means the report is broken, not that spend is zero.

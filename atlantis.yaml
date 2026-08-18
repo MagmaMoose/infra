@@ -63,6 +63,18 @@ projects:
       enabled: true
     apply_requirements: [mergeable]
 
+  # NO PROJECT FOR terraform/aws/prod/eu-west-1/cost-report, deliberately.
+  #
+  # It is the one AWS leaf that applies into the ORGANISATION'S MANAGEMENT ACCOUNT
+  # (857256953358) rather than prd-nievah, so registering it here would need Atlantis to hold
+  # a second AWS credential — for the account that can do the most damage in the organisation,
+  # to run a report that reads costs. That is a straightforwardly bad trade against a leaf
+  # that changes perhaps twice a year, so it is applied by hand with `AWS_PROFILE=mm-root`.
+  #
+  # Listing it without that credential would be worse than omitting it: every PR touching the
+  # leaf would autoplan, fail on credentials, and train everyone to ignore a red Atlantis
+  # check. Revisit when Effusion lands and a per-run OIDC role makes the credential free.
+
   # ─── Cloudflare ──────────────────────────────────────────────────────────
   - name: cloudflare-dns-prod
     dir: terraform/cloudflare/dns/prod
