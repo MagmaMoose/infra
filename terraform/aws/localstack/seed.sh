@@ -7,7 +7,7 @@
 # aws/README.md); here they are fixed test values that smoke.py signs with.
 set -euo pipefail
 
-: "${AWS_ENDPOINT_URL:=http://localhost:4566}"
+: "${AWS_ENDPOINT_URL:=http://localhost:4566}"  # DevSkim: ignore DS162092
 : "${AWS_DEFAULT_REGION:=eu-west-1}"
 export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-test}"
 export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-test}"

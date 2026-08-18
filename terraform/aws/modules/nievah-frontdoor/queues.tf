@@ -19,6 +19,7 @@
 # fleet proceeds unblocked. ARQ had no such notion: a fast second push could race the review
 # of the first. FIFO's 300 TPS ceiling is four orders of magnitude above this fleet's rate.
 
+# checkov:skip=CKV_AWS_27:No KMS CMK for SQS — home lab; SSE-SQS (AES256) is sufficient
 resource "aws_sqs_queue" "events" {
   name                        = "${var.name_prefix}-events.fifo"
   fifo_queue                  = true
@@ -35,12 +36,14 @@ resource "aws_sqs_queue" "events" {
   })
 }
 
+# checkov:skip=CKV_AWS_27:No KMS CMK for SQS — home lab; SSE-SQS (AES256) is sufficient
 resource "aws_sqs_queue" "events_dlq" {
   name                      = "${var.name_prefix}-events-dlq.fifo"
   fifo_queue                = true
   message_retention_seconds = var.jobs_retention_seconds
 }
 
+# checkov:skip=CKV_AWS_27:No KMS CMK for SQS — home lab; SSE-SQS (AES256) is sufficient
 resource "aws_sqs_queue" "jobs" {
   name                        = "${var.name_prefix}-jobs.fifo"
   fifo_queue                  = true
@@ -63,6 +66,7 @@ resource "aws_sqs_queue" "jobs" {
   })
 }
 
+# checkov:skip=CKV_AWS_27:No KMS CMK for SQS — home lab; SSE-SQS (AES256) is sufficient
 resource "aws_sqs_queue" "jobs_dlq" {
   name                      = "${var.name_prefix}-jobs-dlq.fifo"
   fifo_queue                = true

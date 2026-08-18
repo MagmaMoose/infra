@@ -16,6 +16,10 @@
 
 data "aws_caller_identity" "current" {}
 
+# checkov:skip=CKV2_AWS_62:S3 event notifications not needed for this artifact bucket
+# checkov:skip=CKV_AWS_144:No cross-region replication — home lab single-region setup
+# checkov:skip=CKV_AWS_18:S3 access logging not enabled — cost not justified for a low-traffic artifact store
+# checkov:skip=CKV_AWS_145:Using SSE-S3 (AES256); KMS CMK not required here
 resource "aws_s3_bucket" "artifacts" {
   bucket = "${var.name_prefix}-artifacts-${data.aws_caller_identity.current.account_id}"
 
@@ -34,6 +38,9 @@ resource "aws_s3_bucket_public_access_block" "artifacts" {
   restrict_public_buckets = true
 }
 
+# checkov:skip=CKV_AWS_145:Using SSE-S3 (AES256); KMS CMK not required here
+# tfsec:ignore:AWS-0132
+# trivy:ignore:AVD-AWS-0132
 resource "aws_s3_bucket_server_side_encryption_configuration" "artifacts" {
   bucket = aws_s3_bucket.artifacts.id
   rule {

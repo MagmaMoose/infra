@@ -30,10 +30,10 @@ import uuid
 
 import boto3
 
-ENDPOINT = "http://localhost:4566"
+ENDPOINT = "http://localhost:4566"  # DevSkim: ignore DS162092
 REGION = "eu-west-1"
-WEBHOOK_SECRET = "localstack-github-webhook-secret"
-SLACK_SECRET = "localstack-slack-signing-secret"
+WEBHOOK_SECRET = "localstack-github-webhook-secret"  # nosec B105
+SLACK_SECRET = "localstack-slack-signing-secret"  # nosec B105
 
 _sqs = boto3.client("sqs", endpoint_url=ENDPOINT, region_name=REGION)
 _s3 = boto3.client("s3", endpoint_url=ENDPOINT, region_name=REGION)
@@ -55,7 +55,7 @@ def sign(body: bytes, secret: str = WEBHOOK_SECRET) -> str:
 def post(url: str, body: bytes, headers: dict[str, str]) -> int:
     request = urllib.request.Request(url, data=body, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310 # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             return response.status
     except urllib.error.HTTPError as exc:
         return exc.code
@@ -165,7 +165,7 @@ def main(outputs_path: str) -> int:
     # A per-org secret must work as well as the default one — the multi-secret path is the
     # one that silently stops working when a secret is rotated in the wrong place.
     status = github_post(
-        webhook_url, pr_payload("org-a", "thing", 1), str(uuid.uuid4()), secret="org-a-secret"
+        webhook_url, pr_payload("org-a", "thing", 1), str(uuid.uuid4()), secret="org-a-secret"  # nosec B106
     )
     check("per-org secret is accepted too", status == 202, f"got {status}")
     drain_jobs(jobs_url)

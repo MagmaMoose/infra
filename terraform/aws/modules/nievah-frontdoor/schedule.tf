@@ -40,6 +40,7 @@ locals {
 # went red for the right reason at the wrong time); and all it ever proved was that
 # EventBridge can invoke a Lambda, which is AWS's job. The part that is OURS — tick ->
 # producer -> events -> consumer -> jobs — is covered by invoking the function directly.
+# checkov:skip=CKV_AWS_297:No KMS CMK for EventBridge Scheduler — home lab; AWS managed key is sufficient
 resource "aws_scheduler_schedule" "tick" {
   for_each = var.localstack || !var.enable_ticks ? {} : local.ticks
 

@@ -145,6 +145,8 @@ resource "aws_iam_role_policy_attachment" "consumer_logs" {
 # It cannot publish to a queue, invoke a function, read a secret, or see any other resource.
 # A leaked key lets an attacker steal Nievah's inbound webhooks — which is bad, and is bounded
 # by what a webhook already carries — and lets them do nothing else in the account.
+# checkov:skip=CKV_AWS_273:No SSO configured in this account; IAM user is the intended credential path for the k8s worker
+# checkov:skip=CKV_AWS_40:Policy attached directly to user by design — the cluster user has exactly one policy and no group makes sense here
 resource "aws_iam_user" "cluster" {
   name = "${var.name_prefix}-cluster"
 }

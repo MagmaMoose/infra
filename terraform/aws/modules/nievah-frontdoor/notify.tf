@@ -9,6 +9,7 @@
 #
 # CloudWatch's always-free tier covers 10 alarms. This uses four.
 
+# checkov:skip=CKV_AWS_26:No KMS CMK for SNS — home lab; AES256 default encryption is sufficient
 resource "aws_sns_topic" "ops" {
   name = "${var.name_prefix}-ops"
 }
@@ -54,6 +55,7 @@ resource "aws_iam_role" "chatbot" {
 
 # Read-only, and only the metrics. Chatbot's default managed policy is far wider than posting
 # an alarm needs.
+# checkov:skip=CKV_AWS_355:CloudWatch Describe/Get/List actions do not support resource-level restrictions; "*" is required
 resource "aws_iam_role_policy" "chatbot" {
   count = var.slack_workspace_id == "" || var.localstack ? 0 : 1
   name  = "${var.name_prefix}-chatbot"

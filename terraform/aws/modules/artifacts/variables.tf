@@ -4,12 +4,6 @@ variable "name_prefix" {
   default     = "nievah"
 }
 
-variable "region" {
-  description = "Region. Supplied by the leaf from region.hcl."
-  type        = string
-  default     = "eu-west-1"
-}
-
 variable "publisher_repo" {
   description = <<-EOT
     The ONLY repository allowed to assume the publish role, as `owner/name`. Bound into the

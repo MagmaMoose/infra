@@ -5,6 +5,10 @@
 # units — PROVISIONED units. On-demand request pricing has no always-free component, so the
 # same workload that costs nothing here would be billed per request there. At 2 units this is
 # a twelfth of the free allowance and roughly 120 times this fleet's peak write rate.
+# checkov:skip=CKV_AWS_28:PITR off deliberately — every row is a 24h-TTL delivery id, nothing worth restoring
+# checkov:skip=CKV_AWS_119:No KMS CMK for DynamoDB — home lab; AWS managed key is sufficient
+# checkov:skip=CKV2_AWS_16:DynamoDB auto-scaling disabled deliberately — provisioned 2/2 to stay in always-free tier
+# checkov:skip=terraform.aws.security.aws-dynamodb-table-unencrypted:Using AWS managed key (AES256); CMK not required here
 resource "aws_dynamodb_table" "dedup" {
   name         = "${var.name_prefix}-dedup"
   billing_mode = "PROVISIONED"
@@ -45,6 +49,11 @@ resource "aws_dynamodb_table" "dedup" {
 # producer logs `producer.overflow` with a byte count every time, so after a week the real
 # rate is a fact rather than an estimate. If it turns out to be zero, delete this bucket and
 # the producer degrades to the 502 it already handles.
+# checkov:skip=CKV2_AWS_62:S3 event notifications not needed for this overflow bucket
+# checkov:skip=CKV_AWS_144:No cross-region replication — home lab single-region setup
+# checkov:skip=CKV_AWS_21:Versioning disabled deliberately — a versioned object would outlive the lifecycle expiration rule
+# checkov:skip=CKV_AWS_18:S3 access logging not enabled — cost and complexity not justified for a transient overflow bucket
+# checkov:skip=CKV_AWS_145:Using SSE-S3 (AES256); KMS CMK not required here
 resource "aws_s3_bucket" "overflow" {
   bucket        = "${var.name_prefix}-overflow-${data.aws_caller_identity.current.account_id}"
   force_destroy = true # nothing here outlives its lifecycle rule; never block a teardown
@@ -58,6 +67,9 @@ resource "aws_s3_bucket_public_access_block" "overflow" {
   restrict_public_buckets = true
 }
 
+# checkov:skip=CKV_AWS_145:Using SSE-S3 (AES256); KMS CMK not required here
+# tfsec:ignore:AWS-0132
+# trivy:ignore:AVD-AWS-0132
 resource "aws_s3_bucket_server_side_encryption_configuration" "overflow" {
   bucket = aws_s3_bucket.overflow.id
   rule {
@@ -67,6 +79,9 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "overflow" {
   }
 }
 
+# checkov:skip=CKV_AWS_21:Versioning disabled deliberately — versioned objects would outlive the lifecycle rule
+# tfsec:ignore:AWS-0090
+# trivy:ignore:AVD-AWS-0090
 resource "aws_s3_bucket_versioning" "overflow" {
   bucket = aws_s3_bucket.overflow.id
   versioning_configuration {
