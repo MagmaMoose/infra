@@ -13,19 +13,36 @@
 # tick.py has always described, one hop further out.
 
 locals {
-  # Names must match nievah.worker.tick.CRONJOB_TICKS. An unknown name is refused by
-  # enqueue_tick with a log line, which is the right failure but a silent-looking one.
+  # THE `tick` VALUE MUST MATCH nievah.worker.tick.CRONJOB_TICKS EXACTLY, which is
+  # ("planner_tick", "standup_tick") — WITH the suffix. This map's keys used to be the
+  # payload as well as the resource name, so the schedules shipped `planner`/`standup` and
+  # every fire would have been refused by enqueue_tick as `tick.unknown`. Nothing would have
+  # caught it: the message IS consumed, `_run_tick` maps the refusal to 400, the consumer
+  # treats 400 as a permanent rejection and DELETES it, so the queue stays empty and
+  # `nievah-jobs-not-being-consumed` never fires. With the CronJobs suspended that is a
+  # silently dead planner — the exact failure this whole migration exists to end, reintroduced
+  # by the migration. The comment that used to sit here stated the requirement and the code
+  # three lines below it did not meet it; it was caught by firing a deliberately unknown tick
+  # at the deployed Lambda and reading `known` back out of the log line.
+  #
+  # Key = the schedule's own name (stays `nievah-planner`). Value.tick = the payload.
   ticks = {
     # Every two hours across the working day, matching the schedule in k8s/base/cronjob.yaml
     # that this replaces. PLANNER_HOURS in the ConfigMap does not schedule anything — it
     # feeds the catch-up interval — so this is the single thing deciding when a run starts.
-    planner = "cron(7 6,8,10,12,14 * * ? *)"
+    planner = {
+      tick = "planner_tick"
+      cron = "cron(7 6,8,10,12,14 * * ? *)"
+    }
     # 06:30 UTC, matching k8s/base/cronjob.yaml. This read `12` until 2026-08-18, which
     # would have moved the standup 18 minutes earlier the moment ticks were enabled and cut
     # the planner-to-standup gap from 23 minutes to 5 — the exact margin that file's own
     # comment says to WIDEN, not shrink, since the standup reports on what the planner just
     # did. A schedule copied between two systems has to be diffed, not eyeballed.
-    standup = "cron(30 6 * * ? *)"
+    standup = {
+      tick = "standup_tick"
+      cron = "cron(30 6 * * ? *)"
+    }
   }
 }
 
@@ -46,7 +63,7 @@ resource "aws_scheduler_schedule" "tick" {
   for_each = var.localstack || !var.enable_ticks ? {} : local.ticks
 
   name                         = "${var.name_prefix}-${each.key}"
-  schedule_expression          = each.value
+  schedule_expression          = each.value.cron
   schedule_expression_timezone = "UTC"
 
   flexible_time_window {
@@ -58,7 +75,7 @@ resource "aws_scheduler_schedule" "tick" {
   target {
     arn      = aws_lambda_function.producer.arn
     role_arn = aws_iam_role.scheduler[0].arn
-    input    = jsonencode({ nievah_tick = each.key })
+    input    = jsonencode({ nievah_tick = each.value.tick })
 
     retry_policy {
       # A tick that cannot be enqueued is a missed window. Retrying costs nothing and the
