@@ -61,6 +61,16 @@ resource "aws_lambda_function" "producer" {
   # redeliverable rather than a timeout that tells the sender nothing.
   timeout = 5
 
+  # NO reserved_concurrent_executions, and not because it was overlooked. This account's TOTAL
+  # Lambda concurrency quota is 10 — the default for a new account — and AWS refuses any
+  # reservation that would leave fewer than 10 unreserved, so any value at all fails with
+  # InvalidParameterValueException.
+  #
+  # That quota is a harder cap than a reservation would have been: at most ten invocations run
+  # concurrently across the entire account, whatever asks. If the quota is ever raised, add a
+  # reservation here — the protection it provides is currently coming from a default that a
+  # support ticket could silently remove.
+
   environment {
     variables = {
       EVENTS_QUEUE_URL = aws_sqs_queue.events.id
@@ -97,13 +107,20 @@ resource "aws_lambda_function" "consumer" {
   depends_on = [aws_cloudwatch_log_group.consumer]
 }
 
-# AWS_IAM, not NONE. The URL is reachable only by a caller that can sign a SigV4 request for
-# it, which — per the policy in edge.tf — is the CloudFront distribution and nothing else.
-# With NONE this URL would be a second, unprotected front door on a guessable hostname,
-# permanently, and no amount of CloudFront configuration would close it.
+# LOCALSTACK ONLY. In production the front door is an API Gateway HTTP API (see api.tf); a
+# Function URL exists here purely because API Gateway is a paid LocalStack feature and the
+# local harness would otherwise have no way in at all.
+#
+# That substitution is honest rather than lossy: HTTP API payload format 2.0 is byte-for-byte
+# the event shape a Function URL delivers, so the handler, the routing, the signature checks
+# and everything downstream are the identical code path. What a local run does NOT cover is
+# API Gateway's own configuration — the throttle, the $default stage, the integration — which
+# is the same class of gap CloudFront had, now smaller and written down.
 resource "aws_lambda_function_url" "producer" {
+  count = var.localstack ? 1 : 0
+
   function_name      = aws_lambda_function.producer.function_name
-  authorization_type = var.localstack ? "NONE" : "AWS_IAM"
+  authorization_type = "NONE"
 }
 
 # Push, not poll: the event source mapping is Lambda's own poller, and it costs nothing.

@@ -1,39 +1,29 @@
+locals {
+  # The API's own hostname in production; the Function URL under LocalStack. Both end in a
+  # trailing slash-free base, so the routes append cleanly.
+  base_url = var.localstack ? trimsuffix(aws_lambda_function_url.producer[0].function_url, "/") : (
+    var.domain_name != "" ? "https://${var.domain_name}" : aws_apigatewayv2_api.producer[0].api_endpoint
+  )
+}
+
 output "webhook_url" {
   description = "Point the GitHub App's webhook URL here."
-  value = var.localstack ? (
-    "${aws_lambda_function_url.producer.function_url}webhooks/github"
-    ) : (
-    "https://${var.domain_name != "" ? var.domain_name : aws_cloudfront_distribution.producer[0].domain_name}/webhooks/github"
-  )
+  value       = "${local.base_url}/webhooks/github"
 }
 
 output "slack_interactions_url" {
   description = "Point the Slack app's interactivity request URL here."
-  value = var.localstack ? (
-    "${aws_lambda_function_url.producer.function_url}slack/interactions"
-    ) : (
-    "https://${var.domain_name != "" ? var.domain_name : aws_cloudfront_distribution.producer[0].domain_name}/slack/interactions"
-  )
+  value       = "${local.base_url}/slack/interactions"
 }
 
-output "cloudfront_domain" {
-  description = "CNAME target when domain_name is set. Empty under LocalStack."
-  value       = var.localstack ? "" : aws_cloudfront_distribution.producer[0].domain_name
+output "healthz_url" {
+  description = "Liveness. Says nothing about the cluster — this is useful precisely when that is down."
+  value       = "${local.base_url}/healthz"
 }
 
-# The Function URL, exposed for ONE purpose: proving it is unreachable.
-#
-# LocalStack cannot emulate CloudFront, so the local run leaves origin access control
-# completely unexercised — the single most important thing in edge.tf and the one thing
-# "it worked locally" says nothing about. After the first deploy:
-#
-#     curl -si "$(tofu output -raw function_url_for_verification)" | head -1
-#
-# MUST be 403. A 202 means the OAC is not signing, the function is accepting unsigned
-# callers, and there is a second unprotected front door on a guessable hostname.
-output "function_url_for_verification" {
-  description = "Direct Function URL. Expect 403 in production — see the note above."
-  value       = "${aws_lambda_function_url.producer.function_url}healthz"
+output "api_endpoint" {
+  description = "The API's own hostname. CNAME target is not needed — a custom domain is native (see api.tf)."
+  value       = var.localstack ? "" : aws_apigatewayv2_api.producer[0].api_endpoint
 }
 
 output "jobs_queue_url" {

@@ -51,4 +51,11 @@ inputs = {
   # The one repository allowed to assume the publish role. Bound into the OIDC trust policy's
   # `sub` condition — without it, any GitHub Actions workflow anywhere could publish here.
   publisher_repo = "MagmaMoose/nievah"
+
+  # This account ALREADY had a GitHub OIDC provider when the stack first ran, and AWS permits
+  # exactly one per issuer per account — the first apply failed with EntityAlreadyExists.
+  # Reuse it rather than fighting it; the trust policy on the role is what scopes access, not
+  # the provider, so sharing it with whatever created it costs nothing.
+  create_github_oidc_provider = false
+  github_oidc_provider_arn    = "arn:aws:iam::666802049426:oidc-provider/token.actions.githubusercontent.com"
 }

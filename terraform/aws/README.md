@@ -10,8 +10,8 @@ owns the infrastructure and points at a published artifact.
 
 ```
 GitHub ─┐
-Slack ──┼─► CloudFront ─► nievah-producer ─► nievah-events.fifo ─► nievah-consumer
-EventBr ┘   (OAC/SigV4)    verify + park                            dedup + hand off
+Slack ──┼─► API Gateway ─► nievah-producer ─► nievah-events.fifo ─► nievah-consumer
+EventBr ┘   HTTP API        verify + park                           dedup + hand off
                                                                             │
                                                               nievah-jobs.fifo ── 14d
                                                                             │
@@ -55,10 +55,19 @@ surviving both hops, and a tick that does not double-fire on retry.
 
 ### What a local run does NOT prove
 
-- **CloudFront is LocalStack Pro-only.** Locally the Function URL is `authorization_type =
-  NONE` and requests hit it directly, so **origin access control is not exercised**. After the
-  first real apply: `curl -si "$(terragrunt output -raw function_url_for_verification)"` — it
-  **must** be 403. A 202 means the Function URL is a second, unprotected front door.
+- **API Gateway is LocalStack Pro-only.** Locally the front door is a Lambda Function URL
+  instead. That substitution is honest rather than lossy — HTTP API payload format 2.0 is
+  byte-for-byte the event shape a Function URL delivers, so the handler and everything
+  downstream are the identical code path — but the gateway's OWN configuration (the throttle,
+  the `$default` stage, the integration) is never exercised locally.
+
+  This gap has already cost a live debugging session once. The first build of this stack put
+  CloudFront with **origin access control** in front of a Lambda Function URL; it deployed
+  clean, `GET /healthz` returned 200, the direct Function URL correctly returned 403 — and
+  every **POST** returned `InvalidSignatureException`. AWS documents that OAC on a function URL
+  requires the *caller* to send `x-amz-content-sha256` for PUT/POST, which GitHub and Slack
+  never will. The health check passed the entire time. **Verify with a real signed POST after
+  every change here, not with a GET.**
 - **EventBridge Scheduler is mocked** and never fires, so no schedule is created locally.
   `smoke.py` invokes the producer with a tick payload directly instead.
 
@@ -82,8 +91,8 @@ aws ssm put-parameter --name /nievah/prod/slack-signing-secret --type SecureStri
 # 3. Run nievah's publish-edge workflow once, then set edge_artifact_version to what it made.
 cd ../nievah-frontdoor && terragrunt apply
 
-# 4. Prove the origin is private. MUST be 403.
-curl -si "$(terragrunt output -raw function_url_for_verification)" | head -1
+# 4. Prove it is up. MUST be 200.
+curl -si "$(terragrunt output -raw healthz_url)" | head -1
 
 # 5. Point one repo's webhook at it. Both paths end in the same place, so the blast radius is
 #    one repo, and nievah's reconcile_tick catches anything that slips through either way.
@@ -131,13 +140,40 @@ Every service here is **Always Free** except S3. Measured against ~950 deliverie
 | CloudWatch | 10 alarms, 5 GB logs | 4 alarms, 14-day retention | — |
 | SSM Parameter Store | 10,000 standard params | 3 | — |
 | **S3** (overflow + artifacts) | **5 GB — 12-MONTH** | see below | ~$0.005/mo |
+| **API Gateway** (HTTP API) | **1M req — 12-MONTH** | ~29k requests | ~$0.03/mo |
 
 **SQS has the least headroom**, and it is the idle long poll rather than the traffic: two
 worker replicas at a 20-second wait spend ~260k requests a month finding nothing. It moves
 with replica count, not with how busy the fleet is — which is why `SQS_WAIT_SECONDS` is
 SQS's **maximum**. A 1-second poll would be 5.2M requests for identical behaviour.
 
-**The two S3 buckets are the only things not literally free.** Costed pessimistically — 20
+**Two things here are not always-free: API Gateway and the two S3 buckets.** Together, about
+four cents a month at real traffic.
+
+### The cost ceiling, and why it is not just an alarm
+
+AWS has **no spend cap** — Budgets report, they do not stop, and they can lag hours. So the
+real control is enforced in real time at the door:
+
+| control | value | what it bounds |
+|---|---|---|
+| API Gateway throttle | **2 req/s, burst 10** | the request rate, at the gateway. Over-limit requests get 429 and never reach Lambda |
+| Lambda account concurrency | **10** (account default) | how many invocations can ever run at once, account-wide |
+| DynamoDB | **provisioned 2/2**, not on-demand | cannot scale itself into a bill |
+| S3 overflow | 1-day lifecycle | storage cannot accumulate |
+| CloudWatch Logs | 14-day retention | log storage cannot accumulate |
+| Budget alert | **$1**, plus FORECASTED at 50% | the backstop that notices anything the above missed |
+
+Real traffic is ~950 deliveries/day — **0.011 req/s**, so the throttle is ~180x headroom.
+
+**The worst case, stated honestly.** Someone who finds the URL and floods it at the full
+throttle, 24/7, unnoticed for a whole month: roughly **$5 of API Gateway and under $1 of
+Lambda**. It cannot touch SQS, DynamoDB or S3 at all — an unsigned request is refused **401
+before anything is queued**, so no downstream resource is reachable without the webhook
+secret. At ~$0.20/day the FORECASTED budget alert fires within a few days, long before it
+matters.
+
+**The two S3 buckets, separately.** Costed pessimistically — 20
 oversized deliveries a day at 1 MB, plus every release's 18 KB artifact kept forever — that
 is about **half a cent a month**, dominated by PUT requests rather than storage. Called out
 rather than rounded away because the brief for this stack was "free". The producer logs

@@ -76,10 +76,10 @@ variable "localstack" {
 variable "domain_name" {
   description = <<-EOT
     Custom hostname for the front door, e.g. "hooks.magmamoose.com". Leave EMPTY to use the
-    distribution's own *.cloudfront.net name, which is what the first deploy should do: the
+    API's own *.execute-api.<region>.amazonaws.com name, which is what the first deploy should do: the
     GitHub App's webhook URL can be repointed in one field at any time, and an empty value
-    keeps this stack from needing a certificate, a DNS record, or a second provider in
-    us-east-1 before it has ever received a request.
+    keeps this stack from needing a certificate or a DNS record before it has ever received
+    a request.
   EOT
   type        = string
   default     = ""
@@ -87,9 +87,10 @@ variable "domain_name" {
 
 variable "certificate_arn" {
   description = <<-EOT
-    ACM certificate for `domain_name`. MUST be in us-east-1 — CloudFront reads certificates
-    from that region only, whatever region the rest of the stack is in. Required when
-    `domain_name` is set; ignored otherwise.
+    ACM certificate for `domain_name`. REGIONAL, in this stack's own region — an API Gateway
+    custom domain reads it from there. (The CloudFront design this replaced needed one in
+    us-east-1 and therefore a second provider alias; that is gone.) Required when
+    `domain_name` is set, ignored otherwise.
   EOT
   type        = string
   default     = ""
@@ -164,4 +165,60 @@ variable "slack_channel_id" {
   description = "Slack channel id for alarms, e.g. C0123456789. Required with slack_workspace_id."
   type        = string
   default     = ""
+}
+
+variable "throttle_rate_limit" {
+  description = <<-EOT
+    Steady-state requests per second the front door will accept, across all callers.
+
+    THIS IS THE COST CEILING. API Gateway is the one component here that is not always-free
+    ($1.00/million after a 12-month allowance), and unlike the Lambda free tier there is no
+    natural stopping point — so the rate limit is what stands between an abusive burst and a
+    bill. Requests over it are rejected by the gateway with 429 and never reach Lambda, so
+    they cost a gateway request rather than a request AND an invocation.
+
+    Real traffic is ~950 deliveries a day — an average of **0.011 requests per second**. Even
+    a tenfold redelivery storm is 0.11/s. 2/s is therefore ~180x headroom over steady state
+    and still absorbs any burst GitHub realistically produces.
+
+    IT IS SET LOW ON PURPOSE, because it is the only real-time control in this stack. AWS has
+    no spend cap: budgets report, they do not stop. Sustained abuse at this rate costs about
+    **$0.17 a day** across gateway, Lambda and SQS combined — small enough that the budget
+    alert below fires long before the number matters. At 20/s, which is what this was first
+    set to, the same abuse would be nearer **$1.70 a day**, and a month of it unnoticed would
+    be real money.
+
+    Raise it only with a number in hand for what actually needs the headroom.
+  EOT
+  type        = number
+  default     = 2
+}
+
+variable "throttle_burst_limit" {
+  description = <<-EOT
+    Instantaneous burst allowed above the rate limit. GitHub redelivers in bursts, so this is
+    what stops a legitimate backlog replay being throttled; 10 covers one comfortably at this
+    fleet's size. Bursts are drained at `throttle_rate_limit`, so this does not raise the
+    sustained ceiling.
+  EOT
+  type        = number
+  default     = 10
+}
+
+variable "monthly_budget_usd" {
+  description = <<-EOT
+    Spend that should never be reached, in USD. Two AWS Budgets are free per account and this
+    is the first one, so the guard itself costs nothing.
+
+    Expected steady state is a few cents — API Gateway requests plus two small S3 buckets;
+    everything else is inside a permanent always-free allowance. A dollar is therefore roughly
+    thirty times the expected bill and still small enough to notice immediately.
+
+    The FORECASTED alert at 50% is the one that gives useful warning: on a stack that should
+    cost pennies, a month trending toward fifty cents already means something changed. Note
+    that AWS Budgets can lag several hours to a day, which is why the API Gateway throttle —
+    enforced in real time, at the door — is the actual control and this is the backstop.
+  EOT
+  type        = number
+  default     = 1
 }

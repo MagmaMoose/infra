@@ -9,7 +9,17 @@ locals {
   # that would collapse every environment onto one SSM path. The environment comes from
   # the leaf, via prod/environment.hcl.
   secret_path = "/${var.name_prefix}/${var.environment}"
-  secret_arn  = "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${local.secret_path}/*"
+
+  # TWO ARNs, and the first one is not redundant. `GetParametersByPath` authorises against the
+  # PATH itself, not only against the parameters under it — granting `/nievah/prod/*` alone
+  # produces `not authorized to perform: ssm:GetParametersByPath on resource:
+  # .../parameter/nievah/prod`, naming a resource the policy looks like it covers. The
+  # producer then 500s on every POST while `GET /healthz` keeps returning 200, because health
+  # never reads a secret.
+  secret_arns = [
+    "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${local.secret_path}",
+    "arn:aws:ssm:${var.region}:${data.aws_caller_identity.current.account_id}:parameter${local.secret_path}/*",
+  ]
 }
 
 data "aws_iam_policy_document" "lambda_assume" {
@@ -47,7 +57,7 @@ data "aws_iam_policy_document" "producer" {
   statement {
     sid       = "ReadSecrets"
     actions   = ["ssm:GetParametersByPath", "ssm:GetParameter", "ssm:GetParameters"]
-    resources = [local.secret_arn]
+    resources = local.secret_arns
   }
 
   # SecureString parameters are encrypted under the account's default SSM key; without this

@@ -162,3 +162,87 @@ resource "aws_cloudwatch_metric_alarm" "producer_errors" {
   treat_missing_data = "notBreaching"
   alarm_actions      = [aws_sns_topic.ops.arn]
 }
+
+# --- THE COST GUARD -------------------------------------------------------------------------
+#
+# The brief for this stack was "free", and everything in it is inside a permanent always-free
+# allowance except two S3 buckets and the API Gateway requests — a few cents a month between
+# them. This is what turns that from an estimate into something monitored.
+#
+# TWO BUDGETS ARE FREE PER ACCOUNT and this is the first, so the guard costs nothing. It is
+# deliberately not a limit: AWS Budgets cannot stop spend, only report it. The thing that
+# actually caps a runaway is the API Gateway throttle in api.tf; this is the backstop that
+# notices if something else does.
+#
+# Both thresholds matter. ACTUAL fires once real money has been spent; FORECASTED fires when
+# the month's trajectory says it will be — which on a stack that should cost pennies is the
+# one that gives useful warning, days ahead of the bill.
+resource "aws_budgets_budget" "guard" {
+  count = var.localstack ? 0 : 1
+
+  name         = "${var.name_prefix}-monthly"
+  budget_type  = "COST"
+  limit_amount = tostring(var.monthly_budget_usd)
+  limit_unit   = "USD"
+  time_unit    = "MONTHLY"
+
+  notification {
+    comparison_operator       = "GREATER_THAN"
+    threshold                 = 100
+    threshold_type            = "PERCENTAGE"
+    notification_type         = "ACTUAL"
+    subscriber_sns_topic_arns = [aws_sns_topic.ops.arn]
+  }
+
+  notification {
+    # Half the budget, forecast. On a stack whose expected spend is a few cents, a forecast
+    # of fifty cents already means something changed.
+    comparison_operator       = "GREATER_THAN"
+    threshold                 = 50
+    threshold_type            = "PERCENTAGE"
+    notification_type         = "FORECASTED"
+    subscriber_sns_topic_arns = [aws_sns_topic.ops.arn]
+  }
+}
+
+# Budgets publishes from a service principal, so the ops topic has to accept it. Without this
+# the budget is created, reports healthy, and silently delivers nothing — the failure mode
+# every alarm in this file exists to avoid.
+data "aws_iam_policy_document" "ops_topic" {
+  statement {
+    sid     = "AllowBudgets"
+    actions = ["SNS:Publish"]
+    principals {
+      type        = "Service"
+      identifiers = ["budgets.amazonaws.com"]
+    }
+    resources = [aws_sns_topic.ops.arn]
+  }
+
+  statement {
+    sid     = "AllowCloudWatchAlarms"
+    actions = ["SNS:Publish"]
+    principals {
+      type        = "Service"
+      identifiers = ["cloudwatch.amazonaws.com"]
+    }
+    resources = [aws_sns_topic.ops.arn]
+  }
+
+  # The account keeps everything else it normally has; omitting this replaces the default
+  # policy and locks the owner out of their own topic.
+  statement {
+    sid     = "AllowAccountOwner"
+    actions = ["SNS:Publish", "SNS:Subscribe", "SNS:GetTopicAttributes", "SNS:SetTopicAttributes"]
+    principals {
+      type        = "AWS"
+      identifiers = [data.aws_caller_identity.current.account_id]
+    }
+    resources = [aws_sns_topic.ops.arn]
+  }
+}
+
+resource "aws_sns_topic_policy" "ops" {
+  arn    = aws_sns_topic.ops.arn
+  policy = data.aws_iam_policy_document.ops_topic.json
+}
