@@ -167,7 +167,7 @@ I want to follow best practices and industry standards. The below is a list of t
   - [x] **Only 3 of the 9 candidate apps are cluster workloads.** A PriorityClass is a pod-scheduling construct and has no meaning for the rest:
     - cluster workloads today: **nievah**, **caldrith**, **dunmir** (`dunmir-pro`)
     - GitHub Actions, not pods — no class applies: **diatreme** (`.github/workflows/release.yml`), **chargate** (`.github/workflows/security.yml`; its cluster deployment was removed in #519)
-    - no manifest, namespace or workflow reference anywhere yet: **brimyr**, **dastgate**, **sitnalta**, **noctyr**
+    - no manifest, namespace or workflow reference anywhere yet: **brimyr**, **draventis**, **sitnalta**, **noctyr**
   - [x] five tiers, which is inside the 3–5 range that stays meaningful in practice. `besteffort` was folded into `low` — it had zero members, and `low` already carries `preemptionPolicy: Never`, so the two were functionally the same tier.
   - [x] **do not re-declare what Kubernetes already provides.** 13 workloads already carry a built-in class today and assigning them a custom one would *demote* them by six orders of magnitude (`system-cluster-critical` = 2000000000, custom `critical` = 100000). Leave these alone and drop them from the desired-state lists below — they are k3s- or chart-managed, not ours to set:
     - `system-cluster-critical`: coredns, traefik, helm-controller, kustomize-controller, source-controller
