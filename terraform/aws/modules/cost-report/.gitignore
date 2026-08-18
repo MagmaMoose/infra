@@ -1,0 +1,3 @@
+# archive_file's build output. Regenerated on every plan; a committed zip would be a second,
+# stale copy of src/ that nothing reads.
+.build/
