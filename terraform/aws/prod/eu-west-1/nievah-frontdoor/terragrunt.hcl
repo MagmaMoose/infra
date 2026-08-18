@@ -70,7 +70,7 @@ inputs = {
   # Cold start: this must name an object that already exists. Apply ../artifacts, run the
   # publish workflow once, then set this to what it produced.
   # ─────────────────────────────────────────────────────────────────────────────────────────
-  edge_artifact_version = "1.41.3"
+  edge_artifact_version = "1.41.3-g338800d"
 
   # Empty until DNS is decided: the distribution's own *.cloudfront.net name works, and the
   # GitHub App's webhook URL is one field to repoint later. A hostname here also needs an ACM
@@ -99,10 +99,10 @@ inputs = {
   # delivers nothing, which Terraform reports as "created" either way.
   ops_email = "caleb@magmamoose.com"
 
-  # Slack #finance. The CHANNEL id is known; the WORKSPACE id is not, because AWS Chatbot
-  # requires a one-time OAuth handshake in its console before a workspace exists to reference
-  # and Terraform cannot perform it. Do that once (AWS Chatbot -> Configure new client ->
-  # Slack), paste the team id here, and this wires itself. Chatbot is free.
-  slack_workspace_id = ""
+  # Slack #finance. The workspace was authorised by hand in the console — AWS Chatbot (now
+  # branded "Amazon Q Developer in chat applications") needs a one-time OAuth handshake
+  # before a workspace exists to reference, and Terraform cannot perform it. Everything after
+  # that handshake is declarative, and Chatbot itself is free.
+  slack_workspace_id = "T07C6KG3Y4A"
   slack_channel_id   = "C08BHHDGC0K"
 }

@@ -8,12 +8,12 @@ locals {
 
 output "webhook_url" {
   description = "Point the GitHub App's webhook URL here."
-  value       = "${local.base_url}/webhooks/github"
+  value       = "${local.base_url}/github"
 }
 
 output "slack_interactions_url" {
   description = "Point the Slack app's interactivity request URL here."
-  value       = "${local.base_url}/slack/interactions"
+  value       = "${local.base_url}/slack"
 }
 
 output "healthz_url" {
