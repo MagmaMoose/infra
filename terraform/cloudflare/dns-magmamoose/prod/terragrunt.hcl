@@ -183,11 +183,31 @@ inputs = {
       proxied = false
     },
 
+    # GREY, and this is a REGRESSION FROM proxied = true, recorded so nobody flips it back
+    # without reading this first.
+    #
+    # Proxied, every request returned Cloudflare 521 and AWS saw NOTHING — API Gateway's Count
+    # metric had no datapoints and the probe path never reached the Lambda. The origin is
+    # healthy from everywhere else: TCP/443 connects on all three of its IPs, it serves the
+    # correct certificate for BOTH plausible SNIs (the custom domain and the CNAME target), and
+    # it has no AAAA records, so the usual broken-IPv6-origin trap does not apply.
+    #
+    # What DOES match the symptom exactly: port 80 is refused on every origin IP, which is the
+    # port a "Flexible" origin fetch dials. The zone's SSL/TLS mode was set to Full (strict)
+    # and the 521 survived it — so the override is more likely a Page Rule or Configuration
+    # Rule pinning SSL for this hostname, which beats the zone default.
+    #
+    # TO GO BACK TO ORANGE: confirm no rule overrides SSL for broker-chargate.magmamoose.com,
+    # then flip this to true and re-test. Proxying is worth having — it keeps an abusive flood
+    # off AWS's meter entirely, which matters because the stage throttle bounds the Lambda bill
+    # deterministically but NOT the API Gateway bill (AWS does not document whether it charges
+    # for the 429s it issues). Grey cloud means the throttle and the account-level quota are
+    # the only cost controls left.
     {
       name    = "broker-chargate.magmamoose.com"
       type    = "CNAME"
       value   = "d-um036cwvi6.execute-api.eu-west-1.amazonaws.com"
-      proxied = true
+      proxied = false
     },
 
     {
