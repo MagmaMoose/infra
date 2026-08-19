@@ -139,3 +139,41 @@ resource "aws_apigatewayv2_api_mapping" "broker" {
   domain_name = aws_apigatewayv2_domain_name.broker[0].id
   stage       = aws_apigatewayv2_stage.broker.id
 }
+
+# --- additional hostnames (the migration window) ---------------------------------------------
+#
+# Deliberately SEPARATE resources rather than folding `domain_name` and these into one
+# `for_each`. Doing that would change the primary domain's resource address from `[0]` to
+# `["broker-chargate.magmamoose.com"]`, and Terraform reads a changed address as destroy-and-
+# recreate — taking the live custom domain, and therefore the `d-*` target the Cloudflare record
+# points at, down with it. Additive is worth a little duplication here.
+resource "aws_acm_certificate" "additional" {
+  for_each = toset(var.additional_domain_names)
+
+  domain_name       = each.value
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_apigatewayv2_domain_name" "additional" {
+  for_each = var.enable_custom_domain ? toset(var.additional_domain_names) : toset([])
+
+  domain_name = each.value
+
+  domain_name_configuration {
+    certificate_arn = aws_acm_certificate.additional[each.value].arn
+    endpoint_type   = "REGIONAL"
+    security_policy = "TLS_1_2"
+  }
+}
+
+resource "aws_apigatewayv2_api_mapping" "additional" {
+  for_each = var.enable_custom_domain ? toset(var.additional_domain_names) : toset([])
+
+  api_id      = aws_apigatewayv2_api.broker.id
+  domain_name = aws_apigatewayv2_domain_name.additional[each.value].id
+  stage       = aws_apigatewayv2_stage.broker.id
+}

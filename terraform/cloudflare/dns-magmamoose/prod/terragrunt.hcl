@@ -228,30 +228,40 @@ inputs = {
       proxied = false
     },
 
-    # GREY, and this is a REGRESSION FROM proxied = true, recorded so nobody flips it back
-    # without reading this first.
+    # PROXIED, and it took a fight to get here — recorded so nobody "simplifies" it back to grey.
     #
-    # Proxied, every request returned Cloudflare 521 and AWS saw NOTHING — API Gateway's Count
-    # metric had no datapoints and the probe path never reached the Lambda. The origin is
-    # healthy from everywhere else: TCP/443 connects on all three of its IPs, it serves the
-    # correct certificate for BOTH plausible SNIs (the custom domain and the CNAME target), and
-    # it has no AAAA records, so the usual broken-IPv6-origin trap does not apply.
+    # Proxied, this returned Cloudflare 521 on every request while AWS saw NOTHING: API
+    # Gateway's Count metric had no datapoints and a unique probe path never reached the
+    # Lambda. The origin was healthy throughout — TCP/443 on every IP, correct certificate for
+    # both plausible SNIs, no AAAA records so not the broken-IPv6-origin trap — and port 80 was
+    # refused on every origin IP, which is the port a "Flexible" origin fetch dials. Setting the
+    # zone's SSL/TLS mode to Full (strict) is what fixed it.
     #
-    # What DOES match the symptom exactly: port 80 is refused on every origin IP, which is the
-    # port a "Flexible" origin fetch dials. The zone's SSL/TLS mode was set to Full (strict)
-    # and the 521 survived it — so the override is more likely a Page Rule or Configuration
-    # Rule pinning SSL for this hostname, which beats the zone default.
-    #
-    # TO GO BACK TO ORANGE: confirm no rule overrides SSL for broker-chargate.magmamoose.com,
-    # then flip this to true and re-test. Proxying is worth having — it keeps an abusive flood
-    # off AWS's meter entirely, which matters because the stage throttle bounds the Lambda bill
-    # deterministically but NOT the API Gateway bill (AWS does not document whether it charges
-    # for the 429s it issues). Grey cloud means the throttle and the account-level quota are
-    # the only cost controls left.
+    # Worth keeping proxied: it keeps an abusive flood off AWS's meter entirely, which matters
+    # because the 2 rps stage throttle bounds the LAMBDA bill deterministically but not the API
+    # GATEWAY bill — AWS does not document whether it charges for the 429s it issues.
     {
       name    = "broker-chargate.magmamoose.com"
       type    = "CNAME"
       value   = "d-um036cwvi6.execute-api.eu-west-1.amazonaws.com"
+      proxied = true
+    },
+
+    # The OLD chargate broker hostname, kept alive for the migration window. ~23 repositories
+    # pin chargate by SHA through a centrally-provisioned workflow, and `token_broker_url` is an
+    # action input with a DEFAULT — so the old name is frozen into every tag released before the
+    # rename and they cannot all be moved at once. Without these two records every one of them
+    # silently falls back to `github-actions[bot]`.
+    #
+    # The _acm one stays GREY — a proxied record answers with Cloudflare's own value, so ACM
+    # never sees the token and the certificate never leaves PENDING_VALIDATION. The hostname
+    # itself is proxied, like broker-chargate.
+    #
+    # Remove both once no pinned consumer references chargate.magmamoose.com.
+    {
+      name    = "_ac7f3003f47fad3ba7709a917150f813.chargate.magmamoose.com"
+      type    = "CNAME"
+      value   = "_5c116c8ef24a1d60cc2d7005cffdc265.jkddzztszm.acm-validations.aws"
       proxied = false
     },
 
@@ -284,6 +294,16 @@ inputs = {
       name    = "broker-brimyr.magmamoose.com"
       type    = "CNAME"
       value   = "d-mwephkxe83.execute-api.eu-west-1.amazonaws.com"
+      proxied = true
+    },
+
+    # PROXIED, and this is the one that matters most for cost: ~23 repositories are pinned to a
+    # chargate SHA whose action.yml still defaults to THIS hostname, so it carries essentially
+    # all consumer traffic while broker-chargate carries almost none.
+    {
+      name    = "chargate.magmamoose.com"
+      type    = "CNAME"
+      value   = "d-5w3egcz0s6.execute-api.eu-west-1.amazonaws.com"
       proxied = true
     },
 

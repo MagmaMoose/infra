@@ -85,6 +85,17 @@ inputs = {
   # validation CNAME; phase 2 turns both flags below true once the certificate is ISSUED.
   domain_name          = "broker-chargate.magmamoose.com"
   certificate_arn      = ""
+
+  # THE MIGRATION WINDOW. `token_broker_url` is an action input with a DEFAULT, so the old
+  # hostname is frozen into every tag released before the rename — and ~23 repositories pin
+  # chargate by SHA through a centrally-provisioned workflow, so they cannot all be moved at
+  # once. Verified 2026-08-20: every consumer still resolves `chargate.magmamoose.com`, which
+  # no longer exists, and because the client fails soft they were ALL silently falling back to
+  # `github-actions[bot]` with nothing red anywhere.
+  #
+  # Serving both costs nothing (ACM certificates and API Gateway custom domains are free).
+  # Remove this entry once no pinned consumer references the old hostname.
+  additional_domain_names = ["chargate.magmamoose.com"]
   enable_custom_domain = true
 
   # Phase 2 as well. Closing the execute-api door is what makes the Cloudflare proxy an actual
