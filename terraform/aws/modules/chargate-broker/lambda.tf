@@ -21,23 +21,23 @@ locals {
 # Created explicitly rather than left to Lambda. A log group Lambda creates for itself has
 # retention set to NEVER EXPIRE, and CloudWatch Logs' 5 GB allowance is pooled across the whole
 # organization — so the default quietly converts a free stack into a billed one.
-# checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
-# checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
 # trivy:ignore:AVD-AWS-0017
 resource "aws_cloudwatch_log_group" "broker" {
+  # checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
+  # checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
   name              = "/aws/lambda/${var.name_prefix}-broker"
   retention_in_days = var.log_retention_days
 }
 
-# checkov:skip=CKV_AWS_173:No KMS CMK for env vars — the secrets are in SSM, not here; these values are a path and a version string
-# checkov:skip=CKV_AWS_116:No DLQ — this is a synchronous request/response API, there is no async invocation to redrive
-# checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
-# checkov:skip=CKV_AWS_115:Account-level concurrency cap is 10; any reservation fails (InvalidParameterValueException)
-# checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to SSM and api.github.com, no VPC resources
-# checkov:skip=CKV_AWS_50:X-Ray tracing not enabled — cost not justified at this scale
-# trivy:ignore:AVD-AWS-0066
 # nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
+# trivy:ignore:AVD-AWS-0066
 resource "aws_lambda_function" "broker" {
+  # checkov:skip=CKV_AWS_173:No KMS CMK for env vars — the secrets are in SSM, not here; these values are a path and a version string
+  # checkov:skip=CKV_AWS_116:No DLQ — this is a synchronous request/response API, there is no async invocation to redrive
+  # checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
+  # checkov:skip=CKV_AWS_115:Account-level concurrency cap is 10; any reservation fails (InvalidParameterValueException)
+  # checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to SSM and api.github.com, no VPC resources
+  # checkov:skip=CKV_AWS_50:X-Ray tracing not enabled — cost not justified at this scale
   function_name = "${var.name_prefix}-broker"
   role          = aws_iam_role.broker.arn
   handler       = "app.lambda_handler.handler"

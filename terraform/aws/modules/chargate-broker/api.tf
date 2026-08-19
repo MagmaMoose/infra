@@ -50,6 +50,7 @@ resource "aws_apigatewayv2_integration" "broker" {
 }
 
 resource "aws_apigatewayv2_route" "broker" {
+  # checkov:skip=CKV_AWS_309:Authorization is handled by the Lambda handler (OIDC JWT validation); no gateway-level authorizer needed for this design
   api_id    = aws_apigatewayv2_api.broker.id
   route_key = "$default"
   target    = "integrations/${aws_apigatewayv2_integration.broker.id}"
@@ -57,7 +58,9 @@ resource "aws_apigatewayv2_route" "broker" {
 
 # The $default stage, so `rawPath` is the real path with no stage prefix to strip. A named stage
 # would put `/prod` in front of every route and the handler would 404 its own endpoints.
+# trivy:ignore:AVD-AWS-0001
 resource "aws_apigatewayv2_stage" "broker" {
+  # checkov:skip=CKV_AWS_76:Lambda already emits structured request logs; gateway access logs would duplicate that against a shared org-wide 5 GB CloudWatch allowance
   api_id      = aws_apigatewayv2_api.broker.id
   name        = "$default"
   auto_deploy = true

@@ -1,4 +1,3 @@
-# kics-scan disable=CKV_AWS_26,CKV_AWS_355
 # Alarms and the budget.
 #
 # THE THING WORTH UNDERSTANDING ABOUT THIS SERVICE is that it fails SILENTLY. Chargate's
@@ -11,9 +10,9 @@
 # per account, because free-tier usage aggregates at the payer. Nievah's front door already uses
 # four. This uses three, for seven of ten.
 
+# trivy:ignore:AVD-AWS-0095
 resource "aws_sns_topic" "ops" {
   # checkov:skip=CKV_AWS_26:No KMS CMK for SNS — home lab; alarm text carries no secrets
-  # trivy:ignore:AVD-AWS-0095
   name = "${var.name_prefix}-ops"
 }
 
@@ -58,8 +57,8 @@ resource "aws_iam_role" "chatbot" {
 
 # Read-only, and only the metrics. Chatbot's default managed policy is far wider than posting an
 # alarm needs.
-# checkov:skip=CKV_AWS_355:CloudWatch Describe/Get/List actions do not support resource-level restrictions; "*" is required
 resource "aws_iam_role_policy" "chatbot" {
+  # checkov:skip=CKV_AWS_355:CloudWatch Describe/Get/List actions do not support resource-level restrictions; "*" is required
   count = var.slack_workspace_id == "" ? 0 : 1
   name  = "${var.name_prefix}-chatbot"
   role  = aws_iam_role.chatbot[0].id
