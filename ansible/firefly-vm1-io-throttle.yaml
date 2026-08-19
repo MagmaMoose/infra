@@ -67,11 +67,13 @@
     # image layers) actually sits on. Named rather than globbed: a glob that matches
     # nothing produces a class with no devices, which throttles nothing and looks fine.
     root_device: /dev/mapper/ubuntu--vg-ubuntu--lv
-    # ~25% of the 828MB/s measured floor. Generous enough that an image pull is still
-    # fast, small enough that production keeps the majority of the device under
-    # contention. These are HARD caps: they apply even on an idle node, which is the
-    # accepted trade for not needing BFQ (sda runs [none] mq-deadline, so io.weight —
-    # the proportional alternative — is inert here).
+    # Provisional — needs re-deriving before the annotation is enabled. The 828MB/s
+    # floor below is a guest-side figure inflated by host page cache (cache=writeback);
+    # a host-side raw read of the backing NVMe measured ~218MB/s under load, so
+    # 200MB/s read is ~92% of real device capacity, not 25%. These are HARD caps:
+    # they apply even on an idle node, which is the accepted trade for not needing
+    # BFQ (sda runs [none] mq-deadline, so io.weight — the proportional alternative
+    # — is inert here).
     io_read_bps: 200M
     io_write_bps: 100M
     io_read_iops: 8k
