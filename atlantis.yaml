@@ -75,6 +75,19 @@ projects:
   # leaf would autoplan, fail on credentials, and train everyone to ignore a red Atlantis
   # check. Revisit when Effusion lands and a per-run OIDC role makes the credential free.
 
+  # NO PROJECT FOR terraform/aws/prod/eu-west-1/caldrith-frontdoor, deliberately, and for the
+  # same reason as cost-report above: it applies into a THIRD account, prd-caldrith
+  # (483461801743), and Atlantis holds the prd-nievah credential only. Adding the project
+  # without a credential for that account would be worse than omitting it — the leaf generates
+  # `allowed_account_ids = ["483461801743"]` while Atlantis authenticates as prd-nievah, so
+  # every autoplan would fail on the account guard, and a red check nobody can fix is a red
+  # check everyone learns to ignore.
+  #
+  # So it is applied by hand with `AWS_PROFILE=mm-prd-caldrith`, and the ordering in the leaf's own
+  # cold-start block is the runbook. If Atlantis is ever to run it, give Atlantis a prd-caldrith
+  # credential first and add the project entry alongside aws-nievah-frontdoor-prod; the better
+  # answer is Effusion's per-run OIDC role, which makes the credential free.
+
   # ─── Cloudflare ──────────────────────────────────────────────────────────
   - name: cloudflare-dns-prod
     dir: terraform/cloudflare/dns/prod
