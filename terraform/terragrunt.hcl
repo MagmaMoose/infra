@@ -1,10 +1,10 @@
 remote_state {
   backend = "gcs"
   config = {
-    bucket         = "terraform-state-firefly"
-    prefix         = "terraform/gcp_project"
-    credentials    = "${get_env("GOOGLE_APPLICATION_CREDENTIALS", "${get_repo_root()}/terraform/.service-account.json")}"
-    project        = "sargeant-terraform-states"
+    bucket      = "terraform-state-firefly"
+    prefix      = "terraform/gcp_project"
+    credentials = "${get_env("GOOGLE_APPLICATION_CREDENTIALS", "${get_repo_root()}/terraform/.service-account.json")}"
+    project     = "sargeant-terraform-states"
   }
 }
 
