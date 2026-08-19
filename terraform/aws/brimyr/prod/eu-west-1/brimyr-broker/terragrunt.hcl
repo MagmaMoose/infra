@@ -129,10 +129,13 @@ inputs = {
   #
   #   Phase 2: once the certificate is ISSUED, set both flags below to true, apply again, then
   #   add the service CNAME (`target_domain_name` -> broker-brimyr) PROXIED in the same file.
+  # PHASE 2 (current): the certificate is ISSUED, so the custom domain and its API mapping
+  # are created and the generated execute-api URL is closed. Closing it is what gives the
+  # Cloudflare proxy any meaning — otherwise the origin stays reachable and bypassable.
   domain_name              = "broker-brimyr.magmamoose.com"
   certificate_arn          = ""
-  enable_custom_domain     = false
-  disable_default_endpoint = false
+  enable_custom_domain     = true
+  disable_default_endpoint = true
 
   # ── Spend controls. See the COST block at the top before changing these. ────────────────
   throttle_rate_limit  = 1
