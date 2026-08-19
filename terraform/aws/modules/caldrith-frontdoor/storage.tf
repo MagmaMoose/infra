@@ -17,10 +17,9 @@
 # two services together sit at about a third of an allowance that is ORGANISATION-wide, not
 # per-account. There is room for a third service and not much more; a fourth is the point to
 # look at this again rather than the point to discover it.
-# nosemgrep: terraform.aws.security.aws-dynamodb-table-unencrypted.aws-dynamodb-table-unencrypted
 # trivy:ignore:AVD-AWS-0024
 # trivy:ignore:AVD-AWS-0025
-resource "aws_dynamodb_table" "dedup" {
+resource "aws_dynamodb_table" "dedup" { # nosemgrep: terraform.aws.security.aws-dynamodb-table-unencrypted.aws-dynamodb-table-unencrypted
   #checkov:skip=CKV_AWS_28:PITR off deliberately — every row is a 24h-TTL delivery id, nothing worth restoring
   #checkov:skip=CKV_AWS_119:No KMS CMK for DynamoDB — home lab; AWS managed key is sufficient
   #checkov:skip=CKV2_AWS_16:DynamoDB auto-scaling disabled deliberately — provisioned 2/2 to stay in always-free tier
