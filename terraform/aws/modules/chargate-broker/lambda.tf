@@ -74,7 +74,8 @@ resource "aws_lambda_function" "broker" { # nosemgrep: terraform.aws.security.aw
       # SSM at request time instead. This is only where to look for them.
       SECRET_PATH = local.secret_path
 
-      OIDC_AUDIENCE = "chargate"
+      # Defaults to name_prefix, which is the value this was hardcoded to. See the variable.
+      OIDC_AUDIENCE = var.oidc_audience != "" ? var.oidc_audience : var.name_prefix
       # Empty = the public-app model: any repository the Chargate App is installed on may mint.
       # The App installation is the access control, not this list.
       ALLOWED_REPOSITORIES   = ""
