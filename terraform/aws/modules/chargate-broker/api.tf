@@ -108,7 +108,7 @@ resource "aws_lambda_permission" "api" {
 # Public ACM certificates are free, and an API Gateway custom domain carries no charge, so none
 # of this moves the bill.
 resource "aws_acm_certificate" "broker" {
-  count = var.domain_name == "" ? 0 : 1
+  count = var.domain_name == "" || var.certificate_arn != "" ? 0 : 1
 
   domain_name       = var.domain_name
   validation_method = "DNS"
