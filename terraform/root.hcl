@@ -14,6 +14,31 @@ locals {
   provider = local.provider_vars.inputs.provider
   region  = local.region_vars.locals.region
   environment = local.environment_vars.locals.environment
+
+  # The OCI half of the generated provider.tf. Suppressed for aws leaves ONLY: a module may
+  # declare `required_providers` exactly once, and this generate block owns that declaration,
+  # so an AWS module carrying its own versions.tf would collide with it. Keyed on `== "aws"`
+  # rather than `== "oci"` so every pre-existing leaf renders byte-identically and nothing
+  # already applied sees a diff.
+  oci_provider = local.provider == "aws" ? "" : trimsuffix(<<-OCIEOF
+terraform {
+  required_providers {
+    oci = {
+      source  = "oracle/oci"
+      version = "${local.oci_version}"
+    }
+  }
+}
+
+provider "oci" {
+  tenancy_ocid     = "${get_env("OCI_TENANCY_OCID", "")}"
+  user_ocid        = "${get_env("OCI_USER_OCID", "")}"
+  private_key_path = "${get_env("OCI_PRIVATE_KEY_PATH", "")}"
+  fingerprint      = "${get_env("OCI_FINGERPRINT", "")}"
+  region           = "${get_env("OCI_REGION", "ap-sydney-1")}"
+}
+  OCIEOF
+  , "\n")
 }
 
 inputs = merge(
@@ -64,21 +89,6 @@ provider "google" {
   impersonate_service_account = "deployer@magmamoose-terraform.iam.gserviceaccount.com"
 }
 
-terraform {
-  required_providers {
-    oci = {
-      source  = "oracle/oci"
-      version = "${local.oci_version}"
-    }
-  }
-}
-
-provider "oci" {
-  tenancy_ocid     = "${get_env("OCI_TENANCY_OCID", "")}"
-  user_ocid        = "${get_env("OCI_USER_OCID", "")}"
-  private_key_path = "${get_env("OCI_PRIVATE_KEY_PATH", "")}"
-  fingerprint      = "${get_env("OCI_FINGERPRINT", "")}"
-  region           = "${get_env("OCI_REGION", "ap-sydney-1")}"
-}
+${local.oci_provider}
 EOF
 }

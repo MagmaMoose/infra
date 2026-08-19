@@ -1,0 +1,35 @@
+# LocalStack, community image. Everything this stack needs except CloudFront and a firing
+# EventBridge Scheduler is emulated for real — see the `localstack` variable in variables.tf
+# for exactly what a local run does and does not prove.
+#
+# `make -C aws up` starts it; `make -C aws smoke` runs the end-to-end test against it.
+
+services:
+  localstack:
+    image: localstack/localstack:4
+    container_name: nievah-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      # Named explicitly rather than left to the default so that a service this stack starts
+      # depending on fails loudly at boot instead of at the first API call.
+      #
+      # `s3control` is here for a non-obvious reason: AWS provider v6 reads a bucket's tags
+      # through the S3 Control API, not the S3 API, so `default_tags` in versions.tf makes
+      # every `aws_s3_bucket` apply fail with a 501 without it. The tags are not optional —
+      # they are how a stray resource stays attributable — so the service is.
+      SERVICES: "lambda,sqs,s3,s3control,dynamodb,ssm,kms,iam,sts,events,logs,sns,scheduler"
+      DEBUG: "0"
+      # Lambda runs in sibling containers on the host daemon, which is why the socket is
+      # mounted below. The alternative (LAMBDA_RUNTIME_EXECUTOR=local) skips the container
+      # and with it the runtime's own import path — a package that works there can still fail
+      # on the real thing.
+      LAMBDA_RUNTIME_EXECUTOR: "docker"
+      LAMBDA_REMOVE_CONTAINERS: "1"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4566/_localstack/health"]  # DevSkim: ignore DS162092
+      interval: 5s
+      timeout: 5s
+      retries: 20

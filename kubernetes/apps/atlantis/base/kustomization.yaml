@@ -29,7 +29,12 @@ resources:
   # principal). These are independent of GitHub auth — they're needed only
   # if Atlantis is driving Terraform that talks to those clouds. Create
   # them from the secret-*.yaml.template files via SOPS, then uncomment:
-  # - secret-aws.enc.yaml
+  # AWS creds for terraform/aws/**. COMMENTED OUT until the `atlantis-aws` OCI Vault entry
+  # exists and is ACTIVE — ESO fails the whole ExternalSecret on a missing key. Read the
+  # warning at the top of the file before minting the credential; it is the most powerful
+  # one in the cluster and wants to be an assume-role pair, not a user with policies.
+  # - externalsecret-aws.yaml
+  # - secret-aws.enc.yaml  # superseded by externalsecret-aws.yaml; SOPS is the last resort
   # - secret-azure.enc.yaml
 # Resources are set explicitly in deployment.yaml (raw, per repo convention)
 # rather than via a resource-profile t-shirt component — see the rationale

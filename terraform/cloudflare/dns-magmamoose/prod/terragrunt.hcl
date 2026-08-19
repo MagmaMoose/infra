@@ -113,6 +113,41 @@ inputs = {
     # on purpose — GitHub provisions the Let's Encrypt cert over ACME, which a
     # Cloudflare proxy would intercept and break. (Replaces the old
     # semver.calebsargeant.com Pages domain.)
+    # ── Nievah webhook front door (AWS) ─────────────────────────────────────
+    # GitHub and Slack POST here; an API Gateway HTTP API in prd-nievah
+    # (666802049426, eu-west-1) verifies the HMAC and parks the delivery on SQS,
+    # and the firefly cluster pulls. See magmamoose/infra
+    # terraform/aws/prod/eu-west-1/nievah-frontdoor.
+    #
+    # BOTH RECORDS ARE DNS-ONLY (grey cloud), for two different reasons:
+    #
+    #   the _acm one  a proxied record answers with Cloudflare's own value, so ACM
+    #                 never sees the token and the certificate never leaves
+    #                 PENDING_VALIDATION. Same class of trap as the docs.diatreme
+    #                 record above, where a proxy would intercept the ACME challenge.
+    #   the hooks one proxying would put Cloudflare back in the webhook path, seeing
+    #                 every payload and adding a hop — which is precisely the
+    #                 dependency moving this to AWS removed. It would also need
+    #                 SSL mode set to Full (strict) to avoid a redirect loop.
+    #
+    # The target is the API Gateway CUSTOM DOMAIN, never the execute-api hostname:
+    # that one serves a certificate for *.execute-api.eu-west-1.amazonaws.com and
+    # routes on the Host header, so a custom name pointed at it fails the TLS
+    # handshake before a request is ever made.
+    {
+      name    = "_1315506cb658bc3f6612f54dc0c17f8b.hooks.nievah.magmamoose.com"
+      type    = "CNAME"
+      value   = "_32ff523bc625ac74d3e220ea2aa4e63c.jkddzztszm.acm-validations.aws"
+      proxied = false
+    },
+
+    {
+      name    = "hooks.nievah.magmamoose.com"
+      type    = "CNAME"
+      value   = "d-rbhug3v46l.execute-api.eu-west-1.amazonaws.com"
+      proxied = false
+    },
+
     {
       name    = "docs.diatreme.magmamoose.com"
       type    = "CNAME"
