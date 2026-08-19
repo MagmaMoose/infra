@@ -134,6 +134,51 @@ inputs = {
     # that one serves a certificate for *.execute-api.eu-west-1.amazonaws.com and
     # routes on the Host header, so a custom name pointed at it fails the TLS
     # handshake before a request is ever made.
+    # ── Caldrith webhook front door (AWS) ───────────────────────────────────
+    # Same shape as nievah below, in prd-caldrith (483461801743, eu-west-1). See
+    # terraform/aws/prod/eu-west-1/caldrith-frontdoor.
+    #
+    # THE NAME IS FLAT — hooks-caldrith, not hooks.caldrith. Cloudflare's Universal
+    # SSL covers magmamoose.com and *.magmamoose.com and nothing deeper, so a
+    # two-label name cannot be proxied without Advanced Certificate Manager, which
+    # is billed per zone. A hyphen keeps the option of an orange cloud free.
+    # nievah's hooks.nievah.magmamoose.com below has this problem — see
+    # MagmaMoose/nievah#190.
+    #
+    # The _acm record is DNS-ONLY and must stay that way: a proxied record answers
+    # with Cloudflare's own value, so ACM never sees the token and the certificate
+    # never leaves PENDING_VALIDATION.
+    {
+      name    = "_c4642f6ed3fbe2411e167b468569d039.hooks-caldrith.magmamoose.com"
+      type    = "CNAME"
+      value   = "_23d294f538d7b65298130b308cbd64b8.jkddzztszm.acm-validations.aws"
+      proxied = false
+      ttl     = 1
+    },
+
+    # The webhook endpoint itself. The target is the API Gateway CUSTOM DOMAIN, never the
+    # execute-api hostname — that one serves a cert for *.execute-api.eu-west-1.amazonaws.com
+    # and routes on the Host header, so a custom name pointed at it fails the TLS handshake
+    # before a request is made.
+    #
+    # GREY FOR NOW, ORANGE SHORTLY. Proxying is the whole reason the name is flat, and it is
+    # what puts Cloudflare in front of the layer that actually bills. It is grey on the first
+    # cut because deliveries were already failing and this is the shortest path back: an
+    # orange record additionally needs the zone on SSL mode Full (strict), or the proxy and
+    # API Gateway negotiate a redirect loop. Flip once a real reconcile has landed.
+    #
+    # Note nievah reaches the opposite conclusion for its own record below — proxying puts
+    # Cloudflare back in the webhook path, seeing every payload, which is the dependency that
+    # moving to AWS removed. That is a real trade, not an oversight: the counterweight here is
+    # that API Gateway bills per request and Cloudflare absorbs a flood for free.
+    {
+      name    = "hooks-caldrith.magmamoose.com"
+      type    = "CNAME"
+      value   = "d-wqr6tt5298.execute-api.eu-west-1.amazonaws.com"
+      proxied = false
+      ttl     = 1
+    },
+
     {
       name    = "_1315506cb658bc3f6612f54dc0c17f8b.hooks.nievah.magmamoose.com"
       type    = "CNAME"
@@ -210,6 +255,38 @@ inputs = {
       proxied = false
     },
 
+    # ── Brimyr's token broker ──────────────────────────────────────────────
+    #
+    # The same shape as chargate's above, in brimyr's own AWS account (202518311296,
+    # eu-west-1), exchanging a caller's Actions OIDC token for a repo-scoped Brimyr[bot]
+    # installation token so brimyr's patch-coverage comment carries that byline.
+    # See magmamoose/infra terraform/aws/brimyr and MagmaMoose/brimyr#11.
+    #
+    # TWO BROKERS, NEVER ONE, and therefore two audiences: `aud=brimyr` here against
+    # `aud=chargate` above. One minter holding both Apps' private keys would mean
+    # compromising either surface yields both identities.
+    #
+    # PHASE 1 — only the _acm record exists yet. GREY, and it must stay grey: a proxied
+    # validation record answers with Cloudflare's own value, ACM never sees the token, and
+    # the certificate never leaves PENDING_VALIDATION. The ORANGE service record follows
+    # once the certificate is ISSUED and the API Gateway custom domain exists to point at —
+    # its target is `target_domain_name` (a d-xxxx.execute-api name), NEVER the plain
+    # execute-api hostname, which serves a certificate for *.execute-api.eu-west-1.
+    # amazonaws.com and would fail the TLS handshake for this name.
+    {
+      name    = "_1193f7e750e37befac82a4316b6e1d7d.broker-brimyr.magmamoose.com"
+      type    = "CNAME"
+      value   = "_adda14532e3947306ab5308f252f0eb1.jkddzztszm.acm-validations.aws"
+      proxied = false
+    },
+
+    {
+      name    = "broker-brimyr.magmamoose.com"
+      type    = "CNAME"
+      value   = "d-mwephkxe83.execute-api.eu-west-1.amazonaws.com"
+      proxied = true
+    },
+
     {
       name    = "docs.diatreme.magmamoose.com"
       type    = "CNAME"
@@ -277,5 +354,23 @@ inputs = {
     # domain — its DNS is created by the Pages "Custom domains" flow, NOT here.
     # A hand-written proxied CNAME to *.pages.dev is rejected with error 1014
     # ("CNAME Cross-User Banned") even within the same account. (Reverts #287.)
+  ]
+
+  # Records that already exist in the dashboard, brought under management rather than
+  # recreated — the provider refuses to create over an existing record ("expected DNS record
+  # to not already be present"), which is what a plain apply hit here. Both were verified
+  # against the live zone before importing: name, value and proxied all match the entries
+  # above, so these import as a clean no-op rather than a diff.
+  #
+  # Can be emptied once the import has landed in state.
+  imports = [
+    {
+      key       = "_c4642f6ed3fbe2411e167b468569d039.hooks-caldrith.magmamoose.com#CNAME#_23d294f538d7b65298130b308cbd64b8.jkddzztszm.acm-validations.aws"
+      record_id = "599a2ffc0355234722f847f288e6b948"
+    },
+    {
+      key       = "hooks-caldrith.magmamoose.com#CNAME#d-wqr6tt5298.execute-api.eu-west-1.amazonaws.com"
+      record_id = "ec261cc60bea045f7eed37e342902bee"
+    },
   ]
 }

@@ -127,12 +127,17 @@ inputs = {
   #   proxied validation record answers with Cloudflare's own value, so ACM never sees the
   #   token and the certificate sits in PENDING_VALIDATION forever.
   #
-  #   Phase 2: once the certificate is ISSUED, set both flags below to true, apply again, then
-  #   add the service CNAME (`target_domain_name` -> broker-brimyr) PROXIED in the same file.
+  #   Phase 2 (DONE): certificate ISSUED, both flags true, and the proxied service CNAME
+  #   pointing at the custom domain target is in the Cloudflare leaf. Kept written down
+  #   because the sequence is not re-derivable from the end state, and a rebuild from
+  #   scratch has to walk it again in order.
+  # PHASE 2 (current): the certificate is ISSUED, so the custom domain and its API mapping
+  # are created and the generated execute-api URL is closed. Closing it is what gives the
+  # Cloudflare proxy any meaning — otherwise the origin stays reachable and bypassable.
   domain_name              = "broker-brimyr.magmamoose.com"
   certificate_arn          = ""
-  enable_custom_domain     = false
-  disable_default_endpoint = false
+  enable_custom_domain     = true
+  disable_default_endpoint = true
 
   # ── Spend controls. See the COST block at the top before changing these. ────────────────
   throttle_rate_limit  = 1
