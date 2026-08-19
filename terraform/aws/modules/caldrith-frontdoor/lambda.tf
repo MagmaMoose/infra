@@ -148,9 +148,8 @@ resource "aws_cloudwatch_log_group" "reconcile" {
 # rather than return False, turning a malformed header into an unhandled 500 on an
 # unauthenticated endpoint). A hand-copied edge implementation is a copy that drifts away from
 # fixes like that one, silently, in the component that is exposed to the internet.
-# nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
 # trivy:ignore:AVD-AWS-0066
-resource "aws_lambda_function" "producer" {
+resource "aws_lambda_function" "producer" { # nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
   #checkov:skip=CKV_AWS_173:No KMS CMK for env vars — home lab; every secret is an SSM PATH here, never a value
   #checkov:skip=CKV_AWS_116:DLQ handled at SQS layer (events_dlq); Lambda-level DLQ redundant
   #checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
@@ -231,9 +230,8 @@ resource "aws_lambda_function" "producer" {
 # recognises the envelope and emits one `reconcile_all_installations` job. Same shape as every
 # other delivery, one write target for the internet-facing role, and the App key stays at the
 # far end.
-# nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
 # trivy:ignore:AVD-AWS-0066
-resource "aws_lambda_function" "consumer" {
+resource "aws_lambda_function" "consumer" { # nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
   #checkov:skip=CKV_AWS_173:No KMS CMK for env vars — home lab; values here are a queue URL and a table name
   #checkov:skip=CKV_AWS_116:DLQ handled at SQS layer (jobs_dlq); Lambda-level DLQ redundant
   #checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
@@ -330,9 +328,8 @@ resource "aws_lambda_function" "consumer" {
 #     container image: ECR storage is $0.10/GB-month with no always-free allowance, so a
 #     container image is the first thing in this design that would bill every month by
 #     existing.
-# nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
 # trivy:ignore:AVD-AWS-0066
-resource "aws_lambda_function" "reconcile" {
+resource "aws_lambda_function" "reconcile" { # nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
   #checkov:skip=CKV_AWS_173:No KMS CMK for env vars — home lab; the App key is an SSM PATH here, never a value
   #checkov:skip=CKV_AWS_116:DLQ handled at SQS layer (jobs_dlq); Lambda-level DLQ redundant
   #checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
