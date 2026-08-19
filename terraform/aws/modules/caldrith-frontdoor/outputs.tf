@@ -113,7 +113,7 @@ output "artifact_keys" {
 # with Cloudflare's own value and validation never completes.
 output "certificate_validation_record" {
   description = "name/value CNAME to add to Cloudflare so ACM can issue the certificate. Grey cloud."
-  value = var.localstack || var.domain_name == "" ? null : {
+  value = var.localstack || var.domain_name == "" || var.certificate_arn != "" ? null : {
     name  = tolist(aws_acm_certificate.producer[0].domain_validation_options)[0].resource_record_name
     value = tolist(aws_acm_certificate.producer[0].domain_validation_options)[0].resource_record_value
     type  = tolist(aws_acm_certificate.producer[0].domain_validation_options)[0].resource_record_type
@@ -122,7 +122,7 @@ output "certificate_validation_record" {
 
 output "certificate_arn" {
   description = "The requested certificate. Watch it reach ISSUED before setting enable_custom_domain."
-  value       = var.localstack || var.domain_name == "" ? "" : aws_acm_certificate.producer[0].arn
+  value       = var.localstack || var.domain_name == "" || var.certificate_arn != "" ? "" : aws_acm_certificate.producer[0].arn
 }
 
 # Phase 2: what the hostname itself should CNAME to. NOT the execute-api hostname — that one

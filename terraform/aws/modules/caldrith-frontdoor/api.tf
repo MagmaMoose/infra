@@ -210,7 +210,9 @@ resource "aws_apigatewayv2_api_mapping" "producer" {
 # renamed, moved, re-created after a `destroy` — without every installation needing to be
 # re-pointed by hand. The execute-api hostname is stable only as long as the API resource is.
 resource "aws_acm_certificate" "producer" {
-  count = var.localstack || var.domain_name == "" ? 0 : 1
+  # Skip when a certificate is supplied externally — requesting one we would never use also
+  # causes outputs.tf to advertise a CNAME validation record for a cert nobody references.
+  count = var.localstack || var.domain_name == "" || var.certificate_arn != "" ? 0 : 1
 
   domain_name       = var.domain_name
   validation_method = "DNS"
