@@ -198,11 +198,33 @@ spec:
         # runners onto separate nodes; with maxRunners: 1 and a single matching node there
         # is never a second pod to repel, so the rule would be inert. Add it back in the
         # same commit that raises maxRunners above 1.
-        # `low` = "non-essential: batch, background jobs, restartable without impact",
-        # which is exactly a CI job — GitHub re-queues it. The retired StatefulSet ran at
-        # priority 0, so this is a promotion, and it keeps a build from evicting anything
-        # that serves traffic.
-        priorityClassName: low
+        # `medium`, which DIFFERS from the arm64 pool's `low` on purpose — the two files
+        # are otherwise kept in sync, so do not "resync" this line. The arm64 pool sits on
+        # ff-oci1/ff-oci2 at ~51% memory requested and has never had to preempt anything;
+        # this pool has exactly one node and that node is full.
+        #
+        # It was `low` (100), and the `low` PriorityClass carries `preemptionPolicy:
+        # Never`. ff-vm1 runs at ~98% of allocatable memory REQUESTED while only ~68% is
+        # genuinely in use, so the 768Mi this pod reserves does not fit even though the RAM
+        # is physically there — and at `low` the scheduler is not permitted to preempt to
+        # make it fit. The failure is silent in the way that matters: the pod stays
+        # Pending, but the listener has ALREADY acquired the job, and because this set
+        # advertises `pool-self-hosted` the job is held here rather than falling through to
+        # the arm64 pool (COMMON_MISTAKES #25). One run sat Pending for 8h that way.
+        #
+        # `medium` (1000, PreemptLowerPriority) is the SMALLEST class in this cluster that
+        # can preempt at all, so it is the least escalation that unsticks this. The cost is
+        # real and belongs in the open: when ff-vm1 is full, starting an amd64 job evicts
+        # roughly the shortfall in priority-0 pods — the `internal/*` media stack,
+        # `misc/oauth2-proxy`, `internal/valkey`, the CNPG instance pods — and on a full
+        # node those victims then stay Pending until the job finishes. Preemption treats
+        # PDBs as a preference, not a guarantee.
+        #
+        # THE ACTUAL FIX is to stop ff-vm1 over-declaring: ~2.5Gi of its requests are pure
+        # over-request (thanos-compactor 768Mi req / 55Mi used, loki 768/185, holmesgpt
+        # 1024/445, falco 576/153). Reclaim that and this class goes back to being
+        # insurance rather than a routine eviction machine.
+        priorityClassName: medium
         restartPolicy: Never
 
         initContainers:
