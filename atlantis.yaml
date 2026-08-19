@@ -87,6 +87,21 @@ projects:
   # cold-start block is the runbook. If Atlantis is ever to run it, give Atlantis a prd-caldrith
   # credential first and add the project entry alongside aws-nievah-frontdoor-prod; the better
   # answer is Effusion's per-run OIDC role, which makes the credential free.
+  # NO PROJECTS FOR terraform/aws/chargate/**, for exactly the same reason.
+  #
+  # Chargate's front door lives in its OWN member account (495408387666), as nievah's does in
+  # 666802049426 and caldrith's will in 483461801743 — one account per service front door, for
+  # blast-radius isolation and per-account SCPs (#641). Atlantis holds ONE AWS credential, and
+  # it is nievah's; it cannot assume into chargate's account, so registering these leaves would
+  # produce a permanently red autoplan on every PR that touched them. Per the note above, that
+  # is worse than omitting them.
+  #
+  # They are applied by hand with `AWS_PROFILE=mm-prd-chargate`, and the deploy they exist to
+  # serve is a one-line bump of `broker_artifact_version` a few times a year.
+  #
+  # This is now the SECOND leaf pair Atlantis cannot reach, which makes it the argument for
+  # Effusion rather than a footnote to it: a GitHub Actions runner assuming a per-run OIDC role
+  # per account removes the credential problem entirely instead of scoping around it.
 
   # ─── Cloudflare ──────────────────────────────────────────────────────────
   - name: cloudflare-dns-prod

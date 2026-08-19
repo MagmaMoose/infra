@@ -10,9 +10,9 @@ locals {
   environment_vars = read_terragrunt_config("${find_in_parent_folders("environment.hcl")}")
   provider_vars    = read_terragrunt_config("${find_in_parent_folders("provider.hcl")}")
 
-  company = "sargeant"
-  provider = local.provider_vars.inputs.provider
-  region  = local.region_vars.locals.region
+  company     = "sargeant"
+  provider    = local.provider_vars.inputs.provider
+  region      = local.region_vars.locals.region
   environment = local.environment_vars.locals.environment
 
   # The OCI half of the generated provider.tf. Suppressed for aws leaves ONLY: a module may
@@ -46,9 +46,9 @@ inputs = merge(
   local.environment_vars.locals,
   local.provider_vars.locals,
   {
-    company = local.company
-    domain = "sargeant.co"
-    sops_path = "${get_repo_root()}/sops"
+    company      = local.company
+    domain       = "sargeant.co"
+    sops_path    = "${get_repo_root()}/sops"
     ansible_path = "${get_repo_root()}/ansible"
   }
 )
@@ -56,7 +56,7 @@ inputs = merge(
 remote_state {
   backend = "gcs"
   config = {
-    bucket   = "${local.company}-${local.environment}-terraform-state"
+    bucket = "${local.company}-${local.environment}-terraform-state"
     # path_relative_to_include() returns OS-native separators; on Windows that
     # yields backslashes, which become a DIFFERENT GCS object prefix than the
     # forward-slash prefix used on Mac/Linux/Atlantis — silently splitting state
