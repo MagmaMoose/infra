@@ -27,6 +27,22 @@ variable "name_prefix" {
   default     = "chargate"
 }
 
+variable "oidc_audience" {
+  description = <<-EOT
+    The OIDC `aud` the calling workflow asks GitHub for, which this broker then requires.
+
+    THIS IS A SECURITY BOUNDARY, not a label. It is what stops one service's runners minting
+    the other service's identity: brimyr's client asks for `aud=brimyr` and chargate's for
+    `aud=chargate`, and a token carrying the wrong one is rejected as `invalid_oidc` before
+    any App JWT is signed. Two services must never share a value.
+
+    Empty (the default) means "use name_prefix", which is exactly what chargate was doing when
+    this was hardcoded — so chargate's rendered configuration is unchanged by parameterising it.
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "artifact_bucket" {
   description = <<-EOT
     Bucket holding the published Lambda zip. Created by the `artifacts` leaf, which MUST be
