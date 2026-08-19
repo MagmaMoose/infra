@@ -74,7 +74,7 @@ inputs = {
   # Cold start: this must name an object that ALREADY EXISTS. Apply ../artifacts, wire the two
   # repo variables, let one release publish, then set this to what it produced.
   # ─────────────────────────────────────────────────────────────────────────────────────────
-  broker_artifact_version = "PLACEHOLDER-SET-AFTER-FIRST-PUBLISH"
+  broker_artifact_version = "2.11.20"
 
   # A first-level subdomain, deliberately. Cloudflare's free Universal SSL covers the apex and
   # ONE label, so `broker.chargate.magmamoose.com` could not be proxied without Advanced
@@ -85,11 +85,11 @@ inputs = {
   # validation CNAME; phase 2 turns both flags below true once the certificate is ISSUED.
   domain_name          = "broker-chargate.magmamoose.com"
   certificate_arn      = ""
-  enable_custom_domain = false
+  enable_custom_domain = true
 
   # Phase 2 as well. Closing the execute-api door is what makes the Cloudflare proxy an actual
   # control rather than cosmetic — otherwise the origin stays reachable and bypassable.
-  disable_default_endpoint = false
+  disable_default_endpoint = true
 
   # ── Where the alarms and the budget go ──────────────────────────────────────────────────
   #

@@ -163,6 +163,28 @@ data "aws_iam_policy_document" "publish" {
     actions   = ["s3:GetObject", "s3:GetObjectAttributes"]
     resources = ["${aws_s3_bucket.artifacts.arn}/${var.artifact_prefix}/*"]
   }
+
+  # s3:ListBucket, AND IT IS WHAT MAKES THE **FIRST** PUBLISH WORK.
+  #
+  # The grant above covers HeadObject on a key that EXISTS. It does not cover the cold-start
+  # case, because S3 will not confirm non-existence to a caller who cannot list the bucket:
+  # without s3:ListBucket, a HEAD on a missing key returns **403 AccessDenied instead of 404
+  # NoSuchKey**. diatreme greps its head-object stderr for `403|AccessDenied|Forbidden` and
+  # exits 1 on a match, so the very first publish of a prefix fails — with an error blaming
+  # missing s3:GetObject, which is already granted. Hence diatreme's own wording:
+  # "s3:GetObject (or s3:ListBucket)". You need both: GetObject for the hit, ListBucket for
+  # the miss.
+  #
+  # NO `s3:prefix` CONDITION. HeadObject sends no prefix parameter, so a condition on it simply
+  # never matches and the permission never applies — the strict-looking version is the broken
+  # one. Scoped to the bucket, this lets the publisher enumerate keys; that is acceptable here
+  # because each service publishes into its own bucket in its own account, and the contents are
+  # build artifacts destined to be pinned by a public Terraform repo, not secrets.
+  statement {
+    sid       = "DiscoverWhetherTheKeyExists"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.artifacts.arn]
+  }
 }
 
 resource "aws_iam_role_policy" "publish" {

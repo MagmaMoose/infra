@@ -148,6 +148,48 @@ inputs = {
       proxied = false
     },
 
+    # ── Chargate's token broker ────────────────────────────────────────────
+    #
+    # broker-chargate.magmamoose.com fronts an API Gateway HTTP API -> Lambda in chargate's
+    # own AWS account (495408387666, eu-west-1). It exchanges a consumer's GitHub Actions
+    # OIDC token for a repo-scoped Chargate[bot] installation token, so Chargate's PR
+    # comments carry that byline. See magmamoose/infra terraform/aws/chargate.
+    #
+    # THE TWO RECORDS ARE DELIBERATELY DIFFERENT, and getting them the wrong way round is a
+    # silent failure both times:
+    #
+    #   the _acm one  GREY. A proxied record answers with Cloudflare's own value, so ACM
+    #                 never sees the token and the certificate never leaves
+    #                 PENDING_VALIDATION. Same trap as the nievah and docs.diatreme records.
+    #   the broker    ORANGE, unlike nievah's hooks record. The API Gateway throttle bounds
+    #                 the LAMBDA bill deterministically but not the GATEWAY bill — AWS does
+    #                 not document whether it charges for the 429s it issues — so proxying is
+    #                 what keeps a flood from ever reaching the meter. It also hides the
+    #                 origin, which `disable_default_endpoint = true` on the API then closes
+    #                 properly.
+    #
+    # A FIRST-LEVEL SUBDOMAIN ON PURPOSE. Cloudflare's free Universal SSL covers the apex and
+    # ONE label, so broker.chargate.magmamoose.com could not be proxied without Advanced
+    # Certificate Manager. hooks.nievah and hooks.caldrith are both two deep and stuck for
+    # exactly that reason.
+    #
+    # The target is the API Gateway CUSTOM DOMAIN, never the execute-api hostname: that one
+    # serves a certificate for *.execute-api.eu-west-1.amazonaws.com and routes on the Host
+    # header, so a custom name pointed at it fails the TLS handshake.
+    {
+      name    = "_bf0be45d232be0da6efc719a32fe9da8.broker-chargate.magmamoose.com"
+      type    = "CNAME"
+      value   = "_4ea71f052a53a751b7c10b12ff0dbaef.jkddzztszm.acm-validations.aws"
+      proxied = false
+    },
+
+    {
+      name    = "broker-chargate.magmamoose.com"
+      type    = "CNAME"
+      value   = "d-um036cwvi6.execute-api.eu-west-1.amazonaws.com"
+      proxied = true
+    },
+
     {
       name    = "docs.diatreme.magmamoose.com"
       type    = "CNAME"
