@@ -88,6 +88,12 @@ spec:
     resources:
       requests:
         cpu: 10m
-        memory: 1Gi
+        # 640Mi, down from 1Gi. 14-day peak working set is 516Mi across all three
+        # replicas (516/487/470), so 1Gi reserved ~384Mi that was never used while
+        # ff-vm1 sat at 99% of allocatable memory REQUESTED against 68% in use — which
+        # is what kept the amd64 CI runner Pending. Request is what the scheduler
+        # reserves; the limit below is untouched and is not scheduler-reserved
+        # (COMMON_MISTAKES #14), so headroom for a spike is unchanged.
+        memory: 640Mi
       limits:
         memory: 2Gi
