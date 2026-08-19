@@ -74,7 +74,7 @@ inputs = {
   # Cold start: this must name an object that ALREADY EXISTS. Apply ../artifacts, wire the two
   # repo variables, let one release publish, then set this to what it produced.
   # ─────────────────────────────────────────────────────────────────────────────────────────
-  broker_artifact_version = "2.11.20"
+  broker_artifact_version = "2.11.21"
 
   # A first-level subdomain, deliberately. Cloudflare's free Universal SSL covers the apex and
   # ONE label, so `broker.chargate.magmamoose.com` could not be proxied without Advanced
