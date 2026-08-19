@@ -29,9 +29,8 @@ resource "aws_cloudwatch_log_group" "broker" {
   retention_in_days = var.log_retention_days
 }
 
-# nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
 # trivy:ignore:AVD-AWS-0066
-resource "aws_lambda_function" "broker" {
+resource "aws_lambda_function" "broker" { # nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
   # checkov:skip=CKV_AWS_173:No KMS CMK for env vars — the secrets are in SSM, not here; these values are a path and a version string
   # checkov:skip=CKV_AWS_116:No DLQ — this is a synchronous request/response API, there is no async invocation to redrive
   # checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
