@@ -22,7 +22,8 @@ from handler import (  # noqa: E402
     _data_prefix,
     _money,
     _qty,
-    _usage_type_keys,
+    _service_matches,
+    _usage_matches,
     build_freetier_report,
     build_report,
     read_cur,
@@ -194,15 +195,33 @@ check("negative shows as -$", "-$0.000100" in desc4, True)
 print("\nread_cur — usage quantities, including on $0.00 line items")
 check(
     "zero-cost rows still contribute usage (the whole point for free tier)",
-    usage["catalog-request"]["666802049426"],
+    usage[("AWSGlue", "Global-Catalog-Request")]["666802049426"],
     Decimal("8"),
 )
-check("usage summed per account", usage["requests-tier1"]["666802049426"], Decimal("15"))
+check(
+    "usage summed per account",
+    usage[("AmazonS3", "EUW1-Requests-Tier1")]["666802049426"],
+    Decimal("15"),
+)
 
-print("\n_usage_type_keys — the two APIs do not agree on the string")
-check("region-prefixed CUR type also matches bare", _usage_type_keys("EUW1-Catalog-Request"), {"euw1-catalog-request", "catalog-request"})
-check("Global- prefix stripped too", "catalog-request" in _usage_type_keys("Global-Catalog-Request"), True)
-check("unprefixed stays itself", _usage_type_keys("Requests"), {"requests"})
+print("\n_usage_matches — the two APIs do not agree on the string")
+check("region prefix tolerated", _usage_matches("Catalog-Request", "EU-Catalog-Request"), True)
+check("other region prefix too", _usage_matches("Catalog-Request", "EUC1-Catalog-Request"), True)
+check("exact match", _usage_matches("CW:Requests", "CW:Requests"), True)
+check("variant SUFFIX tolerated (arm64 lambda)", _usage_matches("Request", "EU-Request-ARM"), True)
+check("and the GB-second variant", _usage_matches("Lambda-GB-Second", "EU-Lambda-GB-Second-ARM"), True)
+check("and a FIFO queue tier", _usage_matches("Requests", "EU-Requests-FIFO-Tier1"), True)
+# THE COLLISION A SUBSTRING TEST WOULD MAKE. "requests-tier1" contains "request", so a
+# naive match files every S3 and SNS request count under Lambda's Request allowance.
+check("singular does not swallow plural", _usage_matches("Request", "EU-Requests-Tier1"), False)
+
+print("\n_service_matches — and the service check that stops the rest")
+check("vendor prefix differences", _service_matches("AWS Glue", "AWSGlue"), True)
+check("wholly different naming", _service_matches("Amazon Simple Queue Service", "AWSQueueService"), True)
+check("identical", _service_matches("AmazonCloudWatch", "AmazonCloudWatch"), True)
+# Without this, SQS's org-wide `Requests` allowance collects S3's and SNS's request counts.
+check("S3 is not SQS", _service_matches("Amazon Simple Queue Service", "AmazonS3"), False)
+check("SNS is not SQS", _service_matches("Amazon Simple Queue Service", "AmazonSNS"), False)
 
 print("\n_qty")
 check("counts render as integers", _qty(Decimal("1000000")), "1,000,000")
@@ -215,10 +234,24 @@ FT = [
     {"service": "Amazon Simple Queue Service", "usageType": "Requests", "actualUsageAmount": 2.0,
      "forecastedUsageAmount": 3.44, "limit": 1000000.0, "unit": "Requests", "freeTierType": "Always Free"},
 ]
-ft_title, ft_body = build_freetier_report(FT, {"catalog-request": {"666802049426": Decimal("40"), "857256953358": Decimal("14")}}, NAMES, today)
+ft_title, ft_body = build_freetier_report(
+    FT,
+    {
+        ("AWSGlue", "EU-Catalog-Request"): {"666802049426": Decimal("40")},
+        # A second CUR usage type under the SAME allowance must be summed in, not picked
+        # between — one allowance routinely spans several regional/tier variants.
+        ("AWSGlue", "EUC1-Catalog-Request"): {"857256953358": Decimal("14")},
+        # Must NOT be counted against SQS's Requests allowance: right usage type, wrong service.
+        ("AmazonS3", "EU-Requests-Tier1"): {"666802049426": Decimal("99999")},
+    },
+    NAMES,
+    today,
+)
 check("calm title when everything is inside its allowance", ft_title.startswith(":free:"), True)
 check("limit shown with thousands separators", "54 of 1,000,000 Request used" in ft_body, True)
 check("per-account split present when CUR matched", "prd-nievah — 40" in ft_body, True)
+check("variants of one allowance are summed across CUR types", "Root — 14" in ft_body, True)
+check("wrong-service usage is not absorbed", "99,999" not in ft_body, True)
 check("biggest consumer of that allowance first", ft_body.index("prd-nievah — 40") < ft_body.index("Root — 14"), True)
 check("unmatched usage type says so rather than implying zero", "_per-account split unavailable for this usage type_" in ft_body, True)
 check("states that the allowance is org-wide", "organisation as a whole" in ft_body, True)

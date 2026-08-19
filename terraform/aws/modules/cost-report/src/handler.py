@@ -35,6 +35,7 @@ import io
 import json
 import logging
 import os
+import re
 from decimal import Decimal, InvalidOperation
 
 import boto3
@@ -94,23 +95,52 @@ def _account_names(org) -> dict[str, str]:
     return names
 
 
-def _usage_type_keys(raw: str) -> set[str]:
-    """Candidate keys a CUR usage type could match a free-tier usage type by.
+def _norm_service(name: str) -> str:
+    """Normalise a service name for comparison across the two APIs.
 
-    THE TWO APIs DO NOT AGREE ON THE STRING. GetFreeTierUsage reports `Catalog-Request`,
-    while the same thing appears in CUR as `Global-Catalog-Request` or, in a regional
-    service, `EUW1-Catalog-Request`. Rather than guess at a region-prefix regex — which
-    would have to know every region code AWS has and every one it adds — both the full
-    string and the string minus its first segment are offered as keys, and the free-tier
-    side looks itself up in that set. A prefix this scheme fails to strip produces a missing
-    split, which the report states plainly, rather than a wrong one.
+    GetFreeTierUsage says `Amazon Simple Queue Service`; the CUR calls the same thing
+    `AWSQueueService`. Stripping the vendor prefix and all punctuation gets them to
+    `simplequeueservice` and `queueservice`, which one-ends-with-the-other resolves.
     """
-    lowered = raw.strip().lower()
-    keys = {lowered}
-    head, sep, tail = lowered.partition("-")
-    if sep and tail:
-        keys.add(tail)
-    return keys
+    flat = re.sub(r"[^a-z0-9]", "", name.lower())
+    for prefix in ("amazon", "aws"):
+        if flat.startswith(prefix) and len(flat) > len(prefix):
+            return flat[len(prefix) :]
+    return flat
+
+
+def _service_matches(free_tier_service: str, cur_product_code: str) -> bool:
+    a, b = _norm_service(free_tier_service), _norm_service(cur_product_code)
+    return bool(a) and bool(b) and (a == b or a.endswith(b) or b.endswith(a))
+
+
+def _usage_variants(raw: str) -> list[list[str]]:
+    """The CUR usage type as token lists, with and without a leading region prefix.
+
+    Rather than enumerate every region code AWS has (and every one it adds), the first
+    segment is simply offered as optional — `EU-Request-ARM` is considered both
+    `[eu, request, arm]` and `[request, arm]`, and the free-tier side matches whichever fits.
+    """
+    tokens = raw.strip().lower().split("-")
+    variants = [tokens]
+    if len(tokens) > 1:
+        variants.append(tokens[1:])
+    return variants
+
+
+def _usage_matches(free_tier_type: str, cur_type: str) -> bool:
+    """Whether a CUR usage type is an instance of a free-tier usage type.
+
+    TOKEN PREFIX, NOT SUBSTRING, AND THAT DISTINCTION IS THE WHOLE FUNCTION. The CUR appends
+    variant suffixes the Free Tier API does not use — `Request` appears as `EU-Request-ARM`
+    on an arm64 Lambda, `Requests` as `EU-Requests-FIFO-Tier1` on a FIFO queue. A substring
+    test would absorb those correctly and then also match `requests-tier1` against Lambda's
+    `request`, quietly filing S3 and SNS request counts under Lambda. Comparing whole tokens
+    keeps `request` and `requests` distinct, and the caller pairs this with a service check so
+    that S3's `EU-Requests-Tier1` cannot land under SQS's allowance either.
+    """
+    wanted = free_tier_type.strip().lower().split("-")
+    return any(variant[: len(wanted)] == wanted for variant in _usage_variants(cur_type))
 
 
 def _data_prefix(prefix: str, export_name: str, month: dt.date) -> str:
@@ -125,7 +155,7 @@ def _data_prefix(prefix: str, export_name: str, month: dt.date) -> str:
 
 
 def read_cur(s3, bucket: str, prefix: str) -> tuple[dict, dict]:
-    """Aggregate the export into ({(date, account, service): cost}, {usage_type: {account: qty}}).
+    """Aggregate the export into ({(date, account, service): cost}, {(service, usage_type): {account: qty}}).
 
     Columns are looked up BY NAME through DictReader rather than by position. CUR column
     order is not contractual, and a positional reader would not fail on a reordered export —
@@ -138,7 +168,9 @@ def read_cur(s3, bucket: str, prefix: str) -> tuple[dict, dict]:
     # it: GetFreeTierUsage reports the org total against the limit and has no account
     # dimension at all, so the split has to come from somewhere, and the CUR file is already
     # being downloaded for the cost report.
-    usage: dict[str, dict[str, Decimal]] = collections.defaultdict(lambda: collections.defaultdict(Decimal))
+    usage: dict[tuple[str, str], dict[str, Decimal]] = collections.defaultdict(
+        lambda: collections.defaultdict(Decimal)
+    )
     objects = 0
 
     paginator = s3.get_paginator("list_objects_v2")
@@ -168,8 +200,10 @@ def read_cur(s3, bucket: str, prefix: str) -> tuple[dict, dict]:
                     except InvalidOperation:
                         qty = Decimal(0)
                     if raw_type and qty:
-                        for key in _usage_type_keys(raw_type):
-                            usage[key][acct] += qty
+                        # Keyed on the RAW pair. Matching happens at report time against the
+                        # free-tier record, which knows the service — without which SQS's
+                        # `Requests` allowance would collect S3's and SNS's request counts too.
+                        usage[(row.get(COL_SERVICE) or "", raw_type)][acct] += qty
 
                     if cost == 0:
                         continue
@@ -333,12 +367,16 @@ def build_freetier_report(usages, usage_by_account, names, today) -> tuple[str, 
             f"forecast {_qty(forecast)} ({pct_text} of the allowance)"
         )
 
-        # The per-account split, from CUR.
-        split = {}
-        for key in _usage_type_keys(u.get("usageType") or ""):
-            if key in usage_by_account:
-                split = usage_by_account[key]
-                break
+        # The per-account split, summed across every CUR usage type that is an instance
+        # of this allowance — one allowance routinely covers several (SQS `Requests` spans
+        # `EU-Requests-Tier1`, `EU-Requests-FIFO-Tier1` and the eu-central-1 equivalents).
+        split: dict[str, Decimal] = collections.defaultdict(Decimal)
+        for (cur_service, cur_type), per_account in usage_by_account.items():
+            if _service_matches(u.get("service") or "", cur_service) and _usage_matches(
+                u.get("usageType") or "", cur_type
+            ):
+                for acct, qty in per_account.items():
+                    split[acct] += qty
 
         if split:
             for acct, qty in sorted(split.items(), key=lambda kv: (-kv[1], kv[0])):

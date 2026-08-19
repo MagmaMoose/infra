@@ -326,10 +326,24 @@ _Free Tier allowances apply to the organisation as a whole, not per account._
 
 **The allowance is org-wide and the API is not.** `GetFreeTierUsage` reports one number per
 service for the whole organisation — correctly, since that is how AWS applies it — and offers
-no account dimension. The per-account split therefore comes from the CUR file, matched on
-usage type, which is why `line_item_usage_type` and `line_item_usage_amount` are in the export
-query even though the cost report never reads them. Where that match fails the report **says
-so** rather than showing a split that is quietly wrong.
+no account dimension. The per-account split therefore comes from the CUR file, which is why
+`line_item_usage_type` and `line_item_usage_amount` are in the export query even though the
+cost report never reads them.
+
+**Matching the two is not string equality, and not substring either.** The Free Tier API says
+`Request`; the CUR says `EU-Request-ARM` on an arm64 Lambda, and `EU-Requests-FIFO-Tier1` for
+SQS's `Requests`. So the region prefix is optional and trailing variant tokens are allowed —
+but comparison is on **whole tokens**, because `requests-tier1` *contains* `request`, and a
+substring test would quietly file every S3 and SNS request count under Lambda's allowance.
+That still leaves S3, SNS and SQS all publishing `EU-Requests-Tier1`, so the usage-type test is
+paired with a **service** test that normalises `Amazon Simple Queue Service` against the CUR's
+`AWSQueueService`. One allowance routinely spans several CUR types (regions, tiers, FIFO), so
+all matches are **summed**, not picked between.
+
+The check that this is right is arithmetic: the per-account splits reconcile against the
+org-wide totals AWS reports independently — Lambda `1,786 = 1,785 + 1`, Glue `58 = 36 + 22`.
+Where no match is found the report **says so** rather than showing a split that is quietly
+wrong.
 
 Sorted by proportion of the limit *forecast* to be consumed, so the line most likely to start
 costing money is the first one read. Above 80% it warns; at 100% the title itself shouts.
