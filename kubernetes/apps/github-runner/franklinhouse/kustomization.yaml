@@ -1,8 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# franklinhouse's ARC overlay: currently the shared, cluster-neutral pieces from ../base
-# and NOTHING ELSE. Both scale sets are written and ready but deliberately NOT deployed —
-# see the gate below.
+# franklinhouse's ARC overlay: the shared, cluster-neutral pieces from ../base plus the
+# amd64 scale set, which is TEMPORARILY pinned to a control-plane node. The arm64 set is
+# written and ready but still deliberately NOT deployed — see the gate below.
 #
 #   franklinhouse-arm64 — fh-oci1 + fh-oci2, the OCI Johannesburg pair (max 2)
 #   franklinhouse-amd64 — the on-prem Proxmox workers (max 1, deliberately — they hold
@@ -13,18 +13,26 @@ kind: Kustomization
 # spell it identically.
 resources:
   - ../base
+  # TEMPORARY — pinned to the SYSTEM tier, not `node-role: apps`. franklinhouse is
+  # running on 2 of 6 nodes and fh-worker-vm3 (the only Ready apps node) has ~553Mi
+  # unrequested, too little for this pod's 960Mi request. The file's own header carries
+  # the full revert recipe. Sizing was re-derived from measured peaks rather than the
+  # inherited guesses; see that header.
+  - helmrelease-runner-set-amd64.yaml
   # ---------------------------------------------------------------------------------
-  # DEPLOYMENT GATE — do not re-add either line until the hardware below actually exists.
+  # DEPLOYMENT GATE — do not re-add the arm64 line until the hardware actually exists.
   #
   # Every scale set here advertises `pool-self-hosted`, which is the org-wide, arch-
   # agnostic pool that BOTH clusters serve. A registered scale set acquires jobs from that
   # pool the moment its listener starts, and it acquires them whether or not it can
   # schedule a runner pod. So a scale set pointed at absent capacity does not fail
   # visibly — it silently swallows other people's CI, exactly the shape of
-  # COMMON_MISTAKES #20, and the blast radius is every private repo in the org.
+  # COMMON_MISTAKES #25, and the blast radius is every private repo in the org.
   #
-  # This is why the arc controller being unschedulable (fixed below) was the SAFE
-  # failure: with it broken, neither scale set could register at all.
+  # That is the bar the amd64 line above had to clear before being re-added, and it does:
+  # fh-system-vm3 has ~1959Mi unrequested against a measured whole-pod peak of 1113Mi.
+  # Re-verify with `kubectl describe node fh-system-vm3 | grep -A8 'Allocated resources'`
+  # if you change its sizing.
   #
   #   helmrelease-runner-set-arm64.yaml
   #     Blocked on hardware that does not exist yet. franklinhouse has no arm64 node and
@@ -33,15 +41,6 @@ resources:
   #     pair that is planned but not yet provisioned. Re-add this line once those two
   #     machines have joined and carry that label; verify with
   #     `kubectl get nodes -L topology.sargeant.co/tier,kubernetes.io/arch` first.
-  #
-  #   helmrelease-runner-set-amd64.yaml
-  #     Placement is CORRECT (`node-role: apps` + amd64) — this one is blocked purely on
-  #     capacity. The runner pod requests 350m/960Mi and the only Ready worker,
-  #     fh-worker-vm3, is the smallest of the three (2 CPU / 1967Mi allocatable) and is
-  #     already ~71% memory-requested, leaving ~553Mi. Both larger workers are NotReady:
-  #     fh-worker-vm1 (6 CPU / 58Gi) and fh-worker-vm2 (2 CPU / 25Gi). Re-add this line
-  #     once one of them is back — `kubectl describe node <n> | grep -A8 'Allocated'` must
-  #     show ≥960Mi of unrequested memory, not merely a Ready node.
   # ---------------------------------------------------------------------------------
 
 # Placement for the shared ARC controller, which ../base deliberately leaves unset.
