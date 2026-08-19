@@ -1,0 +1,230 @@
+---
+# Caps the disk I/O RATE of the ff-vm1 CI runner via containerd blockio classes.
+#
+# WHY. ff-vm1 is the only amd64 node in the firefly cluster, so `firefly-amd64` CI runners
+# land on the same spindle as every other workload the node carries. A MegaLinter job
+# pulling a multi-GB image and writing its working set is a
+# disk-bandwidth event, and nothing bounded it: Kubernetes has NO Pod-spec API for I/O rate
+# (`resources.limits` has no IOPS or bytes/sec key — `ephemeral-storage` is CAPACITY only,
+# which is a different thing and does not help here).
+#
+# WHAT ACTUALLY WORKS, and every line of it was verified on the node rather than assumed:
+#
+#   * cgroup v2 with the `io` controller delegated — `io.max` is present in
+#     kubepods.slice. Measured on ff-vm1: an uncapped direct read runs 828MB/s-1.9GB/s;
+#     with `8:0 rbps=10485760` in a test cgroup the same read came back at 10.5MB/s.
+#   * IT ALSO WORKS THROUGH LVM. The root fs is dm-0 (`ubuntu--vg-ubuntu--lv`) stacked on
+#     sda3, and blk-throttle on device-mapper is widely documented as unreliable. On this
+#     kernel (6.8.0) it is not: capping `252:0` gave 10.8MB/s against the same 10MB/s
+#     limit. That is why the class below names the dm device — the one the I/O actually
+#     traverses — rather than the underlying sda.
+#   * `blockio_config_file` is NOT a CRI-plugin key on containerd 2.x. It moved to
+#     `io.containerd.service.v1.tasks-service`; setting it under
+#     `io.containerd.cri.v1.runtime` (where every pre-2.0 guide puts it) is silently
+#     DISCARDED with "Ignoring unknown key in TOML for plugin" and leaves throttling off.
+#     Confirmed against `containerd config default` on this exact build (v2.1.4-k3s1).
+#
+# WHY A DROP-IN RATHER THAN A FULL TEMPLATE. k3s generates config.toml from a built-in
+# template. Overriding it wholesale means re-authoring the CNI paths, the runc/nvidia
+# runtimes, the registry config and the pinned sandbox image, and re-doing it on every k3s
+# upgrade. Appending to `{{ template "base" . }}` cannot work either: `blockio_config_file`
+# belongs to a table the base already declares, and re-declaring a TOML table is a parse
+# error — which would leave the node with no working container runtime. So the template
+# here is a one-line prelude that adds `imports`, and the real setting lives in a drop-in
+# that containerd deep-merges. Verified with `containerd config dump`: the key lands and
+# all 28 base keys survive.
+#
+# !! THIS RESTARTS k3s-agent ON ff-vm1, WHICH BOUNCES EVERY POD ON THE NODE. !!
+# That is ~50 pods including the CNPG instances, prometheus and the media stack, on the
+# fleet's only amd64 worker. Run it in a window where that is acceptable.
+#
+# !! ORDERING IS MANDATORY, NOT ADVISORY. !!
+# A pod carrying a `blockio.resources.beta.kubernetes.io/*` annotation for a class
+# containerd does not know FAILS TO CREATE. containerd has an
+# `ignore_blockio_not_enabled_errors` escape hatch for exactly this, and on this build it
+# is ALSO rejected as an unknown key, so it cannot be relied on. Therefore: run this
+# playbook FIRST, prove it with the command below, and only then uncomment the annotation
+# in kubernetes/apps/github-runner/firefly/helmrelease-runner-set-amd64.yaml.
+#
+#   ansible-playbook -i hosts.yaml firefly-vm1-io-throttle.yaml --check --diff
+#   ansible-playbook -i hosts.yaml firefly-vm1-io-throttle.yaml
+#
+# Proof it took (run on ff-vm1):
+#   sudo /var/lib/rancher/k3s/data/current/bin/containerd \
+#     -c /var/lib/rancher/k3s/agent/etc/containerd/config.toml config dump \
+#     | grep blockio_config_file
+#   -> blockio_config_file = '/etc/containerd/blockio.yaml'
+- name: Throttle CI runner disk I/O on ff-vm1
+  hosts: firefly_cluster_agents
+  gather_facts: true
+  become: true
+
+  vars:
+    blockio_class_file: /etc/containerd/blockio.yaml
+    containerd_dropin_dir: /etc/containerd/conf.d
+    k3s_containerd_dir: /var/lib/rancher/k3s/agent/etc/containerd
+    # The root LV, which is what /var/lib/rancher (container writable layers, emptyDirs,
+    # image layers) actually sits on. Named rather than globbed: a glob that matches
+    # nothing produces a class with no devices, which throttles nothing and looks fine.
+    root_device: /dev/mapper/ubuntu--vg-ubuntu--lv
+    # Provisional — needs re-deriving before the annotation is enabled. The 828MB/s
+    # floor below is a guest-side figure inflated by host page cache (cache=writeback);
+    # a host-side raw read of the backing NVMe measured ~218MB/s under load, so
+    # 200MB/s read is ~92% of real device capacity, not 25%. These are HARD caps:
+    # they apply even on an idle node, which is the accepted trade for not needing
+    # BFQ (sda runs [none] mq-deadline, so io.weight — the proportional alternative
+    # — is inert here).
+    io_read_bps: 200M
+    io_write_bps: 100M
+    io_read_iops: 8k
+    io_write_iops: 4k
+
+  tasks:
+    - name: Restrict this play to ff-vm1
+      # The other two agents are OCI arm64 VMs with a different disk layout entirely, and
+      # the amd64 runner pool only ever schedules here.
+      ansible.builtin.meta: end_host
+      when: k3s_node_name != 'ff-vm1'
+
+    - name: Confirm the root device exists before writing a class that names it
+      # A class naming an absent device is accepted by containerd and throttles nothing —
+      # the exact silent-inertness this playbook exists to avoid.
+      ansible.builtin.stat:
+        path: "{{ root_device }}"
+      register: root_dev
+
+    - name: Fail if the root device is missing
+      ansible.builtin.assert:
+        that:
+          - root_dev.stat.exists
+        fail_msg: >-
+          {{ root_device }} not found. The LV was renamed or the node was rebuilt without
+          LVM; re-derive it from `findmnt -no SOURCE /` before running this.
+
+    - name: Confirm cgroup v2 exposes io.max
+      # Without the io controller delegated, the classes below are accepted and inert.
+      ansible.builtin.stat:
+        path: /sys/fs/cgroup/kubepods.slice/io.max
+      register: io_max
+
+    - name: Fail if the io controller is not delegated
+      ansible.builtin.assert:
+        that:
+          - io_max.stat.exists
+        fail_msg: >-
+          /sys/fs/cgroup/kubepods.slice/io.max is absent, so the cgroup v2 io controller is
+          not delegated to kubepods and blockio classes cannot take effect.
+
+    - name: Create the containerd config directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - /etc/containerd
+        - "{{ containerd_dropin_dir }}"
+
+    - name: Back up an existing k3s containerd template
+      # There is none today (k3s is on its built-in template), but a rerun after someone
+      # else has added one must not silently discard it.
+      ansible.builtin.copy:
+        src: "{{ k3s_containerd_dir }}/config-v3.toml.tmpl"
+        dest: "{{ k3s_containerd_dir }}/config-v3.toml.tmpl.bak"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0644"
+        force: false
+      when: not ansible_check_mode
+      failed_when: false
+
+    - name: Define the CI blockio class
+      # goresctrl format, which is what containerd's blockio consumes. `ci-throttled` is
+      # the name the pod annotation refers to; changing it here without changing the
+      # annotation leaves the pod unschedulable, not merely unthrottled.
+      ansible.builtin.copy:
+        dest: "{{ blockio_class_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          # Managed by ansible/firefly-vm1-io-throttle.yaml — do not edit by hand.
+          Classes:
+            ci-throttled:
+              - Devices:
+                  - {{ root_device }}
+                ThrottleReadBps: {{ io_read_bps }}
+                ThrottleWriteBps: {{ io_write_bps }}
+                ThrottleReadIOPS: {{ io_read_iops }}
+                ThrottleWriteIOPS: {{ io_write_iops }}
+      notify: Restart k3s-agent
+
+    - name: Point containerd at the blockio class file
+      # tasks-service, NOT cri.v1.runtime — see the header. Under the CRI plugin this key
+      # is discarded with a warning and throttling never turns on.
+      ansible.builtin.copy:
+        dest: "{{ containerd_dropin_dir }}/blockio.toml"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          # Managed by ansible/firefly-vm1-io-throttle.yaml — do not edit by hand.
+          version = 3
+
+          [plugins.'io.containerd.service.v1.tasks-service']
+            blockio_config_file = '{{ blockio_class_file }}'
+      notify: Restart k3s-agent
+
+    - name: Add the imports prelude to k3s's containerd template
+      # Deliberately minimal. `{{ '{{ template "base" . }}' }}` keeps k3s's own generated
+      # config authoritative so k3s upgrades still bring their CNI/runtime/registry
+      # changes; this file only adds the one root-level key that lets the drop-in merge.
+      ansible.builtin.copy:
+        dest: "{{ k3s_containerd_dir }}/config-v3.toml.tmpl"
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          # Managed by ansible/firefly-vm1-io-throttle.yaml — do not edit by hand.
+          imports = ['{{ containerd_dropin_dir }}/*.toml']
+
+          {{ '{{ template "base" . }}' }}
+      notify: Restart k3s-agent
+
+    - name: Flush handlers so the assertions below test the restarted daemon
+      ansible.builtin.meta: flush_handlers
+
+    - name: Read back the merged containerd config
+      ansible.builtin.command:
+        cmd: >-
+          /var/lib/rancher/k3s/data/current/bin/containerd
+          -c {{ k3s_containerd_dir }}/config.toml config dump
+      register: containerd_dump
+      changed_when: false
+      check_mode: false
+
+    - name: Assert blockio actually took
+      # The whole point of the play. Everything above can succeed while throttling stays
+      # off — a wrong plugin table, a template k3s did not pick up, a drop-in that did not
+      # merge. This is the only statement that proves otherwise.
+      ansible.builtin.assert:
+        that:
+          - "'blockio_config_file' in containerd_dump.stdout"
+          - blockio_class_file in containerd_dump.stdout
+        success_msg: "blockio is enabled and pointed at {{ blockio_class_file }}"
+        fail_msg: >-
+          containerd did not pick up the blockio config. Check that k3s honoured
+          config-v3.toml.tmpl (its generated config.toml header names the template it
+          used) and that the drop-in parsed. DO NOT add the pod annotation until this
+          passes — a pod naming an unknown blockio class fails to create.
+      when: not ansible_check_mode
+
+  handlers:
+    - name: Restart k3s-agent
+      # Bounces every pod on ff-vm1. See the header warning.
+      ansible.builtin.systemd_service:
+        name: k3s-agent
+        state: restarted
+        daemon_reload: true

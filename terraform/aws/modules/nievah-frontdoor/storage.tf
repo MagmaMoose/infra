@@ -6,13 +6,19 @@
 # units — PROVISIONED units. On-demand request pricing has no always-free component, so the
 # same workload that costs nothing here would be billed per request there. At 2 units this is
 # a twelfth of the free allowance and roughly 120 times this fleet's peak write rate.
+# TWO SCANNERS, ONE COMMENT BLOCK, CONFLICTING PLACEMENT RULES. Trivy honours an ignore only
+# while it stays adjacent to the resource; Semgrep wants its marker on the line above the
+# finding OR trailing it. dd6c821 moved the nosemgrep line down to satisfy Semgrep, which
+# pushed it between these two ignores and the resource — Trivy stopped honouring them and
+# AVD-AWS-0024/0025 were re-reported four minutes later. Trailing nosemgrep satisfies Semgrep
+# without taking the adjacent line, so both hold at once. Reasons for these two live on the
+# checkov:skip lines inside the block, which cover the same controls.
 # trivy:ignore:AVD-AWS-0024
 # trivy:ignore:AVD-AWS-0025
-resource "aws_dynamodb_table" "dedup" {
+resource "aws_dynamodb_table" "dedup" { # nosemgrep: terraform.aws.security.aws-dynamodb-table-unencrypted.aws-dynamodb-table-unencrypted
   # checkov:skip=CKV_AWS_28:PITR off deliberately — every row is a 24h-TTL delivery id, nothing worth restoring
   # checkov:skip=CKV_AWS_119:No KMS CMK for DynamoDB — home lab; AWS managed key is sufficient
   # checkov:skip=CKV2_AWS_16:DynamoDB auto-scaling disabled deliberately — provisioned 2/2 to stay in always-free tier
-  # nosemgrep: terraform.aws.security.aws-dynamodb-table-unencrypted.aws-dynamodb-table-unencrypted
   name         = "${var.name_prefix}-dedup"
   billing_mode = "PROVISIONED"
 
