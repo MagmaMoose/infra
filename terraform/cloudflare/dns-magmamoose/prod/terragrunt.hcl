@@ -190,6 +190,31 @@ inputs = {
       proxied = true
     },
 
+    # ── Brimyr's token broker ──────────────────────────────────────────────
+    #
+    # The same shape as chargate's above, in brimyr's own AWS account (202518311296,
+    # eu-west-1), exchanging a caller's Actions OIDC token for a repo-scoped Brimyr[bot]
+    # installation token so brimyr's patch-coverage comment carries that byline.
+    # See magmamoose/infra terraform/aws/brimyr and MagmaMoose/brimyr#11.
+    #
+    # TWO BROKERS, NEVER ONE, and therefore two audiences: `aud=brimyr` here against
+    # `aud=chargate` above. One minter holding both Apps' private keys would mean
+    # compromising either surface yields both identities.
+    #
+    # PHASE 1 — only the _acm record exists yet. GREY, and it must stay grey: a proxied
+    # validation record answers with Cloudflare's own value, ACM never sees the token, and
+    # the certificate never leaves PENDING_VALIDATION. The ORANGE service record follows
+    # once the certificate is ISSUED and the API Gateway custom domain exists to point at —
+    # its target is `target_domain_name` (a d-xxxx.execute-api name), NEVER the plain
+    # execute-api hostname, which serves a certificate for *.execute-api.eu-west-1.
+    # amazonaws.com and would fail the TLS handshake for this name.
+    {
+      name    = "_1193f7e750e37befac82a4316b6e1d7d.broker-brimyr.magmamoose.com"
+      type    = "CNAME"
+      value   = "_adda14532e3947306ab5308f252f0eb1.jkddzztszm.acm-validations.aws"
+      proxied = false
+    },
+
     {
       name    = "docs.diatreme.magmamoose.com"
       type    = "CNAME"
