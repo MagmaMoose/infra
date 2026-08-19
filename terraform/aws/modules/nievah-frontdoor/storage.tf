@@ -8,11 +8,11 @@
 # a twelfth of the free allowance and roughly 120 times this fleet's peak write rate.
 # trivy:ignore:AVD-AWS-0024
 # trivy:ignore:AVD-AWS-0025
+# nosemgrep: terraform.aws.security.aws-dynamodb-table-unencrypted.aws-dynamodb-table-unencrypted
 resource "aws_dynamodb_table" "dedup" {
   # checkov:skip=CKV_AWS_28:PITR off deliberately — every row is a 24h-TTL delivery id, nothing worth restoring
   # checkov:skip=CKV_AWS_119:No KMS CMK for DynamoDB — home lab; AWS managed key is sufficient
   # checkov:skip=CKV2_AWS_16:DynamoDB auto-scaling disabled deliberately — provisioned 2/2 to stay in always-free tier
-  # nosemgrep: terraform.aws.security.aws-dynamodb-table-unencrypted.aws-dynamodb-table-unencrypted
   name         = "${var.name_prefix}-dedup"
   billing_mode = "PROVISIONED"
 
