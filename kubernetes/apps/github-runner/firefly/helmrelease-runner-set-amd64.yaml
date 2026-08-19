@@ -115,17 +115,32 @@ spec:
     # runner that is idle almost all of it. minRunners: 0 gives that back and only
     # borrows it for the duration of a job.
     minRunners: 0
-    # ONE concurrent runner, unchanged from when this set was called `firefly`.
-    # Arithmetic that produced it: ff-vm1 is 8000m / 28042Mi allocatable with a 7-day peak
-    # request sum already at 144% of allocatable, its real memory use is 21766Mi (77%),
-    # and the dind memory LIMIT below is 6Gi because MegaLinter needs it. Two concurrent
-    # MegaLinter jobs would take the node down, and limits are not scheduler-reserved so
-    # nothing would stop it (COMMON_MISTAKES #14).
+    # TWO concurrent runners, raised from 1.
     #
-    # The pressure to raise this is now gone anyway: org-wide concurrency comes from the
-    # arm64 pool's two runners, and this set exists for the handful of jobs that must be
-    # amd64. Raise to 2 only after ff-vm1 gains ~6Gi of real headroom.
-    maxRunners: 1
+    # The 1 was reasoned from LIMITS, not from measurement: "the dind memory limit is 6Gi,
+    # so two concurrent MegaLinter jobs would take the node down". 14 days of
+    # `container_memory_working_set_bytes` say otherwise — the worst whole-pod peak this
+    # pool has ever reached is **1111Mi** (dind 1011Mi, runner 979Mi, never both at once),
+    # against the 8Gi its limits permit. Two runners therefore peak around 2.2Gi of real
+    # memory on a node with ~8.7Gi genuinely free. The old note asked for "~6Gi of real
+    # headroom" before raising this; that headroom exists, and always did — the estimate
+    # was 6x the true figure because it read the ceiling instead of the workload.
+    #
+    # SCHEDULING is the tighter constraint, and it is what actually has to be paid for.
+    # Each pod RESERVES 768Mi, so two need 1536Mi of request headroom. The same commit
+    # that raises this returns 768Mi to ff-vm1 by right-sizing three over-requested
+    # workloads against their own 14-day peaks (holmesgpt 1Gi->640Mi on a 516Mi peak,
+    # falco 512Mi->256Mi on a 179Mi peak, thanos-query 128Mi->64Mi x2 on a 25Mi peak).
+    # That is exactly one runner's worth, so the FIRST runner now fits without evicting
+    # anything; the second still has to preempt when the node is full, which it can, being
+    # `medium`. Returning another ~370Mi would make both fit cleanly — that is the next
+    # increment, not a blocker.
+    #
+    # Do NOT raise to 3 on this evidence. 1111Mi is a peak for the jobs that have actually
+    # run; the 6Gi dind limit exists because a MegaLinter flavor image once needed room,
+    # and limits are not scheduler-reserved (COMMON_MISTAKES #14), so three simultaneous
+    # outliers could still overcommit the node's real memory. Re-measure first.
+    maxRunners: 2
 
     # Empty map, NOT `type: dind`, and this is load-bearing. With containerMode.type=dind
     # the chart synthesises the dind sidecar from a hardcoded helper: `image: docker:dind`
@@ -181,6 +196,36 @@ spec:
                 drop: ["ALL"]
 
     template:
+      # DISK I/O RATE CAP — GATED OUT UNTIL THE NODE CAN HONOUR IT.
+      #
+      # Kubernetes has no Pod-spec API for I/O rate: `resources.limits` has no IOPS or
+      # bytes/sec key, and `ephemeral-storage` is CAPACITY, which is a different control
+      # and does not stop a job saturating the spindle. The only per-pod mechanism is a
+      # containerd blockio class, selected by the annotations below and applied as cgroup
+      # v2 `io.max`. ff-vm1 is the only amd64 node, so a MegaLinter image pull competes
+      # directly with every other workload the node carries.
+      #
+      # THE PRECONDITION IS HARD, NOT ADVISORY. A pod naming a blockio class that
+      # containerd does not know **fails to create** — it does not fall back to
+      # unthrottled. containerd's `ignore_blockio_not_enabled_errors` escape hatch is
+      # rejected as an unknown key on this build (v2.1.4-k3s1), so it cannot cover us.
+      # Uncomment ONLY after `ansible/firefly-vm1-io-throttle.yaml` has run on ff-vm1 and
+      # this prints a path (COMMON_MISTAKES #25 — record the command that proves it):
+      #
+      #   sudo /var/lib/rancher/k3s/data/current/bin/containerd \
+      #     -c /var/lib/rancher/k3s/agent/etc/containerd/config.toml config dump \
+      #     | grep blockio_config_file
+      #
+      # `ci-throttled` is 200MB/s read / 100MB/s write, 8k/4k IOPS against a device
+      # measured at 828MB/s-1.9GB/s, so ~25% of the disk. Both containers are named
+      # because the annotation is per-container: `dind` does the image-layer writes,
+      # `runner` does the checkout. The class name must match the one the playbook
+      # writes — a mismatch is an unschedulable pod, not an unthrottled one.
+      #
+      # metadata:
+      #   annotations:
+      #     blockio.resources.beta.kubernetes.io/container.dind: ci-throttled
+      #     blockio.resources.beta.kubernetes.io/container.runner: ci-throttled
       spec:
         # on-prem tier, written out rather than delegated to the Kyverno `place-on-prem`
         # policy: these pods are created by ARC from a CRD, not from a Deployment/
@@ -194,10 +239,13 @@ spec:
           topology.sargeant.co/tier: on-prem
           kubernetes.io/arch: amd64
 
-        # No podAntiAffinity here, unlike the arm64 pool. It carries one to force its two
-        # runners onto separate nodes; with maxRunners: 1 and a single matching node there
-        # is never a second pod to repel, so the rule would be inert. Add it back in the
-        # same commit that raises maxRunners above 1.
+        # No podAntiAffinity here, unlike the arm64 pool, and it must STAY absent now that
+        # maxRunners is 2. The arm64 pool carries one to spread its two runners across
+        # ff-oci1/ff-oci2, which works because it has two matching nodes. This pool has
+        # exactly one, so the same rule would make the second runner permanently
+        # unschedulable — the previous note here said to add it back in the same commit
+        # that raises maxRunners above 1, which would have been an outage. Add it only if
+        # a second amd64 node ever joins.
         # `medium`, which DIFFERS from the arm64 pool's `low` on purpose — the two files
         # are otherwise kept in sync, so do not "resync" this line. The arm64 pool sits on
         # ff-oci1/ff-oci2 at ~51% memory requested and has never had to preempt anything;
@@ -215,10 +263,9 @@ spec:
         # `medium` (1000, PreemptLowerPriority) is the SMALLEST class in this cluster that
         # can preempt at all, so it is the least escalation that unsticks this. The cost is
         # real and belongs in the open: when ff-vm1 is full, starting an amd64 job evicts
-        # roughly the shortfall in priority-0 pods — the `internal/*` media stack,
-        # `misc/oauth2-proxy`, `internal/valkey`, the CNPG instance pods — and on a full
-        # node those victims then stay Pending until the job finishes. Preemption treats
-        # PDBs as a preference, not a guarantee.
+        # roughly its shortfall in lower-priority pods, and on a full node those victims
+        # then stay Pending until the job finishes. Preemption treats PDBs as a preference
+        # rather than a guarantee, so replicated datastores are in the candidate pool too.
         #
         # THE ACTUAL FIX is to stop ff-vm1 over-declaring: ~2.5Gi of its requests are pure
         # over-request (thanos-compactor 768Mi req / 55Mi used, loki 768/185, holmesgpt

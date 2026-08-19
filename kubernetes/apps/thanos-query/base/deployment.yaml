@@ -36,7 +36,11 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 128Mi
+              # 64Mi, down from 128Mi. 14-day peak working set is 25Mi — this is a
+              # stateless fan-out query layer that holds no series itself. Two replicas,
+              # so this returns 128Mi of reservation on ff-vm1. Limit untouched at 512Mi;
+              # limits are not scheduler-reserved (COMMON_MISTAKES #14).
+              memory: 64Mi
             limits:
               memory: 512Mi
           livenessProbe:
