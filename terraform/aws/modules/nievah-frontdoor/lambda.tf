@@ -27,31 +27,30 @@ locals {
 # Created explicitly rather than left to Lambda. A log group Lambda creates for itself has
 # retention set to NEVER EXPIRE, and CloudWatch Logs' free allowance is 5 GB stored — so the
 # default quietly converts a free stack into a billed one over a year or two.
-# checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
-# checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
 # trivy:ignore:AVD-AWS-0017
 resource "aws_cloudwatch_log_group" "producer" {
+  # checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
+  # checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
   name              = "/aws/lambda/${var.name_prefix}-producer"
   retention_in_days = var.log_retention_days
 }
 
-# checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
-# checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
 # trivy:ignore:AVD-AWS-0017
 resource "aws_cloudwatch_log_group" "consumer" {
+  # checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
+  # checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
   name              = "/aws/lambda/${var.name_prefix}-consumer"
   retention_in_days = var.log_retention_days
 }
 
-# checkov:skip=CKV_AWS_173:No KMS CMK for env vars — home lab; secrets read from SSM, not env
-# checkov:skip=CKV_AWS_116:DLQ handled at SQS layer (events_dlq); Lambda-level DLQ redundant
-# checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
-# checkov:skip=CKV_AWS_115:Account-level concurrency cap is 10; any reservation fails (InvalidParameterValueException)
-# checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to AWS services only, no VPC resources
-# checkov:skip=CKV_AWS_50:X-Ray tracing not enabled — cost not justified at this scale
 # trivy:ignore:AVD-AWS-0066
-# nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
-resource "aws_lambda_function" "producer" {
+resource "aws_lambda_function" "producer" { # nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
+  # checkov:skip=CKV_AWS_173:No KMS CMK for env vars — home lab; secrets read from SSM, not env
+  # checkov:skip=CKV_AWS_116:DLQ handled at SQS layer (events_dlq); Lambda-level DLQ redundant
+  # checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
+  # checkov:skip=CKV_AWS_115:Account-level concurrency cap is 10; any reservation fails (InvalidParameterValueException)
+  # checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to AWS services only, no VPC resources
+  # checkov:skip=CKV_AWS_50:X-Ray tracing not enabled — cost not justified at this scale
   function_name = "${var.name_prefix}-producer"
   role          = aws_iam_role.producer.arn
   handler       = "nievah.aws.producer.handler"
@@ -98,15 +97,14 @@ resource "aws_lambda_function" "producer" {
   depends_on = [aws_cloudwatch_log_group.producer]
 }
 
-# checkov:skip=CKV_AWS_173:No KMS CMK for env vars — home lab; values here are queue URL and table name (not secrets)
-# checkov:skip=CKV_AWS_116:DLQ handled at SQS layer (jobs_dlq); Lambda-level DLQ redundant
-# checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
-# checkov:skip=CKV_AWS_115:Account-level concurrency cap is 10; any reservation fails (InvalidParameterValueException)
-# checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to AWS services only, no VPC resources
-# checkov:skip=CKV_AWS_50:X-Ray tracing not enabled — cost not justified at this scale
 # trivy:ignore:AVD-AWS-0066
-# nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
-resource "aws_lambda_function" "consumer" {
+resource "aws_lambda_function" "consumer" { # nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
+  # checkov:skip=CKV_AWS_173:No KMS CMK for env vars — home lab; values here are queue URL and table name (not secrets)
+  # checkov:skip=CKV_AWS_116:DLQ handled at SQS layer (jobs_dlq); Lambda-level DLQ redundant
+  # checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
+  # checkov:skip=CKV_AWS_115:Account-level concurrency cap is 10; any reservation fails (InvalidParameterValueException)
+  # checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to AWS services only, no VPC resources
+  # checkov:skip=CKV_AWS_50:X-Ray tracing not enabled — cost not justified at this scale
   function_name = "${var.name_prefix}-consumer"
   role          = aws_iam_role.consumer.arn
   handler       = "nievah.aws.consumer.handler"
@@ -139,8 +137,8 @@ resource "aws_lambda_function" "consumer" {
 # and everything downstream are the identical code path. What a local run does NOT cover is
 # API Gateway's own configuration — the throttle, the $default stage, the integration — which
 # is the same class of gap CloudFront had, now smaller and written down.
-# checkov:skip=CKV_AWS_258:NONE auth is intentional — LocalStack only (count = var.localstack ? 1 : 0); production uses API Gateway
 resource "aws_lambda_function_url" "producer" {
+  # checkov:skip=CKV_AWS_258:NONE auth is intentional — LocalStack only (count = var.localstack ? 1 : 0); production uses API Gateway
   count = var.localstack ? 1 : 0
 
   function_name      = aws_lambda_function.producer.function_name

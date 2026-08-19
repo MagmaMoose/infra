@@ -17,12 +17,12 @@
 
 data "aws_caller_identity" "current" {}
 
-# checkov:skip=CKV2_AWS_62:S3 event notifications not needed for this artifact bucket
-# checkov:skip=CKV_AWS_144:No cross-region replication — home lab single-region setup
-# checkov:skip=CKV_AWS_18:S3 access logging not enabled — cost not justified for a low-traffic artifact store
-# checkov:skip=CKV_AWS_145:Using SSE-S3 (AES256); KMS CMK not required here
 # trivy:ignore:AVD-AWS-0089
 resource "aws_s3_bucket" "artifacts" {
+  # checkov:skip=CKV2_AWS_62:S3 event notifications not needed for this artifact bucket
+  # checkov:skip=CKV_AWS_144:No cross-region replication — home lab single-region setup
+  # checkov:skip=CKV_AWS_18:S3 access logging not enabled — cost not justified for a low-traffic artifact store
+  # checkov:skip=CKV_AWS_145:Using SSE-S3 (AES256); KMS CMK not required here
   bucket = "${var.name_prefix}-artifacts-${data.aws_caller_identity.current.account_id}"
 
   # Deliberately NOT force_destroy, unlike the overflow bucket in nievah-frontdoor. That one
@@ -143,24 +143,25 @@ resource "aws_iam_role" "publish" {
 }
 
 data "aws_iam_policy_document" "publish" {
-  # Write-only into one prefix. The publisher cannot read what is already there, cannot
-  # delete, and cannot list the bucket — so a compromised workflow can add an artifact
-  # (which still has to be pointed at by a reviewed Terraform change before it runs
-  # anywhere) but cannot quietly replace or remove a known-good one.
+  # Write-only into one prefix. The publisher cannot delete, and cannot list the bucket —
+  # so a compromised workflow can add an artifact (which still has to be pointed at by a
+  # reviewed Terraform change before it runs anywhere) but cannot quietly replace or remove
+  # a known-good one.
   statement {
     sid       = "PublishArtifact"
     actions   = ["s3:PutObject"]
-    resources = ["${aws_s3_bucket.artifacts.arn}/edge/*"]
+    resources = ["${aws_s3_bucket.artifacts.arn}/${var.artifact_prefix}/*"]
   }
 
-  # HeadObject, so the workflow can compare the new zip's digest against what is already
-  # published and skip both the upload and the bump PR when nothing changed. Without this the
-  # front-door leaf would get a version-bump PR on every nievah release, most of which would
-  # redeploy byte-identical code.
+  # HeadObject (authorised by s3:GetObject, not s3:GetObjectAttributes) so the workflow can
+  # compare the new zip's digest against what is already published and skip the upload when
+  # nothing changed. s3:GetObjectAttributes authorises the GetObjectAttributes API only —
+  # using it alone means HeadObject returns AccessDenied and the publish fails rather than
+  # skipping. s3:GetObjectAttributes is included too so either API call works.
   statement {
     sid       = "CompareBeforePublishing"
-    actions   = ["s3:GetObjectAttributes"]
-    resources = ["${aws_s3_bucket.artifacts.arn}/edge/*"]
+    actions   = ["s3:GetObject", "s3:GetObjectAttributes"]
+    resources = ["${aws_s3_bucket.artifacts.arn}/${var.artifact_prefix}/*"]
   }
 }
 

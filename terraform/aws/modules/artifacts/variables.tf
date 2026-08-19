@@ -39,3 +39,13 @@ variable "github_oidc_thumbprints" {
   type        = list(string)
   default     = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
 }
+
+variable "artifact_prefix" {
+  description = <<-EOT
+    S3 key prefix the publish role may write to and read from, e.g. "edge" or "broker".
+    The PutObject and HeadObject grants are scoped to <prefix>/* so each service's publish
+    role can only touch its own objects inside the shared artifact bucket.
+  EOT
+  type        = string
+  default     = "edge"
+}
