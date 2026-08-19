@@ -97,8 +97,7 @@ spec:
           node-role: system
         tolerations:
           - key: node-role.kubernetes.io/control-plane
-            operator: Equal
-            value: "true"
+            operator: Exists
             effect: NoSchedule
         # NO priorityClassName — franklinhouse has only the built-in system-* classes;
         # naming a non-existent PriorityClass makes the pod unschedulable. See the note
@@ -129,8 +128,7 @@ spec:
           kubernetes.io/arch: amd64
         tolerations:
           - key: node-role.kubernetes.io/control-plane
-            operator: Equal
-            value: "true"
+            operator: Exists
             effect: NoSchedule
 
         # Kept even at maxRunners: 1 so that raising maxRunners later cannot silently
