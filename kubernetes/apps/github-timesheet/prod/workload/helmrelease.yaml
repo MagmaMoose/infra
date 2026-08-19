@@ -46,7 +46,7 @@ spec:
       # Auto-bumped by Flux image automation — do NOT hand-edit; the `$imagepolicy`
       # marker is the setter (ImageRepository/ImagePolicy in base/…/image-automation.yaml).
       # v0.0.1 is a placeholder until Diatreme publishes the first real release tag.
-      tag: v0.0.16 # {"$imagepolicy": "flux-system:github-timesheet:tag"}
+      tag: v0.0.17 # {"$imagepolicy": "flux-system:github-timesheet:tag"}
       pullPolicy: IfNotPresent
       pullSecrets:
         - name: ghcr-pull-secret
