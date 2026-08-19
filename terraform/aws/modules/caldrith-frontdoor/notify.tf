@@ -1,4 +1,3 @@
-# kics-scan disable=CKV_AWS_26,CKV_AWS_355
 # Alarms, the flood detector, and the cost guard.
 #
 # THE POINT OF ALARMING FROM AWS is that it keeps working when the thing it watches does not.
@@ -27,9 +26,9 @@
 #                        the DLQ alarm says so with the message still in hand to look at.
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 
-# checkov:skip=CKV_AWS_26:No KMS CMK for SNS — home lab; AES256 default encryption is sufficient
 # trivy:ignore:AVD-AWS-0095
 resource "aws_sns_topic" "ops" {
+  #checkov:skip=CKV_AWS_26:No KMS CMK for SNS — home lab; AES256 default encryption is sufficient
   name = "${var.name_prefix}-ops"
 }
 
@@ -82,8 +81,8 @@ resource "aws_iam_role" "chatbot" {
 
 # Read-only, and only the metrics. Chatbot's default managed policy is far wider than posting
 # an alarm needs.
-# checkov:skip=CKV_AWS_355:CloudWatch Describe/Get/List actions do not support resource-level restrictions; "*" is required
 resource "aws_iam_role_policy" "chatbot" {
+  #checkov:skip=CKV_AWS_355:CloudWatch Describe/Get/List actions do not support resource-level restrictions; "*" is required
   count = var.slack_workspace_id == "" || var.localstack ? 0 : 1
   name  = "${var.name_prefix}-chatbot"
   role  = aws_iam_role.chatbot[0].id

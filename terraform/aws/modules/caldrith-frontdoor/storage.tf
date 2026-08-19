@@ -1,4 +1,3 @@
-# kics-scan disable=CKV_AWS_28,CKV_AWS_119,CKV2_AWS_16,CKV2_AWS_62,CKV_AWS_144,CKV_AWS_21,CKV_AWS_18,CKV_AWS_145,CKV_AWS_300
 # Delivery dedup, and the overflow bucket for bodies too large to ride in a message.
 
 # THE TABLE THAT REPLACES REDIS. `caldrith.worker.queue.dedup_delivery` is a Redis `SET NX` with
@@ -18,11 +17,13 @@
 # two services together sit at about a third of an allowance that is ORGANISATION-wide, not
 # per-account. There is room for a third service and not much more; a fourth is the point to
 # look at this again rather than the point to discover it.
-# checkov:skip=CKV_AWS_28:PITR off deliberately — every row is a 24h-TTL delivery id, nothing worth restoring
-# checkov:skip=CKV_AWS_119:No KMS CMK for DynamoDB — home lab; AWS managed key is sufficient
-# checkov:skip=CKV2_AWS_16:DynamoDB auto-scaling disabled deliberately — provisioned 2/2 to stay in always-free tier
+# trivy:ignore:AVD-AWS-0024
+# trivy:ignore:AVD-AWS-0025
 # nosemgrep: terraform.aws.security.aws-dynamodb-table-unencrypted.aws-dynamodb-table-unencrypted
 resource "aws_dynamodb_table" "dedup" {
+  #checkov:skip=CKV_AWS_28:PITR off deliberately — every row is a 24h-TTL delivery id, nothing worth restoring
+  #checkov:skip=CKV_AWS_119:No KMS CMK for DynamoDB — home lab; AWS managed key is sufficient
+  #checkov:skip=CKV2_AWS_16:DynamoDB auto-scaling disabled deliberately — provisioned 2/2 to stay in always-free tier
   name         = "${var.name_prefix}-dedup"
   billing_mode = "PROVISIONED"
 
@@ -83,12 +84,13 @@ resource "aws_dynamodb_table" "dedup" {
 # day of retention) that is a fraction of a cent a month, dominated by PUT requests rather than
 # storage. The producer should log a byte count on every use, so within a week the real rate is
 # a fact rather than an estimate — and if it is zero, delete this bucket and accept the 502.
-# checkov:skip=CKV2_AWS_62:S3 event notifications not needed for this overflow bucket
-# checkov:skip=CKV_AWS_144:No cross-region replication — home lab single-region setup
-# checkov:skip=CKV_AWS_21:Versioning disabled deliberately — a versioned object would outlive the lifecycle expiration rule
-# checkov:skip=CKV_AWS_18:S3 access logging not enabled — cost and complexity not justified for a transient overflow bucket
-# checkov:skip=CKV_AWS_145:Using SSE-S3 (AES256); KMS CMK not required here
+# trivy:ignore:AVD-AWS-0089
 resource "aws_s3_bucket" "overflow" {
+  #checkov:skip=CKV2_AWS_62:S3 event notifications not needed for this overflow bucket
+  #checkov:skip=CKV_AWS_144:No cross-region replication — home lab single-region setup
+  #checkov:skip=CKV_AWS_21:Versioning disabled deliberately — a versioned object would outlive the lifecycle expiration rule
+  #checkov:skip=CKV_AWS_18:S3 access logging not enabled — cost and complexity not justified for a transient overflow bucket
+  #checkov:skip=CKV_AWS_145:Using SSE-S3 (AES256); KMS CMK not required here
   bucket        = "${var.name_prefix}-overflow-${data.aws_caller_identity.current.account_id}"
   force_destroy = true # nothing here outlives its lifecycle rule; never block a teardown
 }
@@ -125,8 +127,8 @@ resource "aws_s3_bucket_versioning" "overflow" {
   }
 }
 
-# checkov:skip=CKV_AWS_300:abort_incomplete_multipart_upload is configured inline within the rule block; scanner expects a top-level attribute that does not exist in this provider version
 resource "aws_s3_bucket_lifecycle_configuration" "overflow" {
+  #checkov:skip=CKV_AWS_300:abort_incomplete_multipart_upload is configured inline within the rule block; scanner expects a top-level attribute that does not exist in this provider version
   bucket = aws_s3_bucket.overflow.id
 
   rule {

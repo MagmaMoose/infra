@@ -103,6 +103,7 @@ resource "aws_apigatewayv2_integration" "producer" {
 resource "aws_apigatewayv2_route" "producer" {
   count = var.localstack ? 0 : 1
 
+  #checkov:skip=CKV_AWS_309:Authorization handled in Lambda via HMAC verification; $default route on a public webhook endpoint does not use API Gateway-level auth
   api_id    = aws_apigatewayv2_api.producer[0].id
   route_key = "$default"
   target    = "integrations/${aws_apigatewayv2_integration.producer[0].id}"
@@ -111,6 +112,7 @@ resource "aws_apigatewayv2_route" "producer" {
 # The $default stage, so `rawPath` is the real path with no stage prefix to strip. A named
 # stage would put `/prod` in front of every route — and since Caldrith's ingest is the ROOT
 # path, the delivery would arrive at `/prod` and the producer would 404 its own front door.
+# trivy:ignore:AVD-AWS-0001
 resource "aws_apigatewayv2_stage" "producer" {
   count = var.localstack ? 0 : 1
 
@@ -136,6 +138,7 @@ resource "aws_apigatewayv2_stage" "producer" {
   # 5 GB allowance shared org-wide with nievah, and a flood is exactly when the log volume
   # spikes: the diagnostic would bill hardest at the moment it is needed, which is a bad
   # shape. Turn it on temporarily while investigating, then turn it off.
+  #checkov:skip=CKV_AWS_76:Access logging disabled deliberately — CloudWatch Logs ingestion cost outweighs diagnostic value at this scale; enable temporarily when investigating
 }
 
 resource "aws_lambda_permission" "api" {

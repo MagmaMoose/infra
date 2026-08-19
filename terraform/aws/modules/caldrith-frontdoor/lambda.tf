@@ -1,4 +1,3 @@
-# kics-scan disable=CKV_AWS_158,CKV_AWS_338,CKV_AWS_173,CKV_AWS_116,CKV_AWS_272,CKV_AWS_115,CKV_AWS_117,CKV_AWS_50,CKV_AWS_258
 # THREE functions, where nievah has two — and the third one is the whole point.
 #
 # CALDRITH RETIRES ITS KUBERNETES DEPLOYMENT. Nievah's front door ends at a queue that a
@@ -113,26 +112,26 @@ locals {
 # retention value reduces it at all. The reconcile group is the one that matters: a JSON line
 # per tier per repo means a full-account reconcile writes in a burst. See
 # `var.log_retention_days`.
-# checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
-# checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
 # trivy:ignore:AVD-AWS-0017
 resource "aws_cloudwatch_log_group" "producer" {
+  #checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
+  #checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
   name              = "/aws/lambda/${var.name_prefix}-producer"
   retention_in_days = var.log_retention_days
 }
 
-# checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
-# checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
 # trivy:ignore:AVD-AWS-0017
 resource "aws_cloudwatch_log_group" "consumer" {
+  #checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
+  #checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
   name              = "/aws/lambda/${var.name_prefix}-consumer"
   retention_in_days = var.log_retention_days
 }
 
-# checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
-# checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
 # trivy:ignore:AVD-AWS-0017
 resource "aws_cloudwatch_log_group" "reconcile" {
+  #checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
+  #checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
   name              = "/aws/lambda/${var.name_prefix}-reconcile"
   retention_in_days = var.log_retention_days
 }
@@ -149,15 +148,15 @@ resource "aws_cloudwatch_log_group" "reconcile" {
 # rather than return False, turning a malformed header into an unhandled 500 on an
 # unauthenticated endpoint). A hand-copied edge implementation is a copy that drifts away from
 # fixes like that one, silently, in the component that is exposed to the internet.
-# checkov:skip=CKV_AWS_173:No KMS CMK for env vars — home lab; every secret is an SSM PATH here, never a value
-# checkov:skip=CKV_AWS_116:DLQ handled at SQS layer (events_dlq); Lambda-level DLQ redundant
-# checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
-# checkov:skip=CKV_AWS_115:Account-level concurrency cap may be 10; any reservation fails (InvalidParameterValueException)
-# checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to AWS services and api.github.com, no VPC resources
-# checkov:skip=CKV_AWS_50:X-Ray tracing not enabled — cost not justified at this scale
-# trivy:ignore:AVD-AWS-0066
 # nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
+# trivy:ignore:AVD-AWS-0066
 resource "aws_lambda_function" "producer" {
+  #checkov:skip=CKV_AWS_173:No KMS CMK for env vars — home lab; every secret is an SSM PATH here, never a value
+  #checkov:skip=CKV_AWS_116:DLQ handled at SQS layer (events_dlq); Lambda-level DLQ redundant
+  #checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
+  #checkov:skip=CKV_AWS_115:Account-level concurrency cap may be 10; any reservation fails (InvalidParameterValueException)
+  #checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to AWS services and api.github.com, no VPC resources
+  #checkov:skip=CKV_AWS_50:X-Ray tracing not enabled — cost not justified at this scale
   function_name = "${var.name_prefix}-producer"
   role          = aws_iam_role.producer.arn
   handler       = "caldrith.aws.producer.handler"
@@ -232,15 +231,15 @@ resource "aws_lambda_function" "producer" {
 # recognises the envelope and emits one `reconcile_all_installations` job. Same shape as every
 # other delivery, one write target for the internet-facing role, and the App key stays at the
 # far end.
-# checkov:skip=CKV_AWS_173:No KMS CMK for env vars — home lab; values here are a queue URL and a table name
-# checkov:skip=CKV_AWS_116:DLQ handled at SQS layer (jobs_dlq); Lambda-level DLQ redundant
-# checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
-# checkov:skip=CKV_AWS_115:Account-level concurrency cap may be 10; any reservation fails (InvalidParameterValueException)
-# checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to AWS services only, no VPC resources
-# checkov:skip=CKV_AWS_50:X-Ray tracing not enabled — cost not justified at this scale
-# trivy:ignore:AVD-AWS-0066
 # nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
+# trivy:ignore:AVD-AWS-0066
 resource "aws_lambda_function" "consumer" {
+  #checkov:skip=CKV_AWS_173:No KMS CMK for env vars — home lab; values here are a queue URL and a table name
+  #checkov:skip=CKV_AWS_116:DLQ handled at SQS layer (jobs_dlq); Lambda-level DLQ redundant
+  #checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
+  #checkov:skip=CKV_AWS_115:Account-level concurrency cap may be 10; any reservation fails (InvalidParameterValueException)
+  #checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to AWS services only, no VPC resources
+  #checkov:skip=CKV_AWS_50:X-Ray tracing not enabled — cost not justified at this scale
   function_name = "${var.name_prefix}-consumer"
   role          = aws_iam_role.consumer.arn
   handler       = "caldrith.aws.consumer.handler"
@@ -331,15 +330,15 @@ resource "aws_lambda_function" "consumer" {
 #     container image: ECR storage is $0.10/GB-month with no always-free allowance, so a
 #     container image is the first thing in this design that would bill every month by
 #     existing.
-# checkov:skip=CKV_AWS_173:No KMS CMK for env vars — home lab; the App key is an SSM PATH here, never a value
-# checkov:skip=CKV_AWS_116:DLQ handled at SQS layer (jobs_dlq); Lambda-level DLQ redundant
-# checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
-# checkov:skip=CKV_AWS_115:Account-level concurrency cap may be 10; any reservation fails (InvalidParameterValueException). maximum_concurrency on the ESM is the working control
-# checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to AWS services and api.github.com, no VPC resources
-# checkov:skip=CKV_AWS_50:X-Ray tracing not enabled — cost not justified at this scale
-# trivy:ignore:AVD-AWS-0066
 # nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
+# trivy:ignore:AVD-AWS-0066
 resource "aws_lambda_function" "reconcile" {
+  #checkov:skip=CKV_AWS_173:No KMS CMK for env vars — home lab; the App key is an SSM PATH here, never a value
+  #checkov:skip=CKV_AWS_116:DLQ handled at SQS layer (jobs_dlq); Lambda-level DLQ redundant
+  #checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
+  #checkov:skip=CKV_AWS_115:Account-level concurrency cap may be 10; any reservation fails (InvalidParameterValueException). maximum_concurrency on the ESM is the working control
+  #checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to AWS services and api.github.com, no VPC resources
+  #checkov:skip=CKV_AWS_50:X-Ray tracing not enabled — cost not justified at this scale
   function_name = "${var.name_prefix}-reconcile"
   role          = aws_iam_role.reconcile.arn
   handler       = "caldrith.aws.reconcile.handler"
@@ -408,10 +407,10 @@ resource "aws_lambda_function" "reconcile" {
 # API Gateway's own configuration — the throttle, the $default stage, the integration — which
 # is this stack's only real-time cost control, so it is exactly the part worth being explicit
 # about not testing.
-# checkov:skip=CKV_AWS_258:NONE auth is intentional — LocalStack only (count = var.localstack ? 1 : 0); production uses API Gateway
 resource "aws_lambda_function_url" "producer" {
   count = var.localstack ? 1 : 0
 
+  #checkov:skip=CKV_AWS_258:NONE auth is intentional — LocalStack only (count = var.localstack ? 1 : 0); production uses API Gateway
   function_name      = aws_lambda_function.producer.function_name
   authorization_type = "NONE"
 }
