@@ -37,7 +37,7 @@ Status: **COMPLETED 2026-05-22/23.** Migration landed across PRs #258 (Phase A �
 
 ## 2. Target state (`infra-v2` pattern)
 
-```
+```text
 kubernetes/
 ├── clusters/
 │   └── firefly/
@@ -169,7 +169,7 @@ Each phase ends with a verifiable green Flux state. **Plex is the canary** — v
 
 Set up the new layout **alongside** the old, no Flux changes:
 
-```
+```text
 kubernetes/
 ├── apps-new/         # build out under this name first
 ├── clusters-new/

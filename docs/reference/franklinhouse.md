@@ -85,7 +85,7 @@ without tolerating produces unschedulable pods.
 
 ## Where things live in this repo
 
-```
+```text
 kubernetes/
   apps/access-control/                    # the app — shared apps tree, repo convention
     base/access-control/                  #   GitRepository + ImageRepositories + deploy-key ExternalSecret

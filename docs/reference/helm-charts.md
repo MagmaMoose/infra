@@ -1,16 +1,46 @@
-# Helm + Kustomize Integration Analysis
+# Helm and Kustomize: 2026 analysis
 
-## Executive Summary
+<!-- sources: kubernetes/components, kubernetes/apps, kubernetes/infrastructure -->
 
-Converting to Helm is a **good strategic move** for your infrastructure, particularly because:
-1. You can **maintain your resource-profile/node-selector component pattern** while eliminating folder duplication
-2. Helm charts provide **DRY templating** that beats individual YAML files for multi-application bases
-3. FluxCD has **native Helm support**, making integration seamless
-4. Your Kustomize components work directly with Helm outputs
+!!! note "This is a decision record, not a how-to"
+    Written in May 2026 to weigh adding Helm alongside Kustomize. It's kept for the reasoning.
+    Two of its premises have since changed, and the outcome was narrower than the analysis
+    proposed. Read this section before acting on anything below it.
 
-**Key caveat:** Helm isn't a replacement for Kustomize—they complement each other. Your new architecture should be: **Helm charts (templating) + Kustomize (final customization + components)**.
+## What actually happened
 
----
+- **Helm is in use, through Flux.** Charts are consumed as `HelmRelease` objects. There's no
+  chart source tree in this repository; charts live upstream or in the separate charts repo.
+- **The resource-profile components this analysis builds on are gone.** They were deleted on
+  2026-08-07 in [#569](https://github.com/CalebSargeant/infra/pull/569). Requests and limits
+  are inlined now. See [Resource profiles](resource-profiles.md).
+- **`_components/` no longer exists.** The components that remain live in
+  `kubernetes/components/`: `gluetun-sidecar`, `helm-release-standards`, `helm-releases`,
+  `ingress-standards`, `node-selectors`, `pod-gateway-client`, `vpn-routed-proxy`, and
+  `wireguard-sidecar`.
+- **A per-chart page was scaffolded for 19 applications and never written.** Those empty
+  pages were removed. Ten of the 19 applications no longer exist in the cluster.
+
+!!! warning "Kustomize labels don't reach a chart's workloads"
+    The one operational consequence worth carrying forward. A placement label applied to a
+    kustomization whose workload is a `HelmRelease` stops at the HelmRelease, so the chart's
+    Deployment is never pinned, and nothing reports it. The
+    [Placement workflow](github-workflows.md#placement) fails a pull request that does this.
+
+## Original analysis (May 2026)
+
+### Summary as written
+
+Converting to Helm was assessed as a good strategic move, on four grounds:
+
+1. The resource-profile and node-selector component pattern could be kept while eliminating
+   folder duplication.
+2. Helm charts provide templating that beats individual YAML files for multi-application bases.
+3. FluxCD has native Helm support.
+4. Kustomize components work on Helm output.
+
+The caveat as written: Helm isn't a replacement for Kustomize. The two complement each other,
+with Helm doing templating and Kustomize doing final customisation and components.
 
 ## Detailed Pros and Cons
 
@@ -21,7 +51,7 @@ Converting to Helm is a **good strategic move** for your infrastructure, particu
 
 **With Helm:** A single `homebridge/Chart.yaml` + `values.yaml` eliminates this duplication. You template once, parameterize everything.
 
-```
+```text
 # Current: 6 files, hardcoded values
 _base/automation/homebridge/
   ├── daemonset.yaml       (hardcoded image, resources, ports)
@@ -110,7 +140,7 @@ existingSecret: homebridge-config  # Created by Kustomize/SOPS
 
 #### 4. **Cluster Overlay Duplication (Different Problem)**
 While Helm reduces `_base/` duplication, you still need cluster-specific overlays. You'll have:
-```
+```text
 kubernetes/apps/homebridge/
   ├── kustomization.yaml          (reference Helm chart + components)
   └── values-firefly.yaml          (cluster overrides)
@@ -140,7 +170,7 @@ Managing Helm chart versions, testing upgrades, maintaining `Chart.lock` files. 
 
 ### Architecture Pattern
 
-```
+```text
 kubernetes/apps/homebridge/          # Helm chart (NOT raw YAML)
   ├── Chart.yaml
   ├── values.yaml                     # Defaults for all clusters

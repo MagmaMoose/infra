@@ -4,7 +4,7 @@ This document describes the site-to-site VPN configuration between OCI (eu-amste
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        OCI eu-amsterdam-1                          │
 │                                                                     │

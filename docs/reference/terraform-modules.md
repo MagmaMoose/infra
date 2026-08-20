@@ -10,7 +10,7 @@
 
 You maintain three infra repos, each with provider-scoped module trees:
 
-```
+```text
 calebsargeant/infra/terraform/
 ├── cloudflare/modules/cloudflare-dns/
 └── oci/modules/                       # network, server, edge, mikrotik, …
@@ -50,7 +50,7 @@ The logic IS the same as Helm charts + reusable-workflows, **BUT** Terraform mod
 ### Why Separate Makes Sense
 
 **Shared `terraform-modules/` repo:**
-```
+```text
 terraform-modules/                     # Public repo
 ├── gcp/
 │   ├── project/
@@ -171,7 +171,7 @@ If you need to upgrade only one repo to v2.1.0 due to a bug fix, the others are 
 ### Structure
 
 **terraform-modules/ repo (public):**
-```
+```text
 terraform-modules/
 ├── aws/
 │   ├── vpc/
