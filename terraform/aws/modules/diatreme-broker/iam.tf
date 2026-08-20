@@ -51,12 +51,6 @@ data "aws_iam_policy_document" "broker" {
     resources = local.secret_arns
   }
 
-  # SecureString parameters are encrypted under the account's default SSM key; without this the
-  # read above returns ciphertext and every mint fails closed — again with a green /healthz.
-  #
-  # `resources = ["*"]` because the AWS-managed `aws/ssm` key's ARN is not knowable here without
-  # a data source that would itself need permissions. The ViaService condition is the real
-  # bound: this role can only use KMS *through* SSM, in this region.
   # The JWKS snapshot table. Scoped to the one table by ARN: this role has no business
   # reading or writing anything else, and a wildcard here would let a compromised broker
   # rummage through any future table in the account.
@@ -69,6 +63,12 @@ data "aws_iam_policy_document" "broker" {
     resources = [aws_dynamodb_table.jwks_cache.arn]
   }
 
+  # SecureString parameters are encrypted under the account's default SSM key; without this the
+  # read above returns ciphertext and every mint fails closed — again with a green /healthz.
+  #
+  # `resources = ["*"]` because the AWS-managed `aws/ssm` key's ARN is not knowable here without
+  # a data source that would itself need permissions. The ViaService condition is the real
+  # bound: this role can only use KMS *through* SSM, in this region.
   statement {
     sid       = "DecryptSecrets"
     actions   = ["kms:Decrypt"]

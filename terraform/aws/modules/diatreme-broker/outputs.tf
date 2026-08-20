@@ -17,7 +17,7 @@ output "certificate_validation_record" {
     record answers with Cloudflare's own value, ACM never sees the token, and the certificate
     stays PENDING_VALIDATION forever.
   EOT
-  value = var.domain_name == "" ? null : {
+  value = var.domain_name == "" || var.certificate_arn != "" ? null : {
     name  = tolist(aws_acm_certificate.broker[0].domain_validation_options)[0].resource_record_name
     type  = tolist(aws_acm_certificate.broker[0].domain_validation_options)[0].resource_record_type
     value = tolist(aws_acm_certificate.broker[0].domain_validation_options)[0].resource_record_value

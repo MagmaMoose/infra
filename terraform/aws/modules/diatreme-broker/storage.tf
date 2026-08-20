@@ -19,7 +19,12 @@
 # to PROVISIONED capacity only; PAY_PER_REQUEST is billed from the first request. One item of
 # 1-2 KB written at most once per execution environment per 5 minutes fits inside 1/1 with room
 # to spare. Do not "simplify" this to on-demand.
-resource "aws_dynamodb_table" "jwks_cache" {
+# trivy:ignore:AWS-0024
+# trivy:ignore:AWS-0025
+resource "aws_dynamodb_table" "jwks_cache" { # nosemgrep: terraform.aws.security.aws-dynamodb-table-unencrypted.aws-dynamodb-table-unencrypted
+  # checkov:skip=CKV_AWS_28:PITR off — table caches public JWKS keys only; derivable from GitHub's API, paid backup not warranted
+  # checkov:skip=CKV_AWS_119:No KMS CMK — table holds only public JWKS keys; home-lab account, CMK cost not justified for a cache of public data
+  # checkov:skip=CKV2_AWS_16:Provisioned 1/1 is deliberate — fits the always-free allowance; auto-scaling at this capacity undermines that
   name         = "${var.name_prefix}-broker-cache"
   billing_mode = "PROVISIONED"
 
