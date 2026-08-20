@@ -365,6 +365,50 @@ inputs = {
       proxied = true
     },
 
+    # ── The cutover: api.diatreme.magmamoose.com ───────────────────────────
+    #
+    # THE LEGACY HOSTNAME, and it can never be retired. It is frozen into every published
+    # action version as the default `token-broker-url`, and consumers pin by SHA — so no
+    # change we ship can move them. A redirect does not help either: the pinned client does
+    # not pass curl -L, and curl downgrades POST to GET on a 3xx regardless. The only thing
+    # that works is continuing to answer on this name, forever.
+    #
+    # GREY validation record for the second ACM certificate (the API now answers on both
+    # hostnames via additional_domain_names). Grey for the usual reason: a proxied validation
+    # record answers with Cloudflare's own value and the certificate never validates.
+    {
+      name    = "_b275b2a2948fcc497278274cafff70f2.api.diatreme.magmamoose.com"
+      type    = "CNAME"
+      value   = "_61909612b47efad39f383e861549e3a4.jkddzztszm.acm-validations.aws"
+      proxied = false
+    },
+
+    # GREY, AND IT HAS TO BE — this is the Universal SSL trap the broker-chargate and
+    # hooks-nievah notes above warn about, hit from a direction that is easy to miss.
+    #
+    # `api.diatreme.magmamoose.com` is TWO labels deep, so free Universal SSL does not cover
+    # it. It worked while it was a Workers Custom Domain because creating one silently
+    # provisions an Advanced Certificate for its hostname. Deleting that Custom Domain during
+    # the cutover took the edge certificate with it, and the proxied CNAME then had nothing to
+    # terminate TLS with: every request failed with `sslv3 alert handshake failure`.
+    #
+    # Grey means Cloudflare does not terminate TLS at all — the client connects straight to API
+    # Gateway, which serves its own ACM certificate issued for exactly this name. That restores
+    # the hostname without buying Advanced Certificate Manager.
+    #
+    # THE COST: no proxy, so the API Gateway stage throttle and the account budget are the only
+    # bounds left on this hostname — and it is the one carrying essentially all consumer traffic,
+    # since it is the default frozen into every pinned action version. broker-diatreme stays
+    # orange. To make this orange too, buy ACM ($10/month) or move consumers onto the
+    # first-level name, which the shipped fallback in MagmaMoose/diatreme#152 already does over
+    # time.
+    {
+      name    = "api.diatreme.magmamoose.com"
+      type    = "CNAME"
+      value   = "d-dm22q3mc6l.execute-api.eu-west-1.amazonaws.com"
+      proxied = false
+    },
+
     {
       name    = "docs.diatreme.magmamoose.com"
       type    = "CNAME"

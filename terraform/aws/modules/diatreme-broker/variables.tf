@@ -249,3 +249,25 @@ variable "monthly_budget_usd" {
   type        = number
   default     = 1
 }
+
+variable "additional_domain_names" {
+  description = <<-EOT
+    Extra hostnames this API also answers on, each with its own ACM certificate, custom domain
+    and mapping. All free — ACM public certificates and API Gateway custom domains carry no
+    charge.
+
+    THIS IS WHAT KEEPS ALREADY-RELEASED CONSUMERS WORKING. `token-broker-url` is an action input
+    with a DEFAULT, so `api.diatreme.magmamoose.com` is frozen into every published tag, and
+    consumers pin by SHA — they cannot be moved in one step, and no change we ship can redirect
+    them (the client does not follow redirects, and curl downgrades POST to GET on a 3xx anyway).
+
+    Diatreme fails HARD where chargate fails soft, which cuts both ways: a missed hostname here
+    is a red X on every consumer's release rather than a silently missing bot comment. Loud, but
+    it takes everyone down. Serve both spellings; remove the old one only once nothing uses it.
+
+    Same two-phase dance as `domain_name`: each entry needs its ACM validation CNAME in the
+    Cloudflare leaf and the certificate ISSUED before `enable_custom_domain` creates the domain.
+  EOT
+  type        = list(string)
+  default     = []
+}

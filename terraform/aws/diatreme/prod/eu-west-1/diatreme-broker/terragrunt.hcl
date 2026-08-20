@@ -83,6 +83,12 @@ inputs = {
   # turns them true once the certificate is ISSUED.
   domain_name = "broker-diatreme.magmamoose.com"
 
+  # THE CUTOVER. api.diatreme.magmamoose.com is frozen into every published action version as
+  # the default token-broker-url, and consumers pin by SHA, so it must keep answering for as
+  # long as any pinned version is in use — which is indefinitely. Serving it from AWS as well
+  # is what lets the Cloudflare Worker be retired without breaking a single pinned consumer.
+  additional_domain_names = ["api.diatreme.magmamoose.com"]
+
   # PHASE 2. Certificate ISSUED 2026-08-20 after the validation CNAME was published in
   # terraform/cloudflare/dns-magmamoose (grey, necessarily — a proxied validation record
   # answers with Cloudflare's own value and the certificate never leaves PENDING_VALIDATION).
