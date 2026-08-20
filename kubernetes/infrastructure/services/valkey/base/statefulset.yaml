@@ -51,9 +51,17 @@ spec:
             # evict (a broker dropping keys = lost tasks).
             - "--appendonly"
             - "yes"
-            # Raised 200mb -> 1gb when Janeway started using this instance as a
-            # Django cache (db index 6) alongside DefectDojo's Celery broker on
-            # db0.
+            # Raised 200mb -> 512mb when Janeway started using this instance as
+            # a Django cache (db index 6) alongside DefectDojo's Celery broker
+            # on db0.
+            #
+            # 512mb rather than the 1gb first attempted, because the ceiling has
+            # to be backed by the 1Gi PVC: with appendonly the AOF grows to
+            # roughly twice the dataset before a rewrite, so a 1gb dataset can
+            # fill a 1Gi disk — and a Valkey that cannot write its AOF stops
+            # accepting writes, which is the same outage the bump was meant to
+            # prevent. Growing the volume is not currently possible; see
+            # pvc.yaml.
             #
             # The size is insurance against the eviction policy, not against
             # demand. `noeviction` is correct for a broker — a queue that drops
@@ -71,7 +79,7 @@ spec:
             # keys that have an expiry, leaving the broker's queues — which have
             # none — untouched.
             - "--maxmemory"
-            - "1gb"
+            - "512mb"
             - "--maxmemory-policy"
             - "noeviction"
           ports:
@@ -83,12 +91,12 @@ spec:
               # Must exceed --maxmemory, or the kubelet OOM-kills the container
               # before Valkey ever applies its own policy — which would be a
               # hard restart of the broker instead of a controlled write error.
-              # 1.25Gi against a 1gb ceiling leaves room for the AOF rewrite
+              # 768Mi against a 512mb ceiling leaves room for the AOF rewrite
               # buffer, client output buffers and allocator fragmentation
               # (measured at ratio 4.79 on a near-empty dataset).
-              memory: 1280Mi
+              memory: 768Mi
             limits:
-              memory: 1280Mi
+              memory: 768Mi
           readinessProbe:
             exec:
               command: ["valkey-cli", "ping"]
