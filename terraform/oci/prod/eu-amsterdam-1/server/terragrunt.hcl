@@ -24,22 +24,22 @@ dependency "network" {
 }
 
 inputs = {
-  tenancy_ocid            = get_env("OCI_TENANCY_OCID", "")
-  compartment_ocid        = get_env("OCI_COMPARTMENT_OCID", "")
-  region                  = local.region_vars.locals.region
-  environment             = local.environment_vars.locals.environment
-  shape                   = "VM.Standard.A1.Flex"
-  ocpus                   = 2   # 2 OCPUs per server
-  memory_in_gbs           = 12  # 12GB memory per server
+  tenancy_ocid     = get_env("OCI_TENANCY_OCID", "")
+  compartment_ocid = get_env("OCI_COMPARTMENT_OCID", "")
+  region           = local.region_vars.locals.region
+  environment      = local.environment_vars.locals.environment
+  shape            = "VM.Standard.A1.Flex"
+  ocpus            = 2  # 2 OCPUs per server
+  memory_in_gbs    = 12 # 12GB memory per server
 
   # Use app subnet from network module
-  subnet_id               = dependency.network.outputs.app_subnet_id
+  subnet_id                 = dependency.network.outputs.app_subnet_id
   network_security_group_id = dependency.network.outputs.network_security_group_id
-  ssh_public_key_path     = "${get_repo_root()}/ansible/keys/id_rsa.pub"
-  vcn_id                  = dependency.network.outputs.vcn_id
-  
+  ssh_public_key_path       = "${get_repo_root()}/ansible/keys/id_rsa.pub"
+  vcn_id                    = dependency.network.outputs.vcn_id
+
   # Ubuntu 22.04 for ARM
-  image_ocid              = "ocid1.image.oc1.eu-amsterdam-1.aaaaaaaahc3kbflujx4g536l4yuzzy7udc6ltwlbt7iqbkt33i6zx62yy7va"
+  image_ocid = "ocid1.image.oc1.eu-amsterdam-1.aaaaaaaahc3kbflujx4g536l4yuzzy7udc6ltwlbt7iqbkt33i6zx62yy7va"
 
   # Create two servers, one per fault domain. These are the "native-cloud"
   # worker tier: arm64 free-tier VMs that join firefly as k3s agents and host
@@ -51,8 +51,8 @@ inputs = {
   # applied post-join with kubectl (kubelet can't self-set kubernetes.io labels).
   # See docs/reference/cluster-topology.md.
   servers = {
-    "fd1" = { fault_domain = 0, private_ip = "192.168.223.71", node_name = "ff-oci1", node_labels = ["topology.sargeant.co/tier=native-cloud"] }  # Fault Domain 1
-    "fd2" = { fault_domain = 1, private_ip = "192.168.223.72", node_name = "ff-oci2", node_labels = ["topology.sargeant.co/tier=native-cloud"] }  # Fault Domain 2
+    "fd1" = { fault_domain = 0, private_ip = "192.168.223.71", node_name = "ff-oci1", node_labels = ["topology.sargeant.co/tier=native-cloud"] } # Fault Domain 1
+    "fd2" = { fault_domain = 1, private_ip = "192.168.223.72", node_name = "ff-oci2", node_labels = ["topology.sargeant.co/tier=native-cloud"] } # Fault Domain 2
   }
 
   # Join the existing firefly k3s cluster as agents. The actual node-token

@@ -1,6 +1,6 @@
 # Monolithic Infrastructure
 
-Home-lab infra-as-code: Terragrunt+Terraform (GCP/OCI/Cloudflare), Ansible bootstrap, FluxCD on single-node k3s ("firefly") on a Pi. **Public repo** — every commit is world-visible.
+Home-lab infra-as-code: Terragrunt+Terraform (GCP/OCI/Cloudflare), Ansible bootstrap, FluxCD on single-node k3s ("firefly") on a Pi. **Public repo** — every commit is world-visible. Some namespaces (notably `internal`) and some sibling repos are private: work on them normally, but never name them, their workloads or their contents in commit messages, PR text or code comments — describe them generically instead ("other workloads on the node").
 
 @.claude/ARCHITECTURE_MAP.md
 @.claude/COMMON_MISTAKES.md

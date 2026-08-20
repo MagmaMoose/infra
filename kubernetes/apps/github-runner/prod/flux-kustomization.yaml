@@ -6,7 +6,11 @@ metadata:
   namespace: flux-system
 spec:
   interval: 10m
-  path: ./kubernetes/apps/github-runner/base
+  # ../firefly, NOT ../base. base/ is now the cluster-NEUTRAL half (namespaces, chart
+  # repo, ExternalSecret, controller) shared with franklinhouse; firefly/ includes it and
+  # adds this cluster's two scale sets. Pointing this back at base/ would deploy the ARC
+  # controller with no runners at all — and would look healthy while doing it.
+  path: ./kubernetes/apps/github-runner/firefly
   # prune: true is what performs the cutover. This Kustomization previously owned the
   # github-runner StatefulSet, Service, ServiceAccount, ConfigMap, ExternalSecret and
   # Namespace; once base/ no longer lists them, Flux deletes all six — including the

@@ -12,7 +12,13 @@ kind: Kustomization
 # same reason -- AGENTS.md defines kubernetes/infrastructure/ as cluster-agnostic
 # and its tier Kustomizations point at firefly's shared stack/ paths, whereas
 # franklinhouse runs its own CNPG clusters and Traefik config.
+# ../../apps/github-runner/franklinhouse-prod holds ONLY this cluster's ARC Flux
+# Kustomization CR; the manifests it points at live in ../../apps/github-runner/
+# {base,franklinhouse}. Same direct-reference rule as access-control above — the
+# firefly-only `prod/` sibling stays out of this list, and this entry stays out of
+# kubernetes/apps/kustomization.yaml.
 resources:
   - ../../apps/access-control
+  - ../../apps/github-runner/franklinhouse-prod
   - ./infrastructure
   - ./system

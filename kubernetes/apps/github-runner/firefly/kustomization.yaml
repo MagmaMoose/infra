@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# firefly's ARC overlay: the shared, cluster-neutral pieces from ../base plus this
+# cluster's two scale sets.
+#
+# Two scale sets, one controller. `firefly-arm64` (ff-oci1 + ff-oci2, max 2) is the
+# DEFAULT pool that the org variable points at; `firefly-amd64` (ff-vm1, max 1) is the
+# opt-in escape hatch for jobs that cannot run on arm64. The two files are deliberately
+# near-identical — diff them when changing either, and keep the shared blocks in sync.
+#
+# The franklinhouse overlay is the OTHER thing to diff against: the label taxonomy
+# (`<cluster>-<arch>` + `pool-<arch>` + `pool-self-hosted`) only works if both clusters
+# spell it the same way.
+resources:
+  - ../base
+  - helmrelease-runner-set-arm64.yaml
+  - helmrelease-runner-set-amd64.yaml
+
+# Placement + priority for the shared ARC controller, which ../base deliberately leaves
+# unset because both values are cluster-specific (franklinhouse has no `medium`
+# PriorityClass at all). `medium`, not `low`: if the controller dies, in-flight jobs are
+# orphaned and no new runner can be created — it is the CI control plane, while the
+# runners themselves are restartable batch work and are `low`.
+#
+# A `patches:` target that matches NOTHING fails silently (COMMON_MISTAKES #17), so if
+# the HelmRelease is ever renamed from `arc`, re-render and diff rather than trusting
+# that this still applies.
+patches:
+  - target:
+      kind: HelmRelease
+      name: arc
+      namespace: arc-systems
+    patch: |-
+      - op: add
+        path: /spec/values/priorityClassName
+        value: medium
+      - op: add
+        path: /spec/values/nodeSelector
+        value:
+          topology.sargeant.co/tier: native-cloud

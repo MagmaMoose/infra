@@ -222,44 +222,6 @@ resource "cloudflare_zero_trust_access_application" "app_launcher" {
 # imports.tf) — and confirm Caleb's CF login identity is in magma_moose_domain
 # before broadening, or it's a lockout.
 
-# --- self_hosted: Comment Commander Pro -------------------------------------
-# The comment-commander-pro dashboard (firefly cluster, behind the firefly
-# cloudflared tunnel — ingress in tunnels.tf, CNAME in dns-magmamoose/prod).
-# The dashboard has no in-app auth or paywall yet (MVP), so Access is the
-# only thing gating it: Caleb-only. No device-posture `require` — the posture
-# rules need a WARP-enrolled device and Caleb has none, so requiring it would
-# be a hard lockout. Tighten when real auth + the paid tier land (see the app
-# repo's ROADMAP.md).
-resource "cloudflare_zero_trust_access_application" "comment_commander_pro" {
-  account_id                = var.account_id
-  name                      = "Comment Commander Pro"
-  type                      = "self_hosted"
-  domain                    = "comment-commander-pro.magmamoose.com"
-  tags                      = ["Magma Moose"]
-  app_launcher_visible      = true
-  auto_redirect_to_identity = false
-  session_duration          = "24h"
-
-  allowed_idps = [
-    cloudflare_zero_trust_access_identity_provider.google_workspace.id,
-    cloudflare_zero_trust_access_identity_provider.one_time_pin.id,
-    cloudflare_zero_trust_access_identity_provider.google.id,
-  ]
-}
-
-resource "cloudflare_zero_trust_access_policy" "comment_commander_pro_caleb" {
-  account_id       = var.account_id
-  application_id   = cloudflare_zero_trust_access_application.comment_commander_pro.id
-  name             = "Caleb"
-  decision         = "allow"
-  precedence       = 1
-  session_duration = "24h"
-
-  include {
-    group = [cloudflare_zero_trust_access_group.caleb.id]
-  }
-}
-
 # --- Dün Mir — gated by the app itself, NOT Cloudflare Access ----------------
 # The operator console (github.com/MagmaMoose/dunmir) authenticates CUSTOMERS
 # itself: first-party password + mandatory TOTP against opaque server-side
@@ -280,7 +242,7 @@ resource "cloudflare_zero_trust_access_policy" "comment_commander_pro_caleb" {
 # Zoey — the project-intelligence dashboard (firefly cluster, behind the
 # firefly cloudflared tunnel — ingress in tunnels.tf). The app has no in-app
 # auth, so Access is the only thing gating the UI: Caleb-only. No
-# device-posture `require` — same reasoning as comment-commander-pro (the
+# device-posture `require` — same reasoning as Zoey (the
 # posture rules need a WARP-enrolled device Caleb doesn't have), and Zoey is
 # a companion dashboard Caleb will want from his phone too.
 #
@@ -347,11 +309,11 @@ resource "cloudflare_zero_trust_access_policy" "zoey_slack_bypass" {
 # --- self_hosted: Diatreme Pro ----------------------------------------------
 # The Diatreme Pro dashboard (firefly cluster, behind the firefly cloudflared
 # tunnel — ingress in tunnels.tf), served at the apex diatreme.magmamoose.com.
-# Supersedes Comment Commander Pro as comment-commander folds into Diatreme —
-# keep the cc-pro app until diatreme-pro is verified live, then prune both. The
+# Superseded Comment Commander Pro, which folded into Diatreme; that app, its
+# tunnel ingress and its DNS have all been pruned. The
 # dashboard has no in-app auth/paywall yet (MVP), so Access is the only thing
 # gating it: Caleb-only. No device-posture `require` — same reasoning as
-# comment-commander-pro / Zoey (the posture rules need a WARP-enrolled device
+# Zoey (the posture rules need a WARP-enrolled device
 # Caleb doesn't have, so requiring it is a hard lockout; he'll want it on mobile
 # too).
 #

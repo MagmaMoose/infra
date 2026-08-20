@@ -86,3 +86,13 @@ notneeded/
 .claude/decisions/
 .claude/worktrees/
 .claude/last_output.txt
+
+# --- AWS front door local harness (terraform/aws/localstack) ---
+# The harness runs plain tofu with a LOCAL backend, so state lands next to it. It is
+# LocalStack state — no real credentials — but it is also pure noise in a diff.
+terraform/aws/localstack/.terraform/
+terraform/aws/localstack/.terraform.lock.hcl
+terraform/aws/localstack/terraform.tfstate*
+terraform/aws/localstack/.outputs.json
+terraform/aws/modules/*/.terraform/
+terraform/aws/modules/*/_validate_provider.tf

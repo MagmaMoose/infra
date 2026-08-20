@@ -29,6 +29,21 @@ spec:
     # eBPF runtime threat detection. modern_ebpf needs no kernel headers.
     driver:
       kind: modern_ebpf
+    # The DaemonSet container's request, which the chart otherwise defaults to 512Mi.
+    # 14-day peak working set is 179Mi on the busiest node and 78-81Mi on the other
+    # three, so the default reserved ~330Mi per node that was never used. That mattered
+    # on ff-vm1, which sat at 99% of allocatable memory REQUESTED against 68% actually
+    # in use — the state that left the amd64 CI runner unschedulable. 256Mi is peak plus
+    # ~43%. The limit stays generous: limits are not scheduler-reserved, so they cost
+    # nothing to leave high (COMMON_MISTAKES #14), and Falco's working set tracks event
+    # rate rather than anything we control.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+
     # WORKER ONLY. The control-plane Pi runs a 16KB-page arm64 kernel where the
     # eBPF probe is unreliable — keep Falco off it (covers where apps run anyway).
     nodeSelector:
