@@ -249,3 +249,27 @@ variable "monthly_budget_usd" {
   type        = number
   default     = 1
 }
+
+variable "additional_domain_names" {
+  description = <<-EOT
+    Extra hostnames this API also answers on, each with its own ACM certificate, custom domain
+    and mapping. All free — ACM public certificates and API Gateway custom domains carry no
+    charge.
+
+    THIS IS WHAT KEEPS ALREADY-RELEASED CONSUMERS WORKING. `token_broker_url` is an input with a
+    DEFAULT, so its value is frozen into every released tag of the action — and roughly 23
+    repositories pin chargate by SHA, provisioned centrally, so they cannot be moved in one
+    step. Renaming the hostname without serving the old one means every one of them silently
+    falls back to `github-actions[bot]`, and because the client fails soft there is no error
+    anywhere to say so.
+
+    Nievah's `producer.py` makes the same argument one level down, for routes rather than
+    hostnames: a URL that lives in a third party's settings cannot be changed atomically with a
+    deploy, so serve both spellings and remove the old one once nothing uses it.
+
+    Same two-phase dance as `domain_name`: each entry needs its ACM validation CNAME in the
+    Cloudflare leaf and the certificate ISSUED before `enable_custom_domain` creates the domain.
+  EOT
+  type        = list(string)
+  default     = []
+}

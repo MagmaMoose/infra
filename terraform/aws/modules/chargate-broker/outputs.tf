@@ -50,3 +50,23 @@ output "ops_topic_arn" {
   description = "SNS topic every alarm and both budget notifications publish to."
   value       = aws_sns_topic.ops.arn
 }
+
+output "additional_certificate_validation_records" {
+  description = "Per additional hostname, the CNAME to add to the Cloudflare leaf GREY to validate its certificate."
+  value = {
+    for d, c in aws_acm_certificate.additional :
+    d => {
+      name  = tolist(c.domain_validation_options)[0].resource_record_name
+      type  = tolist(c.domain_validation_options)[0].resource_record_type
+      value = tolist(c.domain_validation_options)[0].resource_record_value
+    }
+  }
+}
+
+output "additional_domain_targets" {
+  description = "Per additional hostname, the target to CNAME it at once its certificate is ISSUED."
+  value = {
+    for d, n in aws_apigatewayv2_domain_name.additional :
+    d => n.domain_name_configuration[0].target_domain_name
+  }
+}
