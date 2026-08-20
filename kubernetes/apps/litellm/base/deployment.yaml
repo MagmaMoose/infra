@@ -11,7 +11,11 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: 7f697bc74b2dbbc279870c6efab0fc1ed04a831c200bb6008502933d9ad7afa7
+        # sha256 of kubernetes/apps/litellm/base/configmap.yaml (whole file).
+        # LiteLLM parses its YAML once at process start, so this MUST be bumped
+        # whenever that ConfigMap changes or Flux updates the ConfigMap in place
+        # and the pods keep serving the old config.
+        checksum/config: b8ca2337b8ba7c2efbe9a560ca054c0a56357a0566f2a2fbeb1a6bef38110e97
         checksum/auth-proxy-config: 41cbc6f2467fb10b6873fe82106f058bffdf93826ecf2fa87ffb5b6a1c8b2e05
       labels:
         app: litellm
