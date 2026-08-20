@@ -19,4 +19,9 @@ pre-commit run --all-files
 
 # SOPS encrypt (fallback only)
 sops -e secret.yaml > secret.enc.yaml
+
+# Docs (what CI runs — .github/workflows/docs.yml)
+pip install -r requirements-docs.txt
+mkdocs build --strict
+mkdocs serve
 ```
