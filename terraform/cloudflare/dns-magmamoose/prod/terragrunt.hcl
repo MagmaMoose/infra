@@ -348,6 +348,23 @@ inputs = {
       value   = "7694eb38-c35e-4905-bd2b-16ab7053080a.cfargotunnel.com"
       proxied = true
     },
+    # Janeway. Owned here rather than published by external-dns from an Ingress:
+    # the chart keeps ingress.enabled=false because the tunnel dials the
+    # ClusterIP Service directly, and having the record in both places
+    # double-manages it and breaks terragrunt apply.
+    #
+    # Deliberately ONE label deep. The zone's Universal SSL certificate covers
+    # magmamoose.com and *.magmamoose.com only, so a two-label name such as
+    # journal.janeway.magmamoose.com fails IN THE TLS HANDSHAKE
+    # ("sslv3 alert handshake failure") before any HTTP is exchanged — see the
+    # api.dunmir block in zero-trust/prod/tunnels.tf. Janeway serves each journal
+    # at a /<code>/ path prefix precisely so it needs no further hostnames.
+    {
+      name    = "janeway.magmamoose.com"
+      type    = "CNAME"
+      value   = "7694eb38-c35e-4905-bd2b-16ab7053080a.cfargotunnel.com"
+      proxied = true
+    },
     {
       name    = "driver.platform2.magmamoose.com"
       type    = "CNAME"

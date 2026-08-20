@@ -44,6 +44,11 @@ resources:
   # OpenHands V1 autonomous-coding engine; selected explicitly by Nievah's harness config.
   - ./openhands
   # tengen-systems products (private repo; OCI-published charts, not a GitRepository)
+  #
+  # janeway splits the two: the CHART comes from MagmaMoose/charts (public, same
+  # org, no pull credential) while the IMAGE comes from
+  # ghcr.io/tengen-systems/janeway (private, other org, needs one).
+  - ./janeway
   - ./platform2
   # personal finance — FNB to YNAB sync. Replaced buxfer-sync and the Buxfer
   # subscription, both now gone. Same shape as platform2: OCI-published chart,

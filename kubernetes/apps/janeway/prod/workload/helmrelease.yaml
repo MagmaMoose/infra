@@ -1,0 +1,187 @@
+# KICS 3e2d3b2f "hardcoded secret key" is a false positive: `existingSecret`
+# values are Kubernetes Secret NAMES (references to ExternalSecret-managed
+# objects) — no credential value is present in source.
+# kics-scan disable=3e2d3b2f-c22a-4df1-9cc6-a7a0aebb0c99
+#
+# Janeway, from the chart MagmaMoose/charts publishes as an OCI artifact.
+# Everything firefly-specific is in `values` here; the chart stays generic, the
+# same way platform2 and github-usage-dashboard split chart from deploy config.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: janeway
+  namespace: janeway
+spec:
+  interval: 30m
+  # Pinned, not incidental: the tunnel ingress rule in
+  # terraform/cloudflare/zero-trust/prod/tunnels.tf names
+  # http://janeway.janeway.svc.cluster.local:8000, and the chart derives every
+  # object name from the release name.
+  releaseName: janeway
+  chart:
+    spec:
+      chart: janeway
+      # A range inside the 0.0.x/0.x series rather than an exact pin: pre-1.0 a
+      # minor bump is allowed to break, so 0.2.0 should be a deliberate decision
+      # here rather than something Flux picks up on its own.
+      version: ">=0.1.0 <0.2.0"
+      sourceRef:
+        kind: HelmRepository
+        name: magmamoose-charts
+        namespace: flux-system
+      interval: 10m
+  install:
+    remediation:
+      retries: 3
+    # The chart's bootstrap hook creates the press, the first journal and the
+    # superuser. On a first install that runs after the Deployment is up, so
+    # give it room rather than letting Helm roll back a working release because
+    # a post-install hook was still loading ~900 default settings.
+    timeout: 20m
+  upgrade:
+    remediation:
+      retries: 3
+    timeout: 20m
+  values:
+    # One replica, deliberately.
+    #
+    # The files PVC is ReadWriteOnce, which is per-node, so a second replica is
+    # only safe if it lands on the same node — and Longhorn RWX is not available
+    # on this cluster (no share-manager; the only RWX PVs are the static NFS
+    # ones at 192.168.19.5). A second replica also buys nothing against node
+    # loss, only against pod crash. The chart's own guard would refuse
+    # replicaCount > 1 here without an affinity rule.
+    replicaCount: 1
+    strategy:
+      type: Recreate
+
+    imagePullSecrets:
+      - name: ghcr-tengen-pull-secret
+
+    # Native-cloud tier: ff-oci1 + ff-oci2, the arm64 OCI VMs. This is the tier
+    # AGENTS.md designates for always-online, public-facing workloads, and a
+    # public journal site is exactly that.
+    #
+    # It is reachable at all because the image is genuinely multi-arch — upstream
+    # Janeway vendors an x86-64 wkhtmltopdf and is therefore amd64-only, and
+    # ff-vm1 (the one amd64 node) is the most contended in the fleet at ~96%
+    # memory requested. Pinning here instead of via a placement label because a
+    # `placement.sargeant.co/tier` label on a HelmRelease is inert: the Kyverno
+    # policies match Deployment/StatefulSet/DaemonSet/CronJob, not HelmRelease.
+    # That is what .github/actions/placement-label-guard checks for.
+    nodeSelector:
+      topology.sargeant.co/tier: native-cloud
+
+    # `high`, matching platform2-backend and nextcloud: user-facing and
+    # data-bearing, a visible outage if evicted, but nothing else fails with it.
+    # Not `critical` — that tier is for things other workloads depend on.
+    priorityClassName: high
+
+    config:
+      siteDomain: janeway.magmamoose.com
+      # Narrowed from the chart default of "*". Tenancy is NOT enforced here —
+      # that is the Press.domain row — so this is defence in depth against Host
+      # header spoofing rather than access control.
+      #
+      # The probes do not need an entry: liveness and startup hit /healthz, which
+      # the image answers from a middleware that runs before anything calls
+      # request.get_host(), so ALLOWED_HOSTS is never evaluated for them; and
+      # readiness sends the public hostname explicitly. The Service DNS name is
+      # kept for in-cluster callers that dial the Service directly.
+      allowedHosts: "janeway.magmamoose.com,janeway.janeway.svc.cluster.local"
+      # One tunnel hostname, so journals live at /<code>/ rather than each
+      # needing its own DNS record and ingress rule.
+      urlConfig: path
+
+      # Database index 6 on the shared Valkey, and the index is load-bearing:
+      # Django's RedisCache.clear() issues FLUSHDB, and Janeway calls it every
+      # time an editor saves a setting. Pointed at db0 that would wipe
+      # DefectDojo's Celery broker. Allocation so far: 0 DefectDojo, 4 authentik,
+      # 6 janeway.
+      cacheUrl: redis://valkey.database.svc.cluster.local:6379/6
+
+      # Off for now. Turning it on stores the extracted full text of every galley
+      # in core_filetext and builds GIN indexes over it, which is the dominant
+      # database-growth term — worth doing once there is content worth searching,
+      # and it needs the generate-search-indexes step at the same time.
+      enableFullTextSearch: false
+
+    database:
+      host: postgres-oci-rw.database-oci.svc.cluster.local
+      name: janeway
+      # A dedicated LOGIN role declared in postgres-oci's managed-roles block,
+      # owning only the janeway database. Its password is enforced from OCI Vault
+      # at both ends, so it cannot drift.
+      user: janeway
+      existingSecret: janeway-db
+      existingSecretKey: password
+
+    secretKey:
+      existingSecret: janeway-secret-key
+      existingSecretKey: secret-key
+
+    bootstrap:
+      pressName: Magma Moose Press
+      pressContact: caleb@magmamoose.com
+      journalCode: journal
+      journalName: Journal
+      superuser:
+        email: caleb@magmamoose.com
+        existingSecret: janeway-superuser
+        existingSecretKey: password
+
+    persistence:
+      # `longhorn`, not `longhorn-on-prem`: the latter carries the Longhorn node
+      # tag `on-prem`, which live is only ff-pi1 and ff-vm1 — so every replica of
+      # this volume would sit on the far side of the site-to-site link from the
+      # pod. The untagged class lets Longhorn place a replica on the OCI node the
+      # pod runs on, which `dataLocality: best-effort` then prefers for reads.
+      storageClass: longhorn
+      accessModes:
+        - ReadWriteOnce
+      # Modest on purpose: the OCI nodes have 17 GB and 7.9 GB of Longhorn space
+      # respectively, so a large claim could not place a local replica at all.
+      # longhorn allows expansion, so this grows with the content.
+      size: 8Gi
+
+    # No Ingress. The tunnel dials the ClusterIP Service directly, so an Ingress
+    # would be a second door into the same room, and the DNS record is owned by
+    # Terraform (dns-magmamoose) rather than external-dns. Having it in both
+    # places double-manages the record and breaks terragrunt apply.
+    ingress:
+      enabled: false
+
+    # Sized from the measured working set of the image running the real app:
+    # ~150 MB interpreter baseline plus roughly 250 MB per gunicorn worker once
+    # the model graph for ~50 apps is loaded. Memory request == limit per the
+    # house shape (cleanup.md), CPU request with NO limit because CPU is
+    # compressible and a limit here buys throttled p99s rather than protection.
+    #
+    # ff-oci1 has ~6.9 GB of memory request headroom, so this fits comfortably;
+    # do not raise the limit alone, since limits are not scheduler-reserved.
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1Gi
+      limits:
+        memory: 1Gi
+
+    # Two workers rather than the chart's three: the OCI nodes have 2 vCPU, so a
+    # third worker adds memory without adding throughput. Threads carry the
+    # concurrency instead, which is what galley downloads actually need — they
+    # stream through Django, so a slow reader occupies a thread rather than a
+    # whole process.
+    gunicorn:
+      workers: 2
+      threads: 4
+
+    cronJobs:
+      priorityClassName: medium
+      jobs:
+        # Enabled beyond the chart defaults: rolls per-access rows up into
+        # HistoricArticleAccess. ArticleAccess gets a row per view AND per
+        # download, so it is the fastest-growing table in the schema.
+        update-article-metrics:
+          enabled: true
+          schedule: "45 2 * * *"
+          command: ["update_article_metrics"]

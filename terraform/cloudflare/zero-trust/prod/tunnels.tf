@@ -446,6 +446,31 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "firefly" {
       origin_request {}
     }
 
+    # Janeway — the journal publishing platform. Placed last (before the
+    # catch-all) so the plan is a clean append, not a mid-list reorder.
+    #
+    # ONE rule with no path predicate, unlike zoey/dependency-track/platform2.
+    # Janeway is a single Django WSGI application serving public article pages,
+    # the editorial workflow, the manager UI and /static/ from the same process;
+    # splitting it by path would break it.
+    #
+    # Plain http:// — the pod terminates HTTP in-cluster, so no no_tls_verify is
+    # needed. The tunnel imposes no proxy-body-size ceiling, which matters here
+    # because editors upload manuscripts and typeset galleys through this path.
+    #
+    # NO ACCESS GATE, and that is deliberate: a journal has to be readable
+    # anonymously or it cannot be indexed by Google Scholar, Crossref, DOAJ or
+    # any OAI-PMH harvester, which is how a journal is found at all. Do not add
+    # a cloudflare_zero_trust_access_application for this hostname. If a launcher
+    # tile is ever wanted, it must be type="bookmark" — a "self_hosted" app would
+    # gate every reader. Authentication for editors and reviewers is Janeway's
+    # own, and its sessions are database-backed so they survive pod restarts.
+    ingress_rule {
+      hostname = "janeway.magmamoose.com"
+      service  = "http://janeway.janeway.svc.cluster.local:8000"
+      origin_request {}
+    }
+
     # Cloudflared requires the last rule to be a catch-all with no hostname.
     ingress_rule {
       service = "http_status:404"
