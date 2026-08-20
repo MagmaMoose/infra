@@ -105,9 +105,6 @@ inputs = {
       proxied = false
     },
 
-    # comment-commander / comment-commander-pro DNS is managed in the zero-trust
-    # layer (cloudflared tunnel + Access, zero-trust/prod), NOT here — having it
-    # in both places double-manages the record and breaks `terragrunt apply`.
     # Diatreme docs (MkDocs) on GitHub Pages for repo MagmaMoose/diatreme; the
     # custom domain is pinned by docs/CNAME in that repo. DNS-only (grey cloud)
     # on purpose — GitHub provisions the Let's Encrypt cert over ACME, which a
