@@ -247,7 +247,7 @@
       "calls": [
         "atlantis.yaml projects \u2192 terragrunt plan/apply"
       ],
-      "note": "Atlantis is legacy; covers 20 of 27 leaves (the 7 AWS leaves are Terrateam-only). Use 'atlantis plan -p <project>' for covered leaves; shared inputs (root.hcl, region.hcl, modules/) do NOT autoplan."
+      "note": "Atlantis is legacy; covers 20 of 27 leaves. The gate is .github/workflows/terragrunt.yml, which discovers every leaf from the filesystem (all 9 AWS leaves included) and replans all of them when a shared input changes. Terrateam is workflow_dispatch-only and has no .terrateam/config.yml here, so it plans nothing."
     }
   ],
   "hotspots": [
