@@ -4,10 +4,10 @@ A self-hosted **Prometheus + Thanos + Loki + Grafana** stack running entirely in
 **firefly** k3s cluster (`observability` namespace), with **MinIO** as the object-storage
 backend instead of AWS S3. Metrics, logs and alerting all flow end to end:
 
-- **Metrics** — Prometheus scrapes the cluster and uploads long-term blocks to MinIO via a
+- **Metrics**: Prometheus scrapes the cluster and uploads long-term blocks to MinIO via a
   Thanos sidecar; Thanos Query gives Grafana one seamless view over recent + historical data.
-- **Logs** — every node ships container logs to Loki; Grafana queries them with LogQL.
-- **Alerting** — Prometheus rules fire into Alertmanager, which posts to Slack.
+- **Logs**: every node ships container logs to Loki; Grafana queries them with LogQL.
+- **Alerting**: Prometheus rules fire into Alertmanager, which posts to Slack.
 
 It's the firefly translation of an originally AWS-targeted design:
 
@@ -124,7 +124,7 @@ All components run in the `observability` namespace (MinIO is in `core`). Pinned
 
 ## Operations
 
-### Secrets — OCI Vault ExternalSecrets
+### Secrets: OCI Vault ExternalSecrets
 
 All credentials are pulled from **OCI Vault** via the `oci-vault` `ClusterSecretStore` (no secret
 material in Git). Per-user MinIO passwords live in OCI Vault as `minio-{root,thanos,loki,postgres}-password`;
@@ -132,10 +132,10 @@ the Thanos object-store config and Grafana admin password are rendered by templa
 
 !!! note "ExternalSecret file naming"
     `.gitignore` ignores `*secret.yaml`. Name ExternalSecret files exactly `externalsecret.yaml`
-    or `externalsecret-<purpose>.yaml` — **not** `<x>-externalsecret.yaml` (which ends in
+    or `externalsecret-<purpose>.yaml`, **not** `<x>-externalsecret.yaml` (which ends in
     `secret.yaml` and is silently dropped from commits).
 
-### Resource sizing — KRR, no CPU limits
+### Resource sizing: KRR, no CPU limits
 
 Resources are sized from the weekly **KRR** report (`apps/krr/`). The convention: set CPU
 **requests** but **no CPU limits**, and size **memory** request ≈ limit to real usage.
@@ -148,7 +148,7 @@ Resources are sized from the weekly **KRR** report (`apps/krr/`). The convention
 
 Observability PVCs use `local-path` on `ff-vm1`. Durability comes from object storage, not volume
 replication: the `minio-backup` CronJob `mc mirror`s `thanos-metrics`, `loki-chunks` and
-`loki-ruler` to **OCI Object Storage** nightly (additive — historical blocks are retained even
+`loki-ruler` to **OCI Object Storage** nightly (additive: historical blocks are retained even
 after the source compacts them). The OCI `minio-backups` bucket is provisioned by the terraform
 `backups` module.
 
@@ -157,9 +157,9 @@ after the source compacts them). The OCI `minio-backups` bucket is provisioned b
 Grafana is exposed at **`grafana.magmamoose.com`** through Traefik (cert-manager `letsencrypt-dns`,
 `websecure`), the same pattern as the other in-cluster apps. It's a LAN-only host: the record is
 DNS-only (grey cloud) and resolves to a private `192.168.x` IP, so it only works on the LAN/VPN. Prometheus, Alertmanager and the
-Thanos components remain ClusterIP-only — reach them with `kubectl port-forward`.
+Thanos components remain ClusterIP-only. Reach them with `kubectl port-forward`.
 
-### Logs — two shippers
+### Logs: two shippers
 
 Logs are collected by two agents writing to the same Loki with a shared label schema
 (`cluster=firefly`, `k8s_namespace_name` / `k8s_pod_name` / `k8s_container_name`):
@@ -169,7 +169,7 @@ Logs are collected by two agents writing to the same Loki with a shared label sc
 
 !!! info "Why two shippers"
     The Raspberry Pi (`ff-pi1`) runs an arm64 kernel with **16 KB memory pages**, and the
-    fluent-bit image's jemalloc is built for 4 KB pages — it crashes with
+    fluent-bit image's jemalloc is built for 4 KB pages. It crashes with
     `<jemalloc>: Unsupported system page size`. Grafana Alloy is Go, so it's page-size-agnostic.
 
 Query Pi-node logs with `{job="alloy"}` and the rest with `{job="fluentbit"}`; namespace/pod/
@@ -181,11 +181,11 @@ container labels are consistent across both.
   node (and, for Loki, a shared ring instead of the in-memory one). Thanos Query runs 2×.
 - **ff-pi1 is memory-saturated** by over-provisioned non-observability apps, so Alloy runs
   BestEffort (zero memory request). Right-sizing those apps per KRR would free room.
-- **No volume replication** — PVCs are node-local on `ff-vm1`. The MinIO→OCI backup is the
+- **No volume replication**: PVCs are node-local on `ff-vm1`. The MinIO→OCI backup is the
   durability layer; Longhorn for the big PVCs is intentionally *not* used (they're reconstructable
   from MinIO, which is itself backed up).
 
-## History — how the stack was brought to green
+## History: how the stack was brought to green
 
 The stack was audited and repaired in mid-2026 (PRs
 [#351](https://github.com/CalebSargeant/infra/pull/351),
@@ -194,7 +194,7 @@ The stack was audited and repaired in mid-2026 (PRs
 root causes are worth recording because they shaped the current design:
 
 - **A committed placeholder S3 credential** (`thanos-secret-key-change-me`) never matched MinIO, so
-  Thanos uploaded nothing — the `thanos-metrics` bucket sat at 0 objects and there was no long-term
+  Thanos uploaded nothing: the `thanos-metrics` bucket sat at 0 objects and there was no long-term
   metrics path. Fixed by sourcing the credential from OCI Vault (and the chart needs the
   `objectStorageConfig.existingSecret` form, not the flat `name/key`).
 - **MinIO's 157 MiB memory limit** OOM-flapped, which cascaded into a Loki crashloop (chunks
@@ -206,5 +206,5 @@ root causes are worth recording because they shaped the current design:
 
 A secondary blocker surfaced during rollout: the **Kyverno admission-controller** was crashlooping
 on an over-aggressive liveness probe; its fail-closed webhook intermittently `502`'d and blocked
-Helm upgrades. Mitigated by running 2 admission replicas — a durable probe/HA fix in the Kyverno
+Helm upgrades. Mitigated by running 2 admission replicas; a durable probe/HA fix in the Kyverno
 HelmRelease is a tracked follow-up.

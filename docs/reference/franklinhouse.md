@@ -2,7 +2,7 @@
 
 **franklinhouse** is the second Kubernetes cluster managed from this repo: a
 3-node Proxmox VE cluster hosting a 6-VM k3s cluster. It is physically and
-logically separate from [firefly](cluster-topology.md) — different site,
+logically separate from [firefly](cluster-topology.md): different site,
 different subnet (`192.168.69.0/24`), different Flux root, its own Postgres.
 
 Its GitOps config previously lived in the private repo
@@ -11,7 +11,7 @@ Its GitOps config previously lived in the private repo
 !!! warning "This repo is public"
     infra-v2 was private; this repo is not. Anything moved here is world-visible.
     Secrets must be SOPS-encrypted (`*.enc.yaml`) or projected at runtime via an
-    `ExternalSecret` — never committed as plain `data:`/`stringData:`. Base64 is
+    `ExternalSecret`, never committed as plain `data:`/`stringData:`. Base64 is
     encoding, not encryption.
 
 ## Physical topology
@@ -50,7 +50,7 @@ flowchart TB
 !!! danger "One control-plane VM per Proxmox host"
     Losing a Proxmox host loses a control-plane node. Losing **two** hosts drops
     etcd below quorum and the Kubernetes API stops serving entirely. There is no
-    anti-affinity safety margin here — the failure domains are stacked.
+    anti-affinity safety margin here: the failure domains are stacked.
 
 **Storage is entirely node-local.** Proxmox uses `local-lvm` (lvmthin) on every
 host, plus `mdadm-raid5`/`local-ssd` pinned to node1 and `zfs-raidz1` pinned to
@@ -74,7 +74,7 @@ etcd** and require 2 of 3 for quorum.
 
 Platform workloads (Flux controllers, Traefik) are pinned to the system nodes,
 which requires **both** a `node-role: system` selector and a toleration for the
-control-plane taint — see the
+control-plane taint. See the
 `kubernetes/components/node-selectors/franklinhouse-system` component. Selecting
 without tolerating produces unschedulable pods.
 
@@ -123,7 +123,7 @@ Two scoping decisions are load-bearing:
 `AGENTS.md` says all Postgres goes through one shared CNPG cluster and forbids
 new `Cluster` objects. That rule scopes to firefly. franklinhouse is a
 physically separate k3s cluster and cannot reach firefly's `postgres` in the
-`database` namespace, so it runs its own — the environment-isolation exception
+`database` namespace, so it runs its own: the environment-isolation exception
 the rule carves out.
 
 ## GitOps flow
@@ -138,7 +138,7 @@ flowchart LR
   ext["CalebSargeant/franklinhouse<br/>(app manifests)"] --> ac
 ```
 
-Note the workload manifests are **not** in this repo — `access-control` is an
+Note the workload manifests are **not** in this repo: `access-control` is an
 external-repo app. This repo holds only the control plane (GitRepository, image
 automation, namespaces); the Deployments live in
 `CalebSargeant/franklinhouse` under `./access-control/k8s/overlays/<env>`, and
@@ -148,14 +148,14 @@ their image tags are bumped there by `ImageUpdateAutomation`.
 
 | Target | Method |
 |---|---|
-| Proxmox hosts | `ssh root@192.168.69.21{1,2,3}` — **password auth only**, 1Password item `Proxmox` (Firefly vault). SSH keys are not authorised. |
+| Proxmox hosts | `ssh root@192.168.69.21{1,2,3}`: **password auth only**, 1Password item `Proxmox` (Firefly vault). SSH keys are not authorised. |
 | k3s VMs | SSH key as `caleb`; `PasswordAuthentication no`. |
 | Kubernetes API | `kubectl --context franklinhouse` → `https://192.168.69.113:6443` |
 
 !!! tip "Recovering VM access without guest credentials"
     From a Proxmox host: `qm stop <vmid>`, then
     `losetup -P -f --show /dev/pve/vm-<vmid>-disk-0`, then activate the nested VG
-    **scoped to that device** — `vgchange --devices <loopNp3> -ay ubuntu-vg`.
+    **scoped to that device**: `vgchange --devices <loopNp3> -ay ubuntu-vg`.
     All guests use the same VG name (`ubuntu-vg`), so an unscoped `vgchange` can
     activate the wrong guest's volume. Mount `ubuntu-lv`, append to
     `/home/caleb/.ssh/authorized_keys`, then unmount, `vgchange -an`,
@@ -177,7 +177,7 @@ they are no longer manual. What remains out-of-band:
 
 ## OCI Vault
 
-franklinhouse uses **its own OCI tenancy** — a separate account from firefly's,
+franklinhouse uses **its own OCI tenancy**, a separate account from firefly's,
 in a different region. Do not mix the two sets of OCIDs; neither resolves in the
 other's account.
 
@@ -198,7 +198,7 @@ manifests read identically either side.
     this vault into a Terragrunt leaf is outstanding work.
 
 Secrets must be created in `vault-franklinhouse` with the exact names the
-`ExternalSecret`s reference — `access-control-deploy-key` (an SSH private key
+`ExternalSecret`s reference: `access-control-deploy-key` (an SSH private key
 for the app repo) and `access-control-secret`. Until they exist, both
 `ExternalSecret`s report NotReady and the apps cannot start.
 
@@ -206,7 +206,7 @@ for the app repo) and `access-control-secret`. Until they exist, both
 
 Use `scripts/oci-vault-secrets.py` rather than the OCI console. It targets
 either tenancy by name and pulls that account's API credentials from 1Password
-at run time (into a 0700 temp dir, removed on exit — nothing is written to the
+at run time (into a 0700 temp dir, removed on exit; nothing is written to the
 repo and no OCI profile is needed):
 
 ```bash
@@ -224,7 +224,7 @@ secret land in your scrollback.
 ## Known risks
 
 These are real, currently-unmitigated, and all three contributed to the
-2026-08-13 outage. None is fixed by the migration — fixing them is a behavioural
+2026-08-13 outage. None is fixed by the migration: fixing them is a behavioural
 change, tracked separately.
 
 1. **No database backups.** Neither CNPG `Cluster` has a `.spec.backup` stanza
@@ -239,8 +239,8 @@ change, tracked separately.
    bakes `--server https://<fh-system-vm1>:6443` into each node's systemd unit
    *and* into the agent load-balancer cache at
    `/var/lib/rancher/k3s/agent/etc/k3s-agent-load-balancer.json`. During the
-   outage that cache listed only `.112` and `.111` — both dead, `.113` never
-   present — so the surviving worker could not rejoin on its own. Consider a VIP
+   outage that cache listed only `.112` and `.111` (both dead, `.113` never
+   present), so the surviving worker could not rejoin on its own. Consider a VIP
    or DNS name before rebuilding.
 4. **No Wake-on-LAN.** No node has a WoL MAC configured, so a dead Proxmox host
    cannot be powered on remotely.
@@ -253,7 +253,7 @@ start, and the node shell/console fails with
 pmxcfs mounts `/etc/pve` **read-only**, and `qm start` needs to write there.
 
 **Before forcing anything**, confirm the other hosts are genuinely down rather
-than partitioned — if two hosts are alive and talking to each other, they
+than partitioned. If two hosts are alive and talking to each other, they
 already hold quorum and forcing a third creates split brain:
 
 ```bash
@@ -272,7 +272,7 @@ complete the work promptly. `/etc/pve` becomes writable immediately and
 
 If fewer than 2 control-plane VMs can be started, etcd cannot reach quorum
 either. Preferred fix is to revive a Proxmox host. Only if that is impossible,
-reset etcd to a single member on a surviving server — this **permanently drops
+reset etcd to a single member on a surviving server. This **permanently drops
 the other two members**, which must then have `/var/lib/rancher/k3s/server/db`
 removed before they can rejoin:
 
@@ -281,13 +281,13 @@ sudo systemctl stop k3s && sudo k3s server --cluster-reset
 ```
 
 It prints `Managed etcd cluster membership has been reset` and exits; then
-`sudo systemctl start k3s`. Cluster **data is preserved** — only membership
+`sudo systemctl start k3s`. Cluster **data is preserved**; only membership
 resets. Afterwards, remove the now-stale `--server https://192.168.69.111:6443`
 flag from the surviving server's unit, and repoint any surviving worker's
 `k3s-agent.service` and load-balancer cache at a live server.
 
 Finally, pods left on dead nodes stay `Running` as phantoms and keep Service
-endpoints pointing at unreachable IPs (this is what breaks Flux —
+endpoints pointing at unreachable IPs (this is what breaks Flux:
 `source-controller` becomes unreachable). Clear them:
 
 ```bash
@@ -302,8 +302,8 @@ syncs from `infra-v2` until its `GitRepository` is repointed. To cut over:
 1. Give franklinhouse its own read-write deploy key on **`MagmaMoose/infra`**
    (the canonical name; `CalebSargeant/infra` only resolves via a GitHub
    redirect) and write the private key into franklinhouse's `flux-system`
-   Secret. A single deploy key can only be attached to one repo at a time —
-   this bit the original infra-v2 migration — so generate a *new* key rather
+   Secret. A single deploy key can only be attached to one repo at a time
+   (this bit the original infra-v2 migration), so generate a *new* key rather
    than reusing firefly's.
 2. Ensure the `sops-keys` Secret exists in `flux-system` on franklinhouse. This
    is new: infra-v2 used no SOPS at all, but the bootstrap Kustomization now
@@ -312,13 +312,13 @@ syncs from `infra-v2` until its `GitRepository` is repointed. To cut over:
    data key is `age.agekey` (firefly's convention; the
    `ansible/roles/k3s-sops-age-secret` role still says `identity.agekey` and is
    stale), and it must hold the key matching the **current** `.sops.yaml`
-   recipient — rotated 2026-08-07, so an older copy cannot decrypt this repo.
+   recipient, rotated 2026-08-07, so an older copy cannot decrypt this repo.
 3. Ensure the **external-secrets operator** is running and the **`azure-keyvault`
    `ClusterSecretStore`** exists on franklinhouse. The `access-control` app's
    `ExternalSecret` depends on both to project the deploy key into
    `gitrepository.yaml`; if either is absent on a clean rebuild, the Secret
    never materialises and the app's source auth fails silently. franklinhouse's
-   GitOps reconciles only CNPG in its controllers tier — ESO and the store are
+   GitOps reconciles only CNPG in its controllers tier: ESO and the store are
    installed out of band and must pre-exist before `access-control` reconciles.
 4. Apply the updated `gotk-sync.yaml` (url → `MagmaMoose/infra`, path →
    `./kubernetes/clusters/franklinhouse/flux-system`), then

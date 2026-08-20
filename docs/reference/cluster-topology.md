@@ -8,8 +8,8 @@ workload should run*.
 
 | Role | k3s role | Runs | Current node(s) | Planned | Labels |
 |------|----------|------|-----------------|---------|--------|
-| **system** | k3s **server** (control plane) | API server, scheduler, controller-manager, kine **plus** the bootstrap- and network-critical controllers: flux-\*, cert-manager, external-secrets, 1Password Connect, external-dns, CoreDNS/Traefik | **ff-pi1** (Raspberry Pi 5, arm64, 8 GiB) | ff-pi2, ff-pi3 (more Pi5s — control-plane HA / more system capacity) | `node-role.kubernetes.io/system`, legacy `type=pi` / `node-role.kubernetes.io/pi` |
-| **worker** | k3s **agent** | Application workloads, plus the policy engine and the operators whose workloads live here (kyverno, cloudnative-pg) | **ff-vm1** (amd64, 8 vCPU / 27.4 GiB allocatable); **ff-oci1** / **ff-oci2** (OCI free-tier, arm64, 2 OCPU / ~11.9 GiB allocatable — the **native-cloud** sub-tier, see below) | ff-vm2 | `node-role.kubernetes.io/worker`, legacy `type=mini` / `node-role.kubernetes.io/mini`; native-cloud nodes also carry `topology.sargeant.co/tier=native-cloud` |
+| **system** | k3s **server** (control plane) | API server, scheduler, controller-manager, kine **plus** the bootstrap- and network-critical controllers: flux-\*, cert-manager, external-secrets, 1Password Connect, external-dns, CoreDNS/Traefik | **ff-pi1** (Raspberry Pi 5, arm64, 8 GiB) | ff-pi2, ff-pi3 (more Pi5s: control-plane HA / more system capacity) | `node-role.kubernetes.io/system`, legacy `type=pi` / `node-role.kubernetes.io/pi` |
+| **worker** | k3s **agent** | Application workloads, plus the policy engine and the operators whose workloads live here (kyverno, cloudnative-pg) | **ff-vm1** (amd64, 8 vCPU / 27.4 GiB allocatable); **ff-oci1** / **ff-oci2** (OCI free-tier, arm64, 2 OCPU / ~11.9 GiB allocatable: the **native-cloud** sub-tier, see below) | ff-vm2 | `node-role.kubernetes.io/worker`, legacy `type=mini` / `node-role.kubernetes.io/mini`; native-cloud nodes also carry `topology.sargeant.co/tier=native-cloud` |
 
 ```mermaid
 flowchart TB
@@ -39,11 +39,11 @@ flowchart TB
 
 ## Choosing where a workload runs
 
-- **`system`** — the control plane, plus only what must keep working when *no worker
+- **`system`**. The control plane, plus only what must keep working when *no worker
   does*: Flux (it installs everything else, so it cannot depend on anything else),
   cert-manager, the secrets plane (external-secrets + 1Password Connect), DNS and
   ingress, and node-level DaemonSets.
-- **`worker`** — applications, the policy engine, and operators whose managed
+- **`worker`**. Applications, the policy engine, and operators whose managed
   workloads already live on a worker.
 - **Everything else** → `worker`. `system` is the exception, not the default.
 
@@ -56,14 +56,14 @@ flowchart TB
 
 ### Why ff-pi1 has far less room than it looks
 
-ff-pi1 reports 8063Mi capacity, but the k3s server process — API server, scheduler,
-controller-manager, kine and the kubelet in one Go binary — holds roughly 2.5-3 GiB
+ff-pi1 reports 8063Mi capacity, but the k3s server process (API server, scheduler,
+controller-manager, kine and the kubelet in one Go binary) holds roughly 2.5-3 GiB
 of that, and it lives in `system.slice`, **outside** `kubepods.slice`. The kubelet
 neither counts it against Allocatable by default nor can ever evict it.
 
 Left unreserved, the node therefore advertised its full 8063Mi while ~4.8 GiB was
 already spoken for, and pods drifted onto it against roughly 5 GiB of headroom that
-did not exist — until it exhausted memory and swap and hard-locked, needing a
+did not exist, until it exhausted memory and swap and hard-locked, needing a
 physical reset. `ansible/firefly-control-plane-resources.yaml` closes that gap: it
 sets `system-reserved`/`kube-reserved` so Allocatable tells the truth (~3823Mi), adds
 an `eviction-soft` threshold that sheds load while the node is still responsive, and
@@ -86,17 +86,17 @@ They are ordinary `worker` nodes **plus** an extra tier label:
 | Label | Where it's set | Why |
 |-------|----------------|-----|
 | `topology.sargeant.co/tier=native-cloud` | k3s `--node-label` at agent registration (cloud-init, `terraform/oci/modules/server`) | Pin workloads to OCI **specifically** (vs `ff-vm1`, which shares the `worker` role). Durable across node re-registration. |
-| `node-role.kubernetes.io/worker` | `kubectl` post-join (see below) | Generic worker role. **Cannot** be set via `--node-label` — the kubelet may not self-register `kubernetes.io`-namespaced labels (NodeRestriction). |
+| `node-role.kubernetes.io/worker` | `kubectl` post-join (see below) | Generic worker role. **Cannot** be set via `--node-label`: the kubelet may not self-register `kubernetes.io`-namespaced labels (NodeRestriction). |
 
 !!! info "Provisioning is in Terraform, not Ansible"
     The VMs and their k3s agent join are defined entirely in
     `terraform/oci/modules/server` (+ the `server` leaf). cloud-init fetches the
-    k3s node-token from OCI Vault via instance-principal at boot — no token in
+    k3s node-token from OCI Vault via instance-principal at boot. No token in
     state or metadata. `node_name` / `node_labels` in the leaf's `servers` map
     set the k3s `--node-name` (so they register as `ff-oci1`/`ff-oci2`, not the
     OS hostname) and the tier label. Changing either replaces the VM (it alters
     the cloud-init hash). Because this edits a shared **module**, Atlantis
-    autoplan won't fire — run `atlantis plan -p oci-prod-eu-amsterdam-1-server`.
+    autoplan won't fire. Run `atlantis plan -p oci-prod-eu-amsterdam-1-server`.
 
 ### Pinning to native-cloud
 
@@ -104,11 +104,11 @@ They are ordinary `worker` nodes **plus** an extra tier label:
   `../../../../components/node-selectors/native-cloud` from the app's base
   `kustomization.yaml` (or set `nodeSelector: { topology.sargeant.co/tier: native-cloud }`
   inline for non-app-template HelmReleases). Verify the image is **arm64 /
-  multi-arch** first — several custom images (`atlantis-firefly`, etc.) are
+  multi-arch** first: several custom images (`atlantis-firefly`, etc.) are
   amd64-only today.
 - **CNPG**: a Cluster CR is **not** a Deployment/StatefulSet, so the
   node-selectors component does **not** reach it. Pin it via the Cluster's own
-  `spec.affinity.nodeSelector` — see
+  `spec.affinity.nodeSelector`. See
   `kubernetes/infrastructure/services/stack/postgres-oci/base/cluster.yaml`
   (2 instances, one per OCI node via required hostname anti-affinity).
 
@@ -129,7 +129,7 @@ kubectl label node ff-oci2 node-role.kubernetes.io/worker=""  --overwrite
 
 !!! warning "Labels must persist across node re-registration"
     `kubectl label` is imperative. The labels survive a reboot, because they live
-    in etcd — but **not** the Node object being deleted and re-added, which is what
+    in etcd, but **not** the Node object being deleted and re-added, which is what
     a rebuild or re-join does. Everything pinned to them goes `Pending` at that
     moment, and that includes the Flux controllers, so the cluster cannot
     reconcile its own fix.
@@ -143,12 +143,12 @@ kubectl label node ff-oci2 node-role.kubernetes.io/worker=""  --overwrite
 
     NodeRestriction rejects kubelet-set labels inside the `kubernetes.io`
     namespace outside a short allow-list, and `node-role.kubernetes.io/*` is not on
-    it. Putting those in k3s's `node-label:` does **not** silently no-op — the node
+    it. Putting those in k3s's `node-label:` does **not** silently no-op: the node
     refuses to register.
 
     Run `ansible/firefly-node-label-durability.yaml` to write the self-registerable
     labels into every node's k3s config drop-in. It takes effect at the *next*
-    registration, so it changes nothing today and needs no restart — that is the
+    registration, so it changes nothing today and needs no restart. That is the
     point of it.
 
 ### Placement labels
@@ -176,13 +176,13 @@ labels:
 
 !!! warning "`worker` spans both sites"
     `node-role.kubernetes.io/worker` matches ff-vm1 **and** both OCI nodes. A
-    workload meaning "the on-prem worker" must use the `on-prem` tier — several
+    workload meaning "the on-prem worker" must use the `on-prem` tier. Several
     drifted to the cloud tier by selecting `worker` alone, which put their pods on
     the far side of the site-to-site VPN from their storage.
 
 !!! warning "A placement label on a HelmRelease does nothing"
     The Kyverno policies match `Deployment`/`StatefulSet`/`DaemonSet`/`CronJob`. A
-    label on a `HelmRelease` never reaches the pod template the chart renders — set
+    label on a `HelmRelease` never reaches the pod template the chart renders. Set
     `nodeSelector` in the chart's values instead. CI enforces this
     (`.github/actions/placement-label-guard`).
 | `node-selectors/pi` | `type=pi` | **legacy alias** for `system` |
@@ -207,12 +207,12 @@ The storage model going forward:
 
 | Need | Backend | Notes |
 |------|---------|-------|
-| Movable app config / databases | **Longhorn** (`longhorn` SC) | Replicated across nodes (`default-replica-count=2`), so the volume is reachable from any node — this is what un-pins a stateful app from the Pi. |
+| Movable app config / databases | **Longhorn** (`longhorn` SC) | Replicated across nodes (`default-replica-count=2`), so the volume is reachable from any node. This is what un-pins a stateful app from the Pi. |
 | Bulk media / downloads | **NFS** (`192.168.19.5:/mnt/raid5/...`) | Network-shared, node-independent. |
 | Legacy (being retired) | `hostPath` / `local-path` on ff-pi1 | Node-bound; migrate to Longhorn/NFS, then schedule on `worker`. |
-| CloudNativePG instances | CNPG-managed | Drain a node by editing the `Cluster` affinity; CNPG re-replicates — no manual copy. |
+| CloudNativePG instances | CNPG-managed | Drain a node by editing the `Cluster` affinity; CNPG re-replicates. No manual copy. |
 
 !!! info "hostNetwork exceptions"
     `homeassistant` and `homebridge` use `hostNetwork: true` (HomeKit/mDNS). They
     can run on a worker (also on the LAN), but their **advertised IP changes** when
-    they move off the Pi — expect HomeKit re-pairing / mDNS cache refreshes.
+    they move off the Pi. Expect HomeKit re-pairing / mDNS cache refreshes.

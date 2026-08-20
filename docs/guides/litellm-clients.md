@@ -82,7 +82,7 @@ There are two ways the proxy talks upstream:
 | **Per-token (API key)** | **Codex, OpenCode, OpenAI Agents SDK**, anything OpenAI-protocol | Per-token on a provider account | The client sends a LiteLLM virtual key in `Authorization` to the LAN/VPN or `:8080` proxy path; the proxy maps it to `x-litellm-api-key`; LiteLLM calls the provider with its configured `api_key`. |
 
 The three tools below put a **key** in `Authorization`, so they **cannot use the
-Claude Max subscription** — that's exclusive to Claude Code's OAuth. To use them
+Claude Max subscription**. That's exclusive to Claude Code's OAuth. To use them
 through LiteLLM you must add at least one **API-key'd model** to the proxy, e.g.:
 
 ```yaml

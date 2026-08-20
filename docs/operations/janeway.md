@@ -18,16 +18,16 @@ journals, preprints, conference proceedings and books. It runs at
 ## Why it sits where it does
 
 **The image is multi-arch, and that was the enabling decision.** Upstream
-Janeway vendors `src/transform/cassius/bin/wkhtmltopdf` as an x86-64 ELF — the
-only non-portable binary in its tree — which pins upstream to amd64. `ff-vm1` is
+Janeway vendors `src/transform/cassius/bin/wkhtmltopdf` as an x86-64 ELF (the
+only non-portable binary in its tree), which pins upstream to amd64. `ff-vm1` is
 the cluster's only amd64 node and the most contended in the fleet (~96 % of
 memory allocatable already requested), so an amd64-only Janeway had nowhere to
 go. The image installs the architecture-correct wkhtmltopdf build instead, which
 frees the workload to run on the OCI tier where there is headroom.
 
 **The database follows the workload, not the other way round.** Janeway issues
-dozens of queries per page render — press resolution, database-backed sessions,
-and a row per settings lookup — so database round-trip time dominates page
+dozens of queries per page render (press resolution, database-backed sessions,
+and a row per settings lookup), so database round-trip time dominates page
 latency. Measured from a pod on `ff-oci1`:
 
 | Target | RTT |
@@ -43,12 +43,12 @@ cluster's managed-roles block with its password enforced from OCI Vault
 (`janeway-db-password`). Not the `app` role that dunmir uses on the same
 cluster: `app` owns dunmir's database too, so sharing it would let either
 application's credentials read the other's data. Rotating the vault entry
-rotates both ends — CNPG reconciles the role's password from it, and the
-application reads the same key — so the two cannot drift.
+rotates both ends (CNPG reconciles the role's password from it, and the
+application reads the same key), so the two cannot drift.
 
 ## Operating it
 
-Scheduled work is Kubernetes CronJobs, one per task — **not** Janeway's own
+Scheduled work is Kubernetes CronJobs, one per task, **not** Janeway's own
 scheduler. Upstream runs its task queue from Django middleware on every HTTP
 request, unlocked; the image removes that middleware and patches the queue to
 claim rows with `SELECT … FOR UPDATE SKIP LOCKED`. Do not re-enable it.
@@ -68,7 +68,7 @@ kubectl -n janeway exec deploy/janeway -- /usr/local/bin/entrypoint.sh manage <c
 
 `Press.domain` is written **once**, by the bootstrap job, and Janeway resolves
 tenancy on the `Host` header alone. Changing `config.siteDomain` in the
-HelmRelease is not sufficient — a request whose `Host` matches no press is
+HelmRelease is not sufficient: a request whose `Host` matches no press is
 redirected to `DEFAULT_HOST` rather than 404ing, so the symptom is visitors
 silently bouncing off the site. Update the row as well:
 
@@ -87,7 +87,7 @@ hostnames are needed.
 
 There is deliberately **no** Access application for this hostname, and one must
 not be added. A journal has to be anonymously readable or it cannot be indexed
-by Google Scholar, Crossref, DOAJ or any OAI-PMH harvester — which is how a
+by Google Scholar, Crossref, DOAJ or any OAI-PMH harvester, which is how a
 journal is found at all. If a launcher tile is ever wanted it must be
 `type = "bookmark"`; a `self_hosted` app would gate every reader.
 

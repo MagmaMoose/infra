@@ -9,7 +9,7 @@ Ranked roughly by impact × effort, highest first.
 ## 1. Promote Radarr from `bookmark` to `self_hosted` (security gap)
 
 Today the Radarr Access "app" is `type = "bookmark"`. Bookmarks are **not
-authenticated** — they're just an icon in the App Launcher; the actual
+authenticated**. They're just an icon in the App Launcher; the actual
 service at `radarr.sargeant.co` is reachable by anyone with the URL.
 Overseerr is correctly `self_hosted`. Either:
 
@@ -28,11 +28,11 @@ and a 404 catch-all. Step-by-step:
 1. Add a `cloudflare_zero_trust_tunnel_cloudflared_config` ingress_rule
    for `radarr.sargeant.co` pointing at the actual radarr URL (likely
    `http://radarr.media.svc.cluster.local:7878` if it's in the firefly
-   k3s cluster — but verify, since the OCI cloudflared can only resolve
+   k3s cluster, but verify, since the OCI cloudflared can only resolve
    `.svc.cluster.local` if it's somehow joined to the cluster's DNS).
 2. Flip Radarr's `type` to `self_hosted` and attach a policy.
 3. Drop the existing `bookmark` resource (or keep as a managed
-   bookmark — distinct from the self_hosted entry).
+   bookmark, distinct from the self_hosted entry).
 
 ## 2. Fix r1's cloudflared HA (availability gap)
 
@@ -45,7 +45,7 @@ time. r2 took the load all that time.
 Both routers now active: 8 colo connections to the `firefly` tunnel (4
 each, full HA). Cloudflare reports `status: healthy`.
 
-**Residual gap — r2 firmware** doesn't accept the `auto-restart-interval`
+**Residual gap: r2 firmware** doesn't accept the `auto-restart-interval`
 parameter (older RouterOS schema; `unknown parameter` error from the API).
 If r2's cloudflared crashes, it won't auto-restart. Two options:
 
@@ -53,7 +53,7 @@ If r2's cloudflared crashes, it won't auto-restart. Two options:
   interval. Cleanest.
 - Add a RouterOS `/system/scheduler` job on r2 that runs every minute and
   starts the cloudflared container if it's stopped. Works on older
-  firmware. Copy-paste-safe script (matches the container by `name` — the
+  firmware. Copy-paste-safe script (matches the container by `name`; the
   container name is `cloudflared:latest`, derived from `remote_image`):
 
   ```routeros
@@ -84,7 +84,7 @@ Cutover that landed this work:
    `warp_email_domain`, which was incidentally detached in step 1).
 4. `terragrunt apply` recreated all 5 policies as `reusable: false` with
    group-based includes and (for `overseerr_caleb`) the posture
-   `require` block — see #4.
+   `require` block (see #4).
 
 Access gap was ~30s between detach and apply; affected apps denied all
 requests during that window.
@@ -126,7 +126,7 @@ After this migration:
 **Scaffold landed.** `terraform/cloudflare/zero-trust/prod/service_tokens.tf`
 documents the pattern (commented-out example resource + matching
 non_identity policy + outputs for `client_id` / `client_secret`). No
-service tokens are actually defined yet — add the first one when there's
+service tokens are actually defined yet. Add the first one when there's
 a real consumer (e.g. uptime monitoring hitting `overseerr.sargeant.co`).
 
 Workflow once a token is added:
@@ -139,7 +139,7 @@ Workflow once a token is added:
 
 ## 7. Replace the manual adware list with CF managed categories
 
-**Blocked — Zero Trust tier.** Discovered via
+**Blocked: Zero Trust tier.** Discovered via
 `GET /accounts/<acct>/gateway/categories`: the categories that would
 replace the manual adware list (`Ads`, `Deceptive Ads`, plus broader
 `Trackers` / `Adult Themes`-adjacent things) are all `class: "premium"`
@@ -147,7 +147,7 @@ on this account. Only `Adult Themes` and `Security threats` are `free`.
 
 Options:
 
-- Stay with the manual list (current state — keeps zero recurring cost).
+- Stay with the manual list (current state, keeps zero recurring cost).
 - Upgrade to a Zero Trust paid seat / plan that includes the premium
   categories, then swap `traffic = "any(dns.domains[*] in {…})"` to
   `traffic = "any(dns.content_category[*] in {1, 4, …})"` using the IDs
@@ -155,7 +155,7 @@ Options:
 
 ## 8. Document or consolidate the L4 allow + block rules on `192.168.69.110`
 
-**Resolved — deleted as dead code.** The pair was leftover from the
+**Resolved: deleted as dead code.** The pair was leftover from the
 dashboard→terraform import (#199), policing traffic to a Franklin Cape
 Town server (`.110` on the same `192.168.69.0/24` segment as the Franklin
 hosts in `ansible/hosts.yaml`). Operator confirmed both rules were
@@ -168,7 +168,7 @@ sees the deletion rationale.
 
 ## 9. Rename the "firefly" tunnel to something OCI-specific
 
-**Needs scheduled cutover — not a quick fix.** Tunnel name is immutable
+**Needs scheduled cutover, not a quick fix.** Tunnel name is immutable
 post-creation; the rename is actually a recreate + cutover:
 
 1. `cloudflare_zero_trust_tunnel_cloudflared "magmamoose_oci"` defined in
@@ -187,8 +187,8 @@ serving until the new one is up). Schedule in a low-traffic window.
 
 ## 10. Browser isolation for risky apps
 
-**Blocked — Zero Trust tier.** Browser isolation is a paid CF Zero Trust
-feature. Same blocker as #7 — needs a Zero Trust plan upgrade. Once
+**Blocked: Zero Trust tier.** Browser isolation is a paid CF Zero Trust
+feature. Same blocker as #7: needs a Zero Trust plan upgrade. Once
 unlocked, the implementation is a `cloudflare_zero_trust_gateway_policy`
 with `action = "isolate"` (HTTP filter) targeting the relevant
 hostnames, e.g.:
@@ -223,7 +223,7 @@ Once available, the implementation is two pieces:
 1. **GCS destination** (separate bucket `sargeant-prod-cf-logs` or similar
    in `magmamoose-terraform`, with a dedicated service account granted
    `storage.objectCreator`).
-2. **Logpush jobs** — one per dataset you want, via
+2. **Logpush jobs**, one per dataset you want, via
    `cloudflare_logpush_job`:
 
    ```hcl

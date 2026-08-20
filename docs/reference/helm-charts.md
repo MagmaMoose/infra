@@ -127,7 +127,7 @@ Kustomize's JSON6902 patches are more explicit; Helm's Go templates are more imp
 
 Example: Helm can't easily do "patch this field only if it exists" without complex conditionals. Kustomize's `merge` strategy is cleaner for some cases.
 
-**Mitigation:** Use both—Helm for the app base, Kustomize components for cross-cutting concerns.
+**Mitigation:** Use both (Helm for the app base, Kustomize components for cross-cutting concerns).
 
 #### 3. **Secret Management Complexity**
 Helm has built-in secrets support, but you're already using SOPS + GPG. Mixing them requires careful coordination. You'll need to decide: secrets in Helm values or in Kustomize overlays?
@@ -493,19 +493,19 @@ Once most apps are Helm-based, consider:
 ## Recommendations
 
 ### ✅ DO
-1. **Start with Helm + Kustomize** (not Helm alone)—this preserves your component pattern
-2. **Keep SOPS for secrets**—don't try to manage secrets in Helm values
+1. **Start with Helm + Kustomize** (not Helm alone): this preserves your component pattern
+2. **Keep SOPS for secrets**: don't try to manage secrets in Helm values
 3. **Store Helm charts in Git** (`kubernetes/apps/` dir) until you have 10+ charts
 4. **Use Kustomize HelmChart support** or Flux HelmRelease CRs for deployment
 5. **Document values.yaml extensively** with comments explaining each parameter
 6. **Version your charts** even if they're internal (in `Chart.yaml` → Git tags)
 
 ### ❌ DON'T
-1. **Don't replace all Kustomize with Helm**—Helm is for templating, Kustomize is for final customization
-2. **Don't store secrets in `values.yaml`**—reference external Secret CRs instead
-3. **Don't create mega-charts**—one chart per application
-4. **Don't try to eliminate cluster overlays entirely**—you'll always need some per-cluster config
-5. **Don't over-parameterize**—if a value is never overridden, hardcode it
+1. **Don't replace all Kustomize with Helm**: Helm is for templating, Kustomize is for final customization
+2. **Don't store secrets in `values.yaml`**: reference external Secret CRs instead
+3. **Don't create mega-charts**: one chart per application
+4. **Don't try to eliminate cluster overlays entirely**: you'll always need some per-cluster config
+5. **Don't over-parameterize**: if a value is never overridden, hardcode it
 
 ---
 

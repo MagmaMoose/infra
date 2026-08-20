@@ -4,7 +4,7 @@
 > per provider (e.g. `terraform/oci/modules/server`, `terraform/cloudflare/modules/cloudflare-dns`)
 > instead of a single top-level `terraform/modules/`. The old `terraform/modules/gcp/project/`
 > module described below was deleted as unused. The "consolidate to shared terraform-modules
-> repo" thesis below is still relevant — this doc is the planning artifact for that.
+> repo" thesis below is still relevant: this doc is the planning artifact for that.
 
 ## The Problem You've Identified
 
