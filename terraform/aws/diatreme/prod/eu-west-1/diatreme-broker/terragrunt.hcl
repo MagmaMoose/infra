@@ -81,13 +81,30 @@ inputs = {
   #
   # TWO-PHASE: phase 1 leaves both flags false and prints the ACM validation CNAME; phase 2
   # turns them true once the certificate is ISSUED.
-  domain_name          = "broker-diatreme.magmamoose.com"
-  certificate_arn      = ""
-  enable_custom_domain = false
+  domain_name = "broker-diatreme.magmamoose.com"
 
-  # Phase 2. Until the custom domain works, execute-api is the ONLY door — closing it now would
-  # leave nothing reachable to verify against.
-  disable_default_endpoint = false
+  # PHASE 2. Certificate ISSUED 2026-08-20 after the validation CNAME was published in
+  # terraform/cloudflare/dns-magmamoose (grey, necessarily — a proxied validation record
+  # answers with Cloudflare's own value and the certificate never leaves PENDING_VALIDATION).
+  #
+  # certificate_arn STAYS EMPTY. It is not "the ARN to use" — api.tf reads it as "a certificate
+  # managed elsewhere, so do not request one", `count = var.certificate_arn != "" ? 0 : 1`.
+  # Pasting the module's OWN certificate ARN here therefore plans to destroy the certificate it
+  # just had issued, and breaks the certificate_validation_record output on the way past. The
+  # module already holds this one in state; enabling the domain is the whole of phase 2.
+  certificate_arn      = ""
+  enable_custom_domain = true
+
+  # TRUE as of phase 2b, after broker-diatreme.magmamoose.com was verified serving /healthz,
+  # /readyz and the /token ladder through the Cloudflare proxy. Flipping this in the same apply
+  # that first stood the custom domain up would have left no reachable door if the domain
+  # misbehaved, and that ordering matters more here than for the other two brokers: diatreme
+  # fails hard, so a wrong turn takes every consumer's release with it.
+  #
+  # This is what makes the orange-cloud proxy an actual control rather than cosmetic. While
+  # execute-api stayed open the origin was directly reachable and the proxy trivially
+  # bypassable, so neither the WAF nor the rate limiting in front of it bounded anything.
+  disable_default_endpoint = true
 
   ops_email = "caleb@magmamoose.com"
 
