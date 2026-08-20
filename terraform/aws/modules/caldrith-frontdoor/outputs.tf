@@ -22,6 +22,29 @@ output "webhook_url" {
   value       = "${local.base_url}/"
 }
 
+# ONE URL PER REGISTRATION, because `webhook_url` above is only the DEFAULT registration's and
+# there is now more than one App to point somewhere. The key is the slug; the default's is the
+# bare root path (`registration.webhook_path` returns "/" for DEFAULT_REGISTRATION, not
+# "/h/github"), and every extra is `/h/<slug>`.
+#
+# THE FAILURE MODE IS THE SAME ONE `webhook_url` WARNS ABOUT, ONE STEP WORSE. An App pointed at
+# the wrong slug — or at "/" when it should be "/h/pinkroccade" — does not error visibly: at
+# "/" the delivery is verified against github.com's webhook secret, fails, and returns 401
+# "invalid signature", which reads as a rotated secret and sends the operator to fix something
+# that was never broken. `registration_from_path` is deliberately built so an unknown slug 404s
+# instead, but only the URL being wrong in the *slug* position gets that treatment.
+#
+# There is NO API Gateway route per slug and there must not be: api.tf routes `$default` and
+# the producer dispatches on rawPath (`_INGEST_PREFIX = "/h/"`), so these URLs work with no
+# gateway change at all.
+output "registration_webhook_urls" {
+  description = "Where each registration's GitHub App must point its webhook, keyed by slug. The default registration is the bare root path; every extra is /h/<slug>."
+  value = merge(
+    { (local.default_registration) = "${local.base_url}/" },
+    { for slug, _ in local.extra_registrations : slug => "${local.base_url}/h/${slug}" },
+  )
+}
+
 output "healthz_url" {
   description = "Liveness. No dependencies — it is useful precisely when everything behind it is broken."
   value       = "${local.base_url}/healthz"
@@ -60,6 +83,11 @@ output "dedup_table" {
   value       = aws_dynamodb_table.dedup.name
 }
 
+output "entitlement_table" {
+  description = "Whether an account may be reconciled. Hash key `pk` = ent#<registration>#<account>, lowercased. Durable: no TTL (its `expires_at` is read, not a delete instruction) and PITR on. The reconcile function has GetItem and nothing else; rows are written by billing, or by hand with `aws dynamodb put-item`."
+  value       = aws_dynamodb_table.entitlements.name
+}
+
 output "overflow_bucket" {
   description = "Where bodies over SQS's 256 KB limit are parked for one day."
   value       = aws_s3_bucket.overflow.id
@@ -93,6 +121,24 @@ output "secret_parameter_names" {
     manual_trigger_token = local.ssm_manual_trigger
     app_id               = local.ssm_app_id
     private_key          = local.ssm_private_key
+
+    # THREE MORE PER EXTRA REGISTRATION, AND THIS OUTPUT IS THE CREATE-LIST. Nothing else
+    # enumerates them: Terraform does not create the parameters, the leaf's runbook comment is
+    # prose, and the Lambda environment holds the names but only after an apply nobody reads.
+    # A parameter missing from here is therefore a parameter that never gets written — and the
+    # symptom is a host whose every delivery 404s (missing webhook-secret) or whose every
+    # reconcile job dies inside `_secret` (missing app-id or private-key), with no other
+    # signal, because the default registration keeps working perfectly the whole time.
+    #
+    # The four above stay FLAT and unprefixed. They are live, and `registration.
+    # DEFAULT_REGISTRATION = "github"` is unprefixed everywhere else in the codebase.
+    registrations = {
+      for slug, r in local.extra_registrations : slug => {
+        webhook_secret = r.webhook_secret_param
+        app_id         = r.app_id_param
+        private_key    = r.private_key_param
+      }
+    }
   }
 }
 

@@ -99,6 +99,66 @@ locals {
   ssm_private_key    = "${local.secret_path}/private-key"
   ssm_webhook_secret = "${local.secret_path}/webhook-secret"
   ssm_manual_trigger = "${local.secret_path}/manual-trigger-token"
+
+  # ── extra registrations: three MORE parameter names per slug, and nothing else ───────────
+
+  # MIRRORS `caldrith.registration.DEFAULT_REGISTRATION`, a hardcoded constant in the
+  # application that cannot be configured from here. It is a LABEL ONLY: the default's secrets
+  # are the four flat names above and are never derived from it, so changing this string
+  # renames an output key and nothing else — which is exactly why it must not be changed. It
+  # would then disagree with the slug the producer resolves for `POST /`, and the output would
+  # tell an operator to point an App at a registration that does not exist.
+  default_registration = "github"
+
+  # ONE EXTRA PATH SEGMENT PER SLUG, and the four names above are left exactly as they are.
+  # That is not tidiness. `/caldrith/prod/webhook-secret` is live in 483461801743 today, and
+  # `registration.DEFAULT_REGISTRATION = "github"` is deliberately unprefixed everywhere else
+  # in the codebase — policy.py gives the default's FIFO group ids byte-identical to the
+  # pre-multi-registration ones for the same reason. Folding the default into a slug-keyed map
+  # would re-path its secrets onto `/caldrith/prod/github/...`, which applies perfectly clean
+  # and then reads parameters nobody has ever written: a total outage with a green plan.
+  #
+  # The `*_param` overrides exist for a tenancy whose secrets are managed somewhere else.
+  # Empty — the normal case — means "derive it", and `variable "extra_registrations"` requires
+  # an override to be an absolute name because iam.tf concatenates it onto an ARN prefix.
+  extra_registrations = {
+    for r in var.extra_registrations : r.slug => {
+      api_url              = r.api_url
+      app_id_param         = r.app_id_param != "" ? r.app_id_param : "${local.secret_path}/${r.slug}/app-id"
+      private_key_param    = r.private_key_param != "" ? r.private_key_param : "${local.secret_path}/${r.slug}/private-key"
+      webhook_secret_param = r.webhook_secret_param != "" ? r.webhook_secret_param : "${local.secret_path}/${r.slug}/webhook-secret"
+    }
+  }
+
+  # THE TWO JSON ENV VALUES. THEIR KEY NAMES ARE A CONTRACT WITH CODE THAT IS ALREADY
+  # DEPLOYED, not a convention chosen here, and getting one wrong fails SILENTLY at runtime:
+  #
+  #   producer._secret_param_for   indexes `{slug: parameter-name}` and returns None for a
+  #                                miss, which is a 404 on every delivery for that host.
+  #   reconcile._load_extra_registrations
+  #                                reads entry["app_id_param"] and entry["private_key_param"]
+  #                                by SUBSCRIPT — a renamed key is a KeyError that fails the
+  #                                batch item, i.e. a job that retries for hours — and
+  #                                entry.get("api_url", "https://api.github.com") with a
+  #                                default, so a renamed api_url is worse still: the tenancy
+  #                                is reconciled against github.com and nothing errors.
+  #
+  # EMPTY STRING, NOT "{}", WHEN THERE ARE NO EXTRAS. Both handlers fast-path on falsiness
+  # (`if not REGISTRATION_SECRET_PARAMS` / `if not EXTRA_REGISTRATIONS`) and "{}" is a TRUTHY
+  # Python string, so jsonencode of an empty map would send every cold start through a
+  # json.loads that yields nothing. Harmless in behaviour; it makes an unconfigured stack look
+  # configured in the console, which is the console people read during an incident.
+  registration_secret_params_json = length(local.extra_registrations) == 0 ? "" : jsonencode({
+    for slug, r in local.extra_registrations : slug => r.webhook_secret_param
+  })
+
+  extra_registrations_json = length(local.extra_registrations) == 0 ? "" : jsonencode({
+    for slug, r in local.extra_registrations : slug => {
+      api_url           = r.api_url
+      app_id_param      = r.app_id_param
+      private_key_param = r.private_key_param
+    }
+  })
 }
 
 # --- log groups ------------------------------------------------------------------------------
@@ -198,6 +258,17 @@ resource "aws_lambda_function" "producer" { # nosemgrep: terraform.aws.security.
       # over `/caldrith/prod` is denied to it. See iam.tf.
       WEBHOOK_SECRET_PARAM       = local.ssm_webhook_secret
       MANUAL_TRIGGER_TOKEN_PARAM = local.ssm_manual_trigger
+
+      # `{slug: parameter-name}` for every registration BEYOND the default, whose own secret
+      # is WEBHOOK_SECRET_PARAM above and which must not appear in this map.
+      #
+      # THE SEPARATION EXTENDS PER REGISTRATION, AND KEEPING IT IS MANDATORY. A GHE tenancy's
+      # App private key is exactly as powerful over that tenancy as the github.com key is over
+      # github.com, so the producer gains each slug's WEBHOOK-SECRET parameter here and
+      # nothing else — no app-id, no private-key, not the slug's path. iam.tf grants
+      # accordingly; a `GetParametersByPath` over `/caldrith/prod/<slug>` is denied to this
+      # function just as it is over `/caldrith/prod`.
+      REGISTRATION_SECRET_PARAMS = local.registration_secret_params_json
 
       BUILD_REF = var.artifact_version
     }
@@ -357,6 +428,48 @@ resource "aws_lambda_function" "reconcile" { # nosemgrep: terraform.aws.security
       # an env var.
       APP_ID_PARAM      = local.ssm_app_id
       PRIVATE_KEY_PARAM = local.ssm_private_key
+
+      # `{slug: {api_url, app_id_param, private_key_param}}` for the extra registrations —
+      # paths again, resolved by `_load_extra_registrations` at cold start into the
+      # `REGISTRATIONS` JSON that `AppConfig` actually reads. Same handler-side contract as
+      # APP_ID_PARAM above and the same lru_cache deadline: it must happen before the first
+      # `get_config()`.
+      #
+      # NO `webhook_secret` KEY, AND NONE IS WANTED. This function verifies no signatures —
+      # the producer did that at the edge — and iam.tf deliberately withholds every
+      # webhook-secret parameter, the extras' included, from this role. A compromise here
+      # cannot forge deliveries back into the front door, which is the other half of the
+      # separation the producer's REGISTRATION_SECRET_PARAMS comment describes.
+      EXTRA_REGISTRATIONS = local.extra_registrations_json
+
+      # Whether an account may be reconciled at all. Read by `caldrith.aws.entitlement`, one
+      # `get_item` per installation sync; GetItem only, and only from this function (iam.tf).
+      #
+      # SETTING IT IS WHAT TURNS ENFORCEMENT ON, AND THE DEFAULT IS DELIBERATELY EMPTY. That
+      # module defaults `ENTITLEMENT_TABLE` to "" and reads an empty value as "enforcement
+      # off" rather than guessing a plausible name — because a guessed name is AccessDenied on
+      # every fan-out for any deployment that does not happen to have that exact table (a
+      # self-hosted stack, a fresh dev account), and the honest thing for a table nobody
+      # provisioned is to not enforce.
+      #
+      # IT MUST BE THE NAME, NEVER THE ARN. `get_item(TableName=...)` takes a name; an ARN
+      # here fails every lookup, and the failure is invisible because the entitlement path
+      # FAILS OPEN — reconciles keep working and enforcement silently never happens.
+      ENTITLEMENT_TABLE = aws_dynamodb_table.entitlements.name
+
+      # ARMING IT IS A SECOND, SEPARATE SWITCH — and the one step of this whole feature
+      # that can take a live fleet dark. The table above is created EMPTY, so from the
+      # instant it exists every already-installed account looks exactly like an account
+      # that never paid. If provisioning and enforcing were the same apply, the first push
+      # after `tofu apply` would reconcile nothing for every existing customer, and the
+      # only symptom would be an absence: no error, no alarm, no failed job — just repos
+      # that quietly stop being managed.
+      #
+      # So it defaults to OFF. With this "0", `caldrith.aws.entitlement` logs what it WOULD
+      # have refused (`reconcile.entitlement_observed`) and reconciles anyway. Read those
+      # log lines, seed a row for every account that should have one, and only then set
+      # `entitlement_enforce = true` in the terragrunt inputs.
+      ENTITLEMENT_ENFORCE = var.entitlement_enforce ? "1" : "0"
 
       # A PLACEHOLDER THAT EXISTS ONLY TO SATISFY PYDANTIC, and without it this function fails
       # on EVERY invocation of a stack that applied perfectly. `caldrith.settings.AppConfig`
