@@ -247,7 +247,7 @@
       "calls": [
         "atlantis.yaml projects \u2192 terragrunt plan/apply"
       ],
-      "note": "Each LEAF terragrunt module = 1 Atlantis project; shared inputs (root.hcl, region.hcl, modules/) do NOT autoplan \u2014 comment 'atlantis plan -p <project>' manually"
+      "note": "Atlantis is legacy; covers 20 of 27 leaves (the 7 AWS leaves are Terrateam-only). Use 'atlantis plan -p <project>' for covered leaves; shared inputs (root.hcl, region.hcl, modules/) do NOT autoplan."
     }
   ],
   "hotspots": [
