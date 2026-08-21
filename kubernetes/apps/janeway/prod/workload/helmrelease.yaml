@@ -130,18 +130,63 @@ spec:
         existingSecret: janeway-superuser
         existingSecretKey: password
 
+    # Mailgun SMTP. Setting email.host is what switches the chart off Django's
+    # console backend — without it the ConfigMap renders
+    # console.EmailBackend, which does not fail, it prints the message to stdout
+    # and reports success. Registration, password reset, review invitations and
+    # publication notifications all appeared to work and delivered nothing, and
+    # every reset token was written to the pod log and shipped to the log store.
+    #
+    # KNOWN LIMIT — this is a Mailgun SANDBOX domain. Sandboxes deliver ONLY to
+    # addresses explicitly authorised in Mailgun (5 max). caleb@magmamoose.com is
+    # authorised and verified delivering; anyone else who registers gets nothing.
+    # That is fine for an unadvertised journal and NOT fine once real authors are
+    # invited. Lifting it means verifying a real domain (e.g. mg.magmamoose.com)
+    # in Mailgun, adding its DNS records, then changing `user` here and the vault
+    # entry — `host`, `port` and `useTls` stay as they are.
+    email:
+      host: smtp.mailgun.org
+      port: 587
+      useTls: true
+      user: postmaster@sandbox03d507c3312f467d846168e83a2bfef1.mailgun.org
+      existingSecret: janeway-email
+      existingSecretKey: password
+      # Verified to deliver from the sandbox despite not being the sending
+      # domain. Note SPF/DKIM therefore align to the sandbox, not to
+      # magmamoose.com, so a strict DMARC receiver may still treat it harshly —
+      # another reason the real domain above is the proper fix.
+      from: noreply@janeway.magmamoose.com
+
     persistence:
-      # `longhorn`, not `longhorn-on-prem`: the latter carries the Longhorn node
-      # tag `on-prem`, which live is only ff-pi1 and ff-vm1 — so every replica of
-      # this volume would sit on the far side of the site-to-site link from the
-      # pod. The untagged class lets Longhorn place a replica on the OCI node the
-      # pod runs on, which `dataLocality: best-effort` then prefers for reads.
+      # `longhorn`, the untagged class, rather than `longhorn-on-prem`. Be clear
+      # about what that does and does not buy: it PERMITS a replica on the OCI
+      # node the pod runs on, it does not make one possible. Measured 2026-08-21,
+      # this volume has replicas on ff-vm1 and ff-pi1 with a third unschedulable,
+      # while the pod runs on ff-oci2 — so every read and write already crosses
+      # the site-to-site link, and `dataLocality: best-effort` has nothing local
+      # to prefer.
+      #
+      # It is structural, not bad luck. Longhorn enforces
+      # MinimalAvailablePercentage 15 against each disk's maximum:
+      #
+      #   node      max     available   15% floor   max placeable
+      #   ff-oci1   44.1G   9.3G        6.6G        ~2.7G
+      #   ff-oci2   44.1G   7.8G        6.6G        ~1.2G
+      #
+      # An 8Gi replica cannot be placed on either OCI node at any point, and the
+      # REQUEST is what gets scheduled, not the usage — an 8Gi claim holding a
+      # few hundred KB still reserves 8Gi. The previous comment here claimed the
+      # OCI nodes had "17 GB and 7.9 GB" and that a local replica would follow
+      # from the untagged class; both were wrong.
+      #
+      # Accepted deliberately: journal file I/O crosses the VPN, and an
+      # OCI-pinned workload depends on on-prem storage being reachable. Revisit
+      # by reclaiming OCI Longhorn space (~28-30G is scheduled on each node
+      # today) rather than by shrinking this, since a claim small enough to fit
+      # ff-oci2 would be ~1Gi.
       storageClass: longhorn
       accessModes:
         - ReadWriteOnce
-      # Modest on purpose: the OCI nodes have 17 GB and 7.9 GB of Longhorn space
-      # respectively, so a large claim could not place a local replica at all.
-      # longhorn allows expansion, so this grows with the content.
       size: 8Gi
 
     # No Ingress. The tunnel dials the ClusterIP Service directly, so an Ingress
@@ -181,7 +226,19 @@ spec:
         # Enabled beyond the chart defaults: rolls per-access rows up into
         # HistoricArticleAccess. ArticleAccess gets a row per view AND per
         # download, so it is the fastest-growing table in the schema.
-        update-article-metrics:
+        #
+        # The command is `accesses_to_historic`. This block previously named a
+        # job `update-article-metrics` running a command of the same name, which
+        # does not exist — `manage.py update_article_metrics` answers "Unknown
+        # command", so the job had failed on every nightly run since deploy.
+        # Renaming the key matters as much as fixing the command: this map is
+        # merged into the chart's, so the old key would keep resurrecting the
+        # broken job even after the chart's own default was corrected.
+        #
+        # It only rolls up records older than 24 months (COUNTER), so on a
+        # journal this young a successful run does nothing — which is now the
+        # correct outcome rather than a masked failure.
+        accesses-to-historic:
           enabled: true
           schedule: "45 2 * * *"
-          command: ["update_article_metrics"]
+          command: ["accesses_to_historic"]
