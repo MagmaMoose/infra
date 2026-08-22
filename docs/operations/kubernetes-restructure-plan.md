@@ -1,15 +1,15 @@
 # Kubernetes restructure plan (firefly cluster)
 
-Status: **COMPLETED 2026-05-22/23.** Migration landed across PRs #258 (Phase A — dead dir cleanup), #259 (B — _components/_helm-releases relocated, orphans archived), #260 + #261 (C — core+database → infrastructure/, vpn-gateway hotfix), #263 (D — timemachine+headlamp → apps/), and Phase E (this PR — flux-system relocated, legacy trees deleted). The target layout below is now the actual layout.
+Status: **COMPLETED 2026-05-22/23.** Migration landed across PRs #258 (Phase A: dead dir cleanup), #259 (B: _components/_helm-releases relocated, orphans archived), #260 + #261 (C: core+database → infrastructure/, vpn-gateway hotfix), #263 (D: timemachine+headlamp → apps/), and Phase E (this PR: flux-system relocated, legacy trees deleted). The target layout below is now the actual layout.
 
 ---
 
 ## 1. Current state (after 2026-05-15 audit/cleanup)
 
-- `kubernetes/_base/<category>/<app>/` — 8 namespace-categories of shared bases
-- `kubernetes/clusters/firefly/<category>/<app>/` — per-cluster overlays
-- `kubernetes/_components/{resource-profiles,node-selectors,gluetun-sidecar,wireguard-sidecar}/` — reusable patches
-- `kubernetes/clusters/firefly/flux-system/` — Flux bootstrap + 18 `Kustomization` CRs in `kustomizations.yaml` with `dependsOn` chains
+- `kubernetes/_base/<category>/<app>/`: 8 namespace-categories of shared bases
+- `kubernetes/clusters/firefly/<category>/<app>/`: per-cluster overlays
+- `kubernetes/_components/{resource-profiles,node-selectors,gluetun-sidecar,wireguard-sidecar}/`: reusable patches
+- `kubernetes/clusters/firefly/flux-system/`: Flux bootstrap + 18 `Kustomization` CRs in `kustomizations.yaml` with `dependsOn` chains
 
 **Cleanup already done this session** (see `.old/` for archived content, gitignored):
 
@@ -19,7 +19,7 @@ Status: **COMPLETED 2026-05-22/23.** Migration landed across PRs #258 (Phase A �
 | `kubernetes/clusters/firefly/miscellaneous/headlamp1/` (tracked) | Orphan duplicate; canonical files live in `headlamp/` |
 | `kubernetes/.kusomization.workings.yaml` (tracked, typo) | Stale working draft for `mini` node |
 | `kubernetes/_base/miscellaneous/comfyui/`, `comfyui-api/`, `imagegen/` (untracked) | Never tracked; preserved in `.old/` for possible reactivation under new layout |
-| `kubernetes/infrastructure/` (untracked) | Abandoned migration attempt — see §3 for credential preservation |
+| `kubernetes/infrastructure/` (untracked) | Abandoned migration attempt. See §3 for credential preservation |
 | `kubernetes/apps/`, `kubernetes/base/`, `kubernetes/overlays/` (untracked) | Dangling early-stage dirs; `apps/automation/n8n/secret.yaml` was plaintext (see §3) |
 | `.neon_credentials.txt`, `.DS_Store` | Local junk |
 
@@ -27,17 +27,17 @@ Status: **COMPLETED 2026-05-22/23.** Migration landed across PRs #258 (Phase A �
 
 | Item | Why |
 | --- | --- |
-| `ansible/keys/chr.pem` (tracked) | OPENSSH private key, committed `2025-04-18` (commit `d5b8915`). Public repo — already leaked. **Rotate + scrub history.** |
+| `ansible/keys/chr.pem` (tracked) | OPENSSH private key, committed `2025-04-18` (commit `d5b8915`). Public repo, already leaked. **Rotate + scrub history.** |
 | `ansible/vars/franklin.yaml`, `ansible/vars/pi.yaml` (gitignored on-disk) | Contain plaintext `ghp_…` GitHub PAT. Not in git history but on disk. **Rotate the PAT.** |
-| `docs/operations/proxmox-gpu-passthrough-recovery.md` (untracked) | Looks intentional — commit when ready |
+| `docs/operations/proxmox-gpu-passthrough-recovery.md` (untracked) | Looks intentional. Commit when ready |
 | `terraform/oci/modules/mikrotik/`, `terraform/oci/prod/eu-amsterdam-1/mikrotik/`, `terraform/.oci-config.ps1` (untracked) | Out of scope for k8s cleanup; user wants these kept as-is |
-| `kubernetes/_base/observability/SECRETS.md` (tracked) | Audit content — make sure no plaintext is in it |
+| `kubernetes/_base/observability/SECRETS.md` (tracked) | Audit content. Make sure no plaintext is in it |
 
 ---
 
 ## 2. Target state (`infra-v2` pattern)
 
-```
+```text
 kubernetes/
 ├── clusters/
 │   └── firefly/
@@ -80,18 +80,18 @@ Currently no plaintext secrets are tracked **except `ansible/keys/chr.pem`** (co
 
 ### Hygiene improvements
 
-- `kubernetes/_components/wireguard-sidecar/wg0-configs-README.md` and `kubernetes/_base/media/WIREGUARD-DEPLOYMENT-GUIDE.md` contain `PrivateKey =` lines — confirm they're documentation placeholders, not real keys leaked into docs.
+- `kubernetes/_components/wireguard-sidecar/wg0-configs-README.md` and `kubernetes/_base/media/WIREGUARD-DEPLOYMENT-GUIDE.md` contain `PrivateKey =` lines. Confirm they're documentation placeholders, not real keys leaked into docs.
 - Move any future WireGuard keys / Cloudflare tokens into the existing `1password-connect` + `external-secrets` flow rather than on-disk files.
 
 ---
 
-## 4. Broken Flux state — Phase 0 progress
+## 4. Broken Flux state: Phase 0 progress
 
-### `misc` Kustomization — FIX APPLIED in this PR
+### `misc` Kustomization: FIX APPLIED in this PR
 
-**Real root cause** (my earlier sync-conflict-file hypothesis was wrong — Flux only sees git-tracked files, the conflict file was untracked): `kubernetes/clusters/firefly/miscellaneous/headlamp/tunnel-pr-acc-eurofiber-web.enc.yaml` was encrypted with `encrypted_regex: ^(.*)$` — i.e. EVERY field including `apiVersion`, `kind`, `metadata.name`, `metadata.namespace`. Flux's kustomize-controller `v1.7.2` needs the resource header in plaintext to identify what it's about to decrypt; with everything encrypted it can't determine resource identity and emits a misleading "decryption failed" error. The misleading bit: the resource ID in the error log shows `misc/ENC[...]` — `misc` is the namespace (resolved from `kustomization.yaml`'s `namespace: misc` default), `ENC[...]` is the encrypted `metadata.name`. Local `sops -d` works because it walks the tree without trying to identify the resource first.
+**Real root cause** (my earlier sync-conflict-file hypothesis was wrong; Flux only sees git-tracked files, the conflict file was untracked): `kubernetes/clusters/firefly/miscellaneous/headlamp/tunnel-pr-acc-eurofiber-web.enc.yaml` was encrypted with `encrypted_regex: ^(.*)$`, i.e. EVERY field including `apiVersion`, `kind`, `metadata.name`, `metadata.namespace`. Flux's kustomize-controller `v1.7.2` needs the resource header in plaintext to identify what it's about to decrypt; with everything encrypted it can't determine resource identity and emits a misleading "decryption failed" error. The misleading bit: the resource ID in the error log shows `misc/ENC[...]`: `misc` is the namespace (resolved from `kustomization.yaml`'s `namespace: misc` default), `ENC[...]` is the encrypted `metadata.name`. Local `sops -d` works because it walks the tree without trying to identify the resource first.
 
-**Why this file was encrypted whole**: it's a proprietary work-related tunnel — a Deployment that runs nginx + `kubectl port-forward` against the `pr-acc-eurofiber` work cluster, exposing Eurofiber / Samenleving / csam3 internal hostnames. The user wanted everything hidden from the public repo. The `^(.*)$` regex was the workaround, which broke Flux.
+**Why this file was encrypted whole**: it's a proprietary work-related tunnel, a Deployment that runs nginx + `kubectl port-forward` against the `pr-acc-eurofiber` work cluster, exposing Eurofiber / Samenleving / csam3 internal hostnames. The user wanted everything hidden from the public repo. The `^(.*)$` regex was the workaround, which broke Flux.
 
 **Action taken** (per user's direction: "Move all pr-acc-eurofiber + p1 + nonprod-aks files to a PRIVATE repo"):
 
@@ -119,14 +119,14 @@ Files moved (now in `.old/work-private/`):
 3. **Syncthing**: there was also an orphan sync-conflict copy of this file (untracked, harmless to Flux but cluttery). Add `*sync-conflict*` to `.stignore` for `~/repos/calebsargeant/infra/kubernetes/clusters/firefly/miscellaneous/headlamp/` so it doesn't happen again.
 4. **Live cluster impact**: once you push, Flux's next reconcile of `misc` will SUCCEED and prune the existing `pr-acc-eurofiber-web-tunnel` Deployment/Service/Ingress from the cluster (since they're no longer in the kustomization output). Plan for re-deploying them from your private repo or 1Password before relying on work-cluster access via `headlamp.sargeant.co`.
 
-### `core` Kustomization — NOT FIXED (needs live cluster access)
+### `core` Kustomization: NOT FIXED (needs live cluster access)
 
 **Symptom:** `timeout waiting for: [DaemonSet/core/cloudflared] status: 'InProgress'`. Pods show 543 / 1872 restarts over ~101 days.
 
 **Manifest review:** [kubernetes/infrastructure/services/stack/cloudflared/base/daemonset.yaml](https://github.com/CalebSargeant/infra/blob/main/kubernetes/infrastructure/services/stack/cloudflared/base/daemonset.yaml) is clean. Secret pattern is `TUNNEL_TOKEN` from `cloudflared-token`. Two concerns visible in manifest, neither confirmed as the cause:
 
-1. **`image: cloudflare/cloudflared:latest`** — `:latest` is bad practice but unlikely to be the trigger of a 101-day chronic crashloop (image is cached on nodes).
-2. **`limits.memory: 100Mi`** with no CPU limit — cloudflared with QUIC under any real load can spike well past 100Mi → OOMKill loop. Plausible cause for ~1872 restarts.
+1. **`image: cloudflare/cloudflared:latest`**. `:latest` is bad practice but unlikely to be the trigger of a 101-day chronic crashloop (image is cached on nodes).
+2. **`limits.memory: 100Mi`** with no CPU limit: cloudflared with QUIC under any real load can spike well past 100Mi → OOMKill loop. Plausible cause for ~1872 restarts.
 
 **Most likely cause (cannot confirm without logs):** the tunnel token has been invalid since around 2026-02 (101 days ago suggests Cloudflare token rotation, deletion, or quota/permission change).
 
@@ -142,22 +142,22 @@ kubectl get events -n general-system --sort-by=.lastTimestamp | tail -30
 If logs show "Unauthorized" / "tunnel not found" → rotate the token (Cloudflare Zero Trust dashboard → existing tunnel → token), re-encrypt, redeploy.
 If logs show `OOMKilled` → bump `limits.memory` to `256Mi` in the daemonset.
 
-I did NOT change the cloudflared manifest in this session — I'd rather you confirm the cause with logs first than guess.
+I did NOT change the cloudflared manifest in this session. I'd rather you confirm the cause with logs first than guess.
 
 ### Cascading state
 
 - `automation`, `backup`, `media` → Waiting on `core` / `database`. Self-clears once those are Ready.
 - `database`, `fortivpn-gateway` → Reconciling (in progress).
-- Plex sits in `media` (depends on `database`, not on `misc` or `core`). My sync-conflict removal only touches the `misc` Kustomization graph — pushing this PR will not bounce Plex.
+- Plex sits in `media` (depends on `database`, not on `misc` or `core`). My sync-conflict removal only touches the `misc` Kustomization graph; pushing this PR will not bounce Plex.
 - **Heads-up unrelated to this session:** the two recent commits `e233f3a` and `ced3793` change Plex's image to `lscr.io/...:latest`. These are already merged but haven't reconciled yet (media is Waiting). Whenever `database` becomes Ready and `media` reconciles, Plex will restart to pick up the new image. That's a pending change in main, not a side effect of my work.
 
 ---
 
 ## 5. Phased migration
 
-Each phase ends with a verifiable green Flux state. **Plex is the canary** — verify it stays Ready at every phase boundary.
+Each phase ends with a verifiable green Flux state. **Plex is the canary**: verify it stays Ready at every phase boundary.
 
-### Phase 0 — Stabilise (1–2 sessions, no structural moves)
+### Phase 0: Stabilise (1 to 2 sessions, no structural moves)
 
 1. Fix cloudflared crashloop: decode SOPS secret, inspect tunnel credentials, restart DaemonSet.
 2. Fix `misc` SOPS error: identify the bad file, re-encrypt with current AGE recipient.
@@ -165,11 +165,11 @@ Each phase ends with a verifiable green Flux state. **Plex is the canary** — v
 4. Confirm Plex pod Ready, ingress reachable.
 5. **Acceptance:** `flux get ks -A` shows all Ready (or only intentionally-Suspended).
 
-### Phase 1 — Parallel scaffold (1 session)
+### Phase 1: Parallel scaffold (1 session)
 
 Set up the new layout **alongside** the old, no Flux changes:
 
-```
+```text
 kubernetes/
 ├── apps-new/         # build out under this name first
 ├── clusters-new/
@@ -179,15 +179,15 @@ kubernetes/
 
 This lets us verify kustomize-build of each new app in isolation (`kustomize build kubernetes/apps-new/<app>/prod/<app>`) without Flux touching anything live.
 
-### Phase 2 — Migrate apps one at a time (multi-session)
+### Phase 2: Migrate apps one at a time (multi-session)
 
-**Order — safest to riskiest:**
+**Order, safest to riskiest:**
 
-1. Stateless test apps (excalidraw, syncthing, your-spotify) — fail-soft if broken.
-2. Automation tier (atlantis, n8n, homeassistant, homebridge) — secrets need migration.
-3. Observability tier (prometheus, grafana, loki, thanos) — large but mostly HelmReleases.
-4. Database tier (cloudnative-pg, mariadb, postgres) — **wait: true required**.
-5. Core tier (cert-manager, external-secrets, 1password, cloudflared) — gates everything.
+1. Stateless test apps (excalidraw, syncthing, your-spotify): fail-soft if broken.
+2. Automation tier (atlantis, n8n, homeassistant, homebridge): secrets need migration.
+3. Observability tier (prometheus, grafana, loki, thanos): large but mostly HelmReleases.
+4. Database tier (cloudnative-pg, mariadb, postgres): **wait: true required**.
+5. Core tier (cert-manager, external-secrets, 1password, cloudflared): gates everything.
 6. **Plex last.** Migrate base + ingress + PV mapping in one PR with a kill-switch ready.
 
 **For each app:**
@@ -199,13 +199,13 @@ d. `kustomize build` test.
 e. Add the new Flux `Kustomization` CR pointing at the new path; **leave the old one in place** with `suspend: true` for one reconcile to confirm new one took over.
 f. Delete old paths + old Flux CR in a follow-up PR.
 
-### Phase 3 — Rename + delete old (1 session)
+### Phase 3: Rename + delete old (1 session)
 
 - `mv kubernetes/apps-new kubernetes/apps` etc.
 - Delete `_base/`, `clusters/firefly/`, `_components/` (or move to `.old/`).
 - Update CLAUDE.md / AGENTS.md to reflect new layout.
 
-### Phase 4 — `infra-v2` enhancements (optional)
+### Phase 4: `infra-v2` enhancements (optional)
 
 - Per-app `imagepolicy.yaml` + `imageupdateautomation.yaml` for auto-tag bumps.
 - Move from age-only to age + KMS for SOPS (cloud-portable recovery).
@@ -217,7 +217,7 @@ f. Delete old paths + old Flux CR in a follow-up PR.
 
 - **Plex outage during cutover.** Mitigation: migrate Plex last, in its own PR, with the old path kept Suspended (not deleted) for 24h. Watch `kubectl logs plex` + ingress.
 - **PV/PVC re-binding.** Some apps use `nfs-shared` and named PVs. If a manifest copy changes the PVC spec, k8s may create a new PVC and break the data link. Mitigation: diff old vs new manifests, especially `volumeName` and `storageClassName`.
-- **SOPS key handling.** The AGE key is also in `.old/`. Don't accidentally commit that path. `.old/` is gitignored — but never `git add -f` it.
+- **SOPS key handling.** The AGE key is also in `.old/`. Don't accidentally commit that path. `.old/` is gitignored, but never `git add -f` it.
 - **External-Secrets / 1Password Connect dependency loop.** Several apps pull credentials via ExternalSecret. If core breaks, dependents fail to render secrets. Migrate `core` early or keep both old and new Flux CRs active in parallel until external-secrets is healthy on the new path.
 
 ---

@@ -28,7 +28,7 @@ locals {
 
 inputs = {
   tenancy_ocid     = get_env("OCI_TENANCY_OCID", "")
-  compartment_ocid = get_env("OCI_TENANCY_OCID", "")  # Root-level policy
+  compartment_ocid = get_env("OCI_TENANCY_OCID", "") # Root-level policy
   region           = "eu-amsterdam-1"
   environment      = "prod"
 

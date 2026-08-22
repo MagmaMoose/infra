@@ -6,6 +6,7 @@ resources:
   - database-namespace.yaml
   # OCI native-cloud Postgres tier (postgres-oci CNPG cluster)
   - database-oci-namespace.yaml
+  - janeway-namespace.yaml
   # Phase E — consolidated from the now-deleted legacy category KS
   - automation-namespace.yaml
   - backup-namespace.yaml

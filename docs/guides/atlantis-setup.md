@@ -43,7 +43,7 @@ In a browser (GitHub CLI doesn't support App creation), go to https://github.com
 | GitHub App name | `atlantis-architect` or any unique name |
 | Homepage URL | `https://atlantis.sargeant.co` |
 | Webhook URL | `https://atlantis.sargeant.co/events` |
-| Webhook secret | Generate with `openssl rand -hex 32` — save it for OCI Vault |
+| Webhook secret | Generate with `openssl rand -hex 32`. Save it for OCI Vault |
 | Where can this GitHub App be installed? | **Any account** (required if you want to install it on accounts other than the App's owner) |
 
 **Repository permissions:**
@@ -139,7 +139,7 @@ Templates exist at the **active** Atlantis path (the one `prod-atlantis` Flux Ku
 - `kubernetes/apps/atlantis/base/atlantis/secret-aws.yaml.template`
 - `kubernetes/apps/atlantis/base/atlantis/secret-azure.yaml.template`
 
-(The same templates also still exist under `kubernetes/_base/automation/atlantis/` from before the Phase 2 migration — those are inert. Edit and encrypt in `kubernetes/apps/atlantis/base/atlantis/` only.)
+(The same templates also still exist under `kubernetes/_base/automation/atlantis/` from before the Phase 2 migration; those are inert. Edit and encrypt in `kubernetes/apps/atlantis/base/atlantis/` only.)
 
 For each cloud:
 
@@ -154,7 +154,7 @@ rm secret-aws.yaml
 
 These map to env vars `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `ARM_CLIENT_ID`, etc.
 
-GCP, OCI, and Cloudflare credentials are provided by the existing platform (1Password Connect / OCI Vault / configmaps) — no extra secret needed.
+GCP, OCI, and Cloudflare credentials are provided by the existing platform (1Password Connect / OCI Vault / configmaps). No extra secret needed.
 
 ## Daily Usage
 
@@ -164,7 +164,7 @@ Atlantis sees the webhook, runs `terragrunt plan` against the changed dirs, post
 
 ### 2. Review the plan
 
-The comment contains the plan diff. If it looks wrong, push more commits — autoplan re-runs.
+The comment contains the plan diff. If it looks wrong, push more commits; autoplan re-runs.
 
 ### 3. Apply
 
@@ -197,7 +197,7 @@ After apply succeeds, merge the PR. Atlantis releases the project lock.
 2. Update OCI Vault `atlantis-github-webhook-secret`.
 3. Update the App's webhook secret in https://github.com/settings/apps/atlantis-architect → Webhook.
 4. Force-sync the ExternalSecret + roll the Deployment as above.
-5. Verify by opening a test PR — if Atlantis comments, the new secret works.
+5. Verify by opening a test PR: if Atlantis comments, the new secret works.
 
 ## Troubleshooting
 
@@ -230,7 +230,7 @@ curl -sH "Authorization: Bearer $JWT" -H "Accept: application/vnd.github+json" \
 
 ### `could not parse private key: invalid key`
 
-The PEM in OCI Vault is malformed (e.g. round-tripped through `op item get` which wraps values in quotes). Re-upload directly from the original `.pem` file using `base64 -i <file>` — never via a shell variable.
+The PEM in OCI Vault is malformed (e.g. round-tripped through `op item get` which wraps values in quotes). Re-upload directly from the original `.pem` file using `base64 -i <file>`, never via a shell variable.
 
 ### `unable to create dir "/atlantis-data/...": permission denied`
 
@@ -275,15 +275,15 @@ spec:
 EOF
 ```
 
-Note: `kubectl exec` into the init container is **not** an option — init containers exit after they complete, so there's no running process to exec into.
+Note: `kubectl exec` into the init container is **not** an option. Init containers exit after they complete, so there's no running process to exec into.
 
 ### Webhook events not arriving
 
 1. App webhook URL points at `https://atlantis.sargeant.co/events` (note the path).
 2. Cloudflare Tunnel is healthy: `kubectl get ds cloudflared -n general-system` shows desired = ready.
 3. Ingress route exists: `kubectl get ingress atlantis -n automation`.
-4. Check **Recent Deliveries** on the App's Advanced page — GitHub logs each webhook attempt with the response code.
+4. Check **Recent Deliveries** on the App's Advanced page: GitHub logs each webhook attempt with the response code.
 
 ## Migrating to Atlantis Architect (v1)
 
-The Atlantis server documented here is the **v0 dogfood**. A SaaS replacement — Atlantis Architect — is in design (see `magmamoose/atlantis-architect`). When it ships, this in-cluster Atlantis becomes redundant for new repos; the existing App can be repurposed as the Atlantis Architect control-plane App by swapping its webhook URL from `https://atlantis.sargeant.co/events` to the Worker endpoint. No new credential issuance needed.
+The Atlantis server documented here is the **v0 dogfood**. A SaaS replacement, Atlantis Architect, is in design (see `magmamoose/atlantis-architect`). When it ships, this in-cluster Atlantis becomes redundant for new repos; the existing App can be repurposed as the Atlantis Architect control-plane App by swapping its webhook URL from `https://atlantis.sargeant.co/events` to the Worker endpoint. No new credential issuance needed.

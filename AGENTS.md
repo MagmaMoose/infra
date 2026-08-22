@@ -6,7 +6,7 @@ This guide provides essential architectural knowledge for AI agents working in t
 
 This monolithic repository manages a **distributed home lab** across multiple cloud providers and a local Kubernetes cluster:
 
-- **Kubernetes Core**: Single-node k3s on Raspberry Pi (primary workload cluster "firefly")
+- **Kubernetes Core**: 4-node k3s cluster "firefly" — Raspberry Pi 5 control plane, one on-prem amd64 worker, and two arm64 OCI free-tier VMs (the native-cloud tier)
 - **Cloud Infrastructure**: Multi-provider Terraform via Terragrunt (GCP, OCI, Cloudflare, AWS/Azure future)
 - **Configuration Management**: Ansible for system setup, bootstrapping, and complex provisioning
 - **GitOps Pipeline**: FluxCD v2 watches this repo and auto-deploys Kubernetes manifests
@@ -201,7 +201,9 @@ LiteLLM (`kubernetes/apps/litellm`) intentionally separates Claude Code OAuth pa
   personal or Enterprise bearer. Do not add account-specific LiteLLM models or store those
   tokens in this public repo; Nievah owns its per-GitHub-org account order.
 - The LAN/VPN ingress and service port `8080` go through the `auth-proxy` sidecar, which translates OpenAI-style `Authorization: Bearer <LiteLLM key>` into `x-litellm-api-key`.
-- Claude subscription-backed model entries should have no `litellm_params.api_key`, and should carry non-secret `model_info` metadata such as `auth_mode: claude-code-oauth-pass-through` and `billing_mode: claude-max-subscription` so the UI/API can show how the model is wired.
+- **House rule for every LiteLLM client: authenticate with `x-litellm-api-key` (value must include the `Bearer ` prefix); never put the gateway key in `Authorization` on `:4000`.** `Authorization` is reserved for a Claude Code OAuth bearer (`sk-ant-oat…`). If a client authenticates via `Authorization`, LiteLLM sets `authenticated_with_header = "authorization"` and then refuses to forward it upstream, so `-max` pass-through silently stops working. The `:8080` auth-proxy path is the sole exception (OpenAI-protocol clients cannot send custom headers). See `docs/guides/litellm-clients.md`.
+- Claude subscription-backed (`-max`) model entries must carry the **sentinel** `litellm_params.api_key: "oauth-pass-through-only-no-api-key"`, plus non-secret `model_info` metadata such as `auth_mode: claude-code-oauth-pass-through` and `billing_mode: claude-max-subscription`. **Never leave `api_key` unset on these** — an absent key is not "client must supply one"; litellm falls back to the `ANTHROPIC_API_KEY` env var, so a client that omits its OAuth bearer silently bills the operator's per-token account while the entry claims subscription billing (the 2026-08-12 finding). The sentinel makes that fail closed; a genuine `sk-ant-oat…` bearer still overrides it.
+- Do **not** set `general_settings.forward_client_headers_to_llm_api` (global — forwards every client `x-*` header to *every* provider) or `litellm_settings.forward_llm_provider_auth_headers` (lets any client override the deployment key for any model via `x-api-key`). Neither is required for OAuth pass-through: on 1.95.0 the bearer travels via `add_provider_specific_headers_to_request()`, which is unconditional and already scoped to `anthropic,bedrock,vertex_ai`. Scope header forwarding per-group with `litellm_settings.model_group_settings.forward_client_headers_to_llm_api`.
 - API-key-backed models are fine for plain OpenAI-compatible clients when they use the ingress or `:8080` proxy path.
 - Do not force LiteLLM onto `type=pi`; the Pi node can be too resource-constrained during rolling updates, and a stuck rollout leaves ingress targeting `:8080` while only the old `:4000` pod is ready. Keep LiteLLM on a memory-oriented profile (`m.nano` or larger); the process has been observed using about 1Gi at idle.
 - LiteLLM reads its YAML config at process start, and the Nginx auth-proxy mounts its config with `subPath`. When either LiteLLM ConfigMap changes, update the pod-template `checksum/config` or `checksum/auth-proxy-config` annotation in the Deployment so Flux rolls the pod and the UI/API reflects the new config.
@@ -273,6 +275,70 @@ spec:
   name: myapp
   owner: myapp
 ```
+
+### Which cluster: `postgres` or `postgres-oci`
+
+Co-locate the database with the workload. The two clusters are on opposite sides
+of the site-to-site link, and the round trip is not negligible — measured from a
+pod on ff-oci1: **5.604 ms to ff-vm1, 0.081 ms to ff-oci1**. For a chatty ORM
+application that is the dominant term in page latency (Janeway issues dozens of
+queries per render, so a 50-query page is ~280 ms of pure network wait on the
+wrong cluster).
+
+- workload on the **native-cloud** tier → `postgres-oci` in `database-oci`
+- workload on the **on-prem/worker** tier → `postgres` in `database`
+
+**Give each app its own LOGIN role**, declared in the cluster's `managed.roles`
+block with `passwordSecret` pointing at an ExternalSecret from OCI Vault — the
+shape `neondb_owner` and `admin` already use on `postgres`, and `janeway` now
+uses on `postgres-oci`. CNPG then reconciles the password from the vault, so it
+cannot drift, and rotating the vault entry rotates the credential.
+
+Do NOT reuse the cluster's `app` role (dunmir does, for historical reasons). It
+owns other applications' databases, so sharing it means either application's
+credentials can read the other's data — and because CNPG generates that
+password rather than taking it from the vault, reading it needs a
+ServiceAccount + Role + RoleBinding + kubernetes-provider `SecretStore` hop, a
+Role whose whole purpose is reading Secrets. A managed role removes all four
+objects. `postgres-oci` runs `enableSuperuserAccess: false`; that is fine,
+because `citext` and `btree_gin` are TRUSTED extensions in PG13+ and a database
+owner can create them.
+
+### Trivy KSV-0040: do not add a per-namespace ResourceQuota
+
+Counter-intuitive, and it cost an afternoon. Trivy's KSV-0040 ("a resource quota
+policy with hard memory and CPU limits should be configured per namespace") is
+evaluated per FILE across a directory scan: adding a `ResourceQuota` anywhere in
+an app tree makes it fire on **every other file in that tree**, and satisfying
+it in one file does not satisfy the others. Removing the ResourceQuota removes
+all of them. Since Kyverno's `default-limitrange` policy already generates a
+LimitRange in every namespace, and no other app here has a quota, the answer is
+simply not to add one. Namespaces also belong in
+`kubernetes/infrastructure/configs/namespaces/` rather than beside app
+manifests — that directory holds nothing but Namespace objects, so it stays
+clean.
+
+### Shared Valkey — database index registry
+
+`valkey.database.svc.cluster.local:6379` is authless and shared. **Claim an
+unused database index and record it here**, because Django's
+`RedisCache.clear()` (and any client's `FLUSHDB`) wipes a whole index — an app
+pointed at someone else's index destroys their data on an ordinary operation.
+
+| index | consumer |
+|---|---|
+| 0 | DefectDojo (Celery broker) |
+| 4 | authentik |
+| 6 | Janeway (Django cache) |
+
+It is configured as a **broker**, not a cache: `--appendonly yes
+--maxmemory 1gb --maxmemory-policy noeviction`. `noeviction` is deliberate (a
+queue that drops keys loses tasks) but means a full instance returns write
+errors rather than evicting, so a cache consumer must set TTLs on everything it
+writes. If a consumer ever needs untimed keys, move to `volatile-lru` — which
+evicts only keys that have an expiry, leaving broker queues alone — rather than
+raising `maxmemory` again. Keep the container memory request above `maxmemory`
+or the kubelet OOM-kills it before Valkey applies its own policy.
 
 ### Migrating Away from SQLite
 

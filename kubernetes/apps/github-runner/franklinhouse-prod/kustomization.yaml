@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Holds only the Flux Kustomization CR that reconciles ../franklinhouse onto the
+# franklinhouse cluster — the same split firefly uses (./prod holds the CR, the manifests
+# live elsewhere). Referenced from kubernetes/clusters/franklinhouse/kustomization.yaml
+# and deliberately ABSENT from kubernetes/apps/kustomization.yaml, which is firefly's app
+# set (COMMON_MISTAKES #21).
+resources:
+  - flux-kustomization.yaml

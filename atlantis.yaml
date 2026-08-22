@@ -27,6 +27,82 @@ parallel_apply: false
 # explicitly lists every shared file it depends on via `..` relative paths.
 
 projects:
+  # ─── AWS ─────────────────────────────────────────────────────────────────
+  # TRANSITIONAL. Atlantis is slated for replacement by Effusion
+  # (CalebSargeant/agent-personal#9). These two entries exist because Atlantis is what runs
+  # today; when Effusion lands, the AWS leaves should be the FIRST to move — a GitHub Actions
+  # runner assumes an AWS role by OIDC per run, which removes the need for the long-lived
+  # `atlantis-aws` credential entirely rather than merely scoping it.
+  # ORDER MATTERS ON A COLD START. `artifacts` creates the bucket nievah publishes the Lambda
+  # zip into and the OIDC role it publishes with; `nievah-frontdoor` points at an object in
+  # that bucket. First run: apply artifacts, run nievah's publish-edge workflow once, then
+  # apply the front door. After that the terragrunt `dependency` block keeps them in order and
+  # a deploy is a one-line bump of `edge_artifact_version`.
+  #
+  # `parallel_apply: false` above already serialises applies, so the two cannot race.
+  - name: aws-artifacts-prod
+    dir: terraform/aws/prod/eu-west-1/artifacts
+    workspace: default
+    terraform_version: v1.11.3
+    workflow: terragrunt
+    autoplan:
+      when_modified: ["**/*.tf", "**/*.tfvars", "**/*.hcl"]
+      enabled: true
+    apply_requirements: [mergeable]
+
+  # `when_modified` globs are relative to `dir` and cannot reach `../../../modules/**`, so a
+  # change to the module alone does NOT autoplan this — see the note above. Comment
+  # `atlantis plan -p aws-nievah-frontdoor-prod` on the PR when only the module changed.
+  - name: aws-nievah-frontdoor-prod
+    dir: terraform/aws/prod/eu-west-1/nievah-frontdoor
+    workspace: default
+    terraform_version: v1.11.3
+    workflow: terragrunt
+    autoplan:
+      when_modified: ["**/*.tf", "**/*.tfvars", "**/*.hcl"]
+      enabled: true
+    apply_requirements: [mergeable]
+
+  # NO PROJECT FOR terraform/aws/prod/eu-west-1/cost-report, deliberately.
+  #
+  # It is the one AWS leaf that applies into the ORGANISATION'S MANAGEMENT ACCOUNT
+  # (857256953358) rather than prd-nievah, so registering it here would need Atlantis to hold
+  # a second AWS credential — for the account that can do the most damage in the organisation,
+  # to run a report that reads costs. That is a straightforwardly bad trade against a leaf
+  # that changes perhaps twice a year, so it is applied by hand with `AWS_PROFILE=mm-root`.
+  #
+  # Listing it without that credential would be worse than omitting it: every PR touching the
+  # leaf would autoplan, fail on credentials, and train everyone to ignore a red Atlantis
+  # check. Revisit when Effusion lands and a per-run OIDC role makes the credential free.
+
+  # NO PROJECT FOR terraform/aws/prod/eu-west-1/caldrith-frontdoor, deliberately, and for the
+  # same reason as cost-report above: it applies into a THIRD account, prd-caldrith
+  # (483461801743), and Atlantis holds the prd-nievah credential only. Adding the project
+  # without a credential for that account would be worse than omitting it — the leaf generates
+  # `allowed_account_ids = ["483461801743"]` while Atlantis authenticates as prd-nievah, so
+  # every autoplan would fail on the account guard, and a red check nobody can fix is a red
+  # check everyone learns to ignore.
+  #
+  # So it is applied by hand with `AWS_PROFILE=mm-prd-caldrith`, and the ordering in the leaf's own
+  # cold-start block is the runbook. If Atlantis is ever to run it, give Atlantis a prd-caldrith
+  # credential first and add the project entry alongside aws-nievah-frontdoor-prod; the better
+  # answer is Effusion's per-run OIDC role, which makes the credential free.
+  # NO PROJECTS FOR terraform/aws/chargate/**, for exactly the same reason.
+  #
+  # Chargate's front door lives in its OWN member account (495408387666), as nievah's does in
+  # 666802049426 and caldrith's will in 483461801743 — one account per service front door, for
+  # blast-radius isolation and per-account SCPs (#641). Atlantis holds ONE AWS credential, and
+  # it is nievah's; it cannot assume into chargate's account, so registering these leaves would
+  # produce a permanently red autoplan on every PR that touched them. Per the note above, that
+  # is worse than omitting them.
+  #
+  # They are applied by hand with `AWS_PROFILE=mm-prd-chargate`, and the deploy they exist to
+  # serve is a one-line bump of `broker_artifact_version` a few times a year.
+  #
+  # This is now the SECOND leaf pair Atlantis cannot reach, which makes it the argument for
+  # Effusion rather than a footnote to it: a GitHub Actions runner assuming a per-run OIDC role
+  # per account removes the credential problem entirely instead of scoping around it.
+
   # ─── Cloudflare ──────────────────────────────────────────────────────────
   - name: cloudflare-dns-prod
     dir: terraform/cloudflare/dns/prod

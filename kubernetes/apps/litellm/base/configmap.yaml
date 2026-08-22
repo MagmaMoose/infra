@@ -5,13 +5,18 @@ metadata:
   namespace: automation
 data:
   config.yaml: |
-    # LiteLLM proxy. Claude models use per-token Anthropic API billing via
-    # ANTHROPIC_API_KEY (OCI Vault -> ExternalSecret -> Deployment env). The
-    # earlier Claude Max-subscription OAuth pass-through has been removed
-    # (no forward_*_headers; the Claude entries now carry an api_key). The
-    # gateway still authenticates clients via the master key in the
-    # x-litellm-api-key header (the nginx auth-proxy maps OpenAI-style
-    # `Authorization: Bearer` onto it for OpenAI-protocol clients).
+    # LiteLLM proxy. Two Claude paths coexist:
+    #   * `claude-*`      — per-token Anthropic API billing via ANTHROPIC_API_KEY
+    #                       (OCI Vault -> ExternalSecret -> Deployment env).
+    #   * `claude-*-max`  — Claude Code OAuth pass-through, billed to whichever
+    #                       Max subscription the CLIENT's bearer belongs to.
+    #
+    # HOUSE RULE for clients: authenticate to the gateway with `x-litellm-api-key`
+    # ONLY. `Authorization` is reserved for a Claude Code OAuth bearer on the
+    # direct :4000 path. Never send the gateway key in `Authorization` to :4000.
+    # (The nginx auth-proxy on :8080 exists precisely so OpenAI-protocol clients,
+    # which can only use `Authorization`, get mapped onto x-litellm-api-key.)
+    # See docs/guides/litellm-clients.md.
     model_list:
       - model_name: claude-opus-4-8
         litellm_params:
@@ -23,7 +28,7 @@ data:
           auth_mode: anthropic-api-key
           billing_mode: anthropic-api
           credential_source: oci-vault:litellm-anthropic-api-key
-          notes: "Per-token Anthropic API billing via ANTHROPIC_API_KEY. OAuth subscription pass-through removed."
+          notes: "Per-token Anthropic API billing via ANTHROPIC_API_KEY. Always uses the operator's key; the client's Authorization is never used here (clean_headers drops any non-sk-ant-oat bearer). For subscription billing use the -max alias instead."
       - model_name: claude-sonnet-4-6
         litellm_params:
           model: anthropic/claude-sonnet-4-6
@@ -34,7 +39,7 @@ data:
           auth_mode: anthropic-api-key
           billing_mode: anthropic-api
           credential_source: oci-vault:litellm-anthropic-api-key
-          notes: "Per-token Anthropic API billing via ANTHROPIC_API_KEY. OAuth subscription pass-through removed."
+          notes: "Per-token Anthropic API billing via ANTHROPIC_API_KEY. Always uses the operator's key; the client's Authorization is never used here (clean_headers drops any non-sk-ant-oat bearer). For subscription billing use the -max alias instead."
       - model_name: claude-haiku-4-5
         litellm_params:
           model: anthropic/claude-haiku-4-5
@@ -45,43 +50,58 @@ data:
           auth_mode: anthropic-api-key
           billing_mode: anthropic-api
           credential_source: oci-vault:litellm-anthropic-api-key
-          notes: "Per-token Anthropic API billing via ANTHROPIC_API_KEY. OAuth subscription pass-through removed."
+          notes: "Per-token Anthropic API billing via ANTHROPIC_API_KEY. Always uses the operator's key; the client's Authorization is never used here (clean_headers drops any non-sk-ant-oat bearer). For subscription billing use the -max alias instead."
       # --- Claude Code Max OAuth pass-through (subscription-billed) ---
       # Restores the pre-eeab55b pass-through as SEPARATE -max names so the API-key
       # entries above keep serving per-token billing (openclaw). Clients (Nievah's
       # headless reviews) authenticate to LiteLLM with x-litellm-api-key and carry
       # their own Claude Code OAuth bearer in Authorization, which LiteLLM forwards
-      # upstream. No API key is configured on these entries.
+      # upstream.
+      #
+      # api_key MUST be set to the non-secret sentinel below. Leaving it unset does
+      # NOT mean "client credential required" — litellm resolves a missing api_key
+      # through AnthropicModelInfo.get_api_key(None), which falls back to the
+      # ANTHROPIC_API_KEY env var. A client that omitted the OAuth bearer therefore
+      # billed the operator's per-token Anthropic account while the entry claimed
+      # billing_mode: claude-max-subscription (verified on 1.95.0: Anthropic
+      # answered such a call with an authenticated billing error + request_id).
+      # The sentinel makes that case fail closed at Anthropic instead; a client
+      # that DOES send `Authorization: Bearer sk-ant-oat...` still overrides it,
+      # because optionally_handle_anthropic_oauth() prefers the OAuth header and
+      # drops x-api-key entirely.
       - model_name: claude-opus-4-8-max
         litellm_params:
           model: anthropic/claude-opus-4-8
+          api_key: "oauth-pass-through-only-no-api-key"
         model_info:
           mode: chat
           base_model: anthropic/claude-opus-4-8
           auth_mode: claude-code-oauth-pass-through
           billing_mode: claude-max-subscription
           credential_source: client_authorization_header
-          notes: "Max-subscription pass-through: LiteLLM forwards the client's Claude Code OAuth bearer upstream."
+          notes: "Max-subscription pass-through: LiteLLM forwards the client's Claude Code OAuth bearer upstream. REQUIRES the client to send Authorization: Bearer sk-ant-oat...; without it the request fails closed at Anthropic on the sentinel api_key rather than falling back to the operator's ANTHROPIC_API_KEY."
       - model_name: claude-sonnet-4-6-max
         litellm_params:
           model: anthropic/claude-sonnet-4-6
+          api_key: "oauth-pass-through-only-no-api-key"
         model_info:
           mode: chat
           base_model: anthropic/claude-sonnet-4-6
           auth_mode: claude-code-oauth-pass-through
           billing_mode: claude-max-subscription
           credential_source: client_authorization_header
-          notes: "Max-subscription pass-through: LiteLLM forwards the client's Claude Code OAuth bearer upstream."
+          notes: "Max-subscription pass-through: LiteLLM forwards the client's Claude Code OAuth bearer upstream. REQUIRES the client to send Authorization: Bearer sk-ant-oat...; without it the request fails closed at Anthropic on the sentinel api_key rather than falling back to the operator's ANTHROPIC_API_KEY."
       - model_name: claude-haiku-4-5-max
         litellm_params:
           model: anthropic/claude-haiku-4-5
+          api_key: "oauth-pass-through-only-no-api-key"
         model_info:
           mode: chat
           base_model: anthropic/claude-haiku-4-5
           auth_mode: claude-code-oauth-pass-through
           billing_mode: claude-max-subscription
           credential_source: client_authorization_header
-          notes: "Max-subscription pass-through: LiteLLM forwards the client's Claude Code OAuth bearer upstream."
+          notes: "Max-subscription pass-through: LiteLLM forwards the client's Claude Code OAuth bearer upstream. REQUIRES the client to send Authorization: Bearer sk-ant-oat...; without it the request fails closed at Anthropic on the sentinel api_key rather than falling back to the operator's ANTHROPIC_API_KEY."
       - model_name: qwen2.5-coder-7b-instruct-local
         litellm_params:
           model: ollama_chat/qwen2.5-coder:7b-instruct-q4_K_M
@@ -182,17 +202,35 @@ data:
           credential_source: oci-vault:litellm-deepseek-api-key
     general_settings:
       master_key: os.environ/LITELLM_MASTER_KEY
-      # Forward the client's Authorization (the Claude OAuth token) to Anthropic for
-      # the -max pass-through entries. NOTE: this is a GLOBAL flag; it was removed in
-      # eeab55b because forwarded bearers can upset per-token API entries. Watch
-      # openclaw after rollout (see PR body).
-      forward_client_headers_to_llm_api: true
+      # NOTE: `forward_client_headers_to_llm_api` is deliberately NOT set here.
+      # As a global flag it forwarded every client `x-*` header to EVERY provider
+      # (OpenAI, DeepSeek, Ollama), not just the Claude pass-through entries. It is
+      # now scoped to the -max model groups under litellm_settings below.
+      #
+      # It was never what made the Claude OAuth pass-through work. On 1.95.0 the
+      # bearer travels via add_provider_specific_headers_to_request(), which is
+      # called unconditionally and is already scoped to anthropic/bedrock/vertex_ai;
+      # _get_forwardable_headers() only ever forwards `x-*` and `anthropic-beta`,
+      # never Authorization.
+      #
       # Dedicated header for the proxy master key. The nginx auth-proxy maps
       # OpenAI-style `Authorization: Bearer` onto this header for OpenAI-protocol
       # clients (Warp, Codex, Hermes, the OpenAI SDK).
       litellm_key_header_name: x-litellm-api-key
     litellm_settings:
-      # Forward provider-specific auth headers such as Claude's OAuth bearer token
-      # (pairs with forward_client_headers_to_llm_api above; pre-eeab55b behaviour).
-      forward_llm_provider_auth_headers: true
+      # Least-privilege replacement for the old global flag: forward client headers
+      # ONLY for the Claude Max pass-through groups. Anything not listed here (the
+      # per-token Anthropic/OpenAI/DeepSeek entries, the local Ollama models) gets
+      # no client headers forwarded upstream at all.
+      model_group_settings:
+        forward_client_headers_to_llm_api:
+          - claude-opus-4-8-max
+          - claude-sonnet-4-6-max
+          - claude-haiku-4-5-max
+      # NOTE: `forward_llm_provider_auth_headers` is deliberately NOT set.
+      # It is not required for the Claude OAuth pass-through (verified on 1.95.0:
+      # clean_headers() preserves an `sk-ant-oat*` Authorization regardless of this
+      # flag). What it DOES enable is litellm_pre_call_utils.py:1405 — any client
+      # may send `x-api-key: <anything>` and have it override the deployment's
+      # configured key for ANY model, and have that key forwarded upstream.
       drop_params: true

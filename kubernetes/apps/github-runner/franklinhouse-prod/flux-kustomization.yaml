@@ -1,0 +1,39 @@
+# kics-scan disable=48a5beba-e4c0-4584-a2aa-e6894e4cf424,4a20ebac-1060-4c81-95d1-1f7f620e983b,1db3a5a5-bf75-44e5-9e44-c56cfc8b1ac5
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  # Name differs from firefly's `prod-github-runner` because both clusters' Flux
+  # Kustomizations live in the same git tree and are read by humans side by side; the
+  # cluster prefix is what makes `flux get kustomizations` legible.
+  name: franklinhouse-github-runner
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./kubernetes/apps/github-runner/franklinhouse
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  # ONE Helm install today (the controller), which lays down four CRDs and waits on a
+  # controller Deployment. Both scale sets are held out of the overlay until franklinhouse
+  # has capacity for them — see the deployment gate in ../franklinhouse/kustomization.yaml.
+  # Restore "three Helm installs" here when both are re-added.
+  #
+  # `wait: true` is what turned an unschedulable controller pod into a Stalled
+  # HelmRelease rather than a silent no-op, so it stays: with these two scale sets
+  # depending on the controller, a controller that is Ready-in-name-only is worse than a
+  # loud failure.
+  timeout: 10m
+  wait: true
+  # base/externalsecret.yaml needs external-secrets reconciling before it can produce
+  # `arc-github-app`, and neither scale-set listener starts without that Secret.
+  #
+  # franklinhouse's external-secrets lives in its own cluster-local infrastructure tier
+  # (kubernetes/clusters/franklinhouse/infrastructure), NOT the shared
+  # `infrastructure-controllers` that firefly's copy of this file depends on.
+  dependsOn:
+    - name: infrastructure-controllers
+  # The GitHub App private key comes from OCI Vault via ESO, so nothing here is
+  # SOPS-encrypted and no `decryption:` stanza is needed. Note that franklinhouse reads a
+  # DIFFERENT OCI tenancy's vault than firefly — `nievah-github-private-key` had to be
+  # copied into vault-franklinhouse for this to resolve.

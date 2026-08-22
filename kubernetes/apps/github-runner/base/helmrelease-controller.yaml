@@ -64,16 +64,19 @@ spec:
     serviceAccount:
       create: true
 
-    # Set in chart values for the same reason as nodeSelector: the Kyverno
-    # assign-priority-class policy cannot reach a chart-rendered Deployment.
-    # `medium`, not `low`: if this dies, in-flight jobs are orphaned and no new runner
-    # can be created at all — it is the CI control plane, while the runners themselves
-    # are genuinely restartable batch work and are `low`.
-    priorityClassName: medium
-
-    nodeSelector:
-      topology.sargeant.co/tier: native-cloud
-
+    # NO priorityClassName / nodeSelector HERE — they are injected per cluster by the
+    # overlays (../firefly, ../franklinhouse) as a JSON6902 patch on this HelmRelease.
+    #
+    # They used to live here, and that was a latent outage: `priorityClassName: medium`
+    # names a PriorityClass that exists on firefly but NOT on franklinhouse, where only
+    # the two built-in system-* classes are defined. A pod naming a non-existent
+    # PriorityClass is rejected outright, so the moment this base was shared with a
+    # second cluster the ARC controller there would have been permanently unschedulable —
+    # and the HelmRelease would still have reported Ready, because the Deployment applies
+    # fine and only the *pod* is refused.
+    #
+    # Both values are set in chart values rather than left to Kyverno because the
+    # assign-priority-class / placement policies cannot reach a chart-rendered Deployment.
     resources:
       requests:
         cpu: 25m

@@ -12,11 +12,11 @@ locals {
 }
 
 inputs = {
-  tenancy_ocid       = get_env("OCI_TENANCY_OCID", "")
-  user_ocid          = get_env("OCI_USER_OCID", "")
-  fingerprint        = get_env("OCI_FINGERPRINT", "")
-  private_key_path   = get_env("OCI_PRIVATE_KEY_PATH", "")
-  region             = local.region_vars.locals.region
-  compartment_ocid   = get_env("OCI_COMPARTMENT_OCID", "")
-  environment        = local.environment_vars.locals.environment
+  tenancy_ocid     = get_env("OCI_TENANCY_OCID", "")
+  user_ocid        = get_env("OCI_USER_OCID", "")
+  fingerprint      = get_env("OCI_FINGERPRINT", "")
+  private_key_path = get_env("OCI_PRIVATE_KEY_PATH", "")
+  region           = local.region_vars.locals.region
+  compartment_ocid = get_env("OCI_COMPARTMENT_OCID", "")
+  environment      = local.environment_vars.locals.environment
 }

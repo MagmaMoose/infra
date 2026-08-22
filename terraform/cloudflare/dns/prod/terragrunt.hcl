@@ -159,27 +159,6 @@ inputs = {
       proxied = true
     },
 
-    # TEMPORARY — until Tucows lifts the clientHold on magmamoose.com.
-    # See memory: project_magmamoose-clienthold-swap.md. Once the hold
-    # is lifted (whois magmamoose.com no longer lists `clientHold`), drop
-    # these two records and the matching ingress_rules in
-    # terraform/cloudflare/zero-trust/prod/tunnels.tf and the API-managed
-    # Access app "Comment Commander Pro (sargeant.co swap)" (aud
-    # 3c5f1f326b45...) — comment-commander[-pro].magmamoose.com will
-    # start resolving again and the magmamoose ingress_rules already in
-    # tunnels.tf will pick traffic up.
-    {
-      name    = "comment-commander.sargeant.co"
-      type    = "CNAME"
-      value   = "7694eb38-c35e-4905-bd2b-16ab7053080a.cfargotunnel.com"
-      proxied = true
-    },
-    {
-      name    = "comment-commander-pro.sargeant.co"
-      type    = "CNAME"
-      value   = "7694eb38-c35e-4905-bd2b-16ab7053080a.cfargotunnel.com"
-      proxied = true
-    },
 
     # ── AppSec / dev tooling on firefly (#394) ───────────────────────────────
     # Each pairs with a tunnel ingress_rule in

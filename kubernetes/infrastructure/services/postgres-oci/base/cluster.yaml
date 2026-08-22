@@ -93,6 +93,42 @@ spec:
       database: app
       owner: app
 
+  managed:
+    # CNPG reconciles ONLY the roles declared here; every other role (postgres,
+    # app, ...) is left untouched.
+    #
+    # IMPORTANT: a managed role's attributes are reconciled to EXACTLY what is
+    # declared — any attribute omitted is reset to the CNPG default. So each
+    # role below lists its full attribute set verbatim.
+    roles:
+      # `janeway` — owns the `janeway` database and nothing else.
+      #
+      # A dedicated role rather than reusing `app` (which dunmir does) for two
+      # reasons. It is the isolation the shared role does not give: `app` owns
+      # dunmir's database too, so sharing it would let either application's
+      # credentials read the other's data. And it means the password can live in
+      # OCI Vault and be enforced from there, exactly as neondb-owner is on the
+      # `postgres` cluster — rather than the application having to read the
+      # CNPG-generated `postgres-oci-app` Secret out of this namespace, which
+      # needs a cross-namespace RBAC grant to read Secrets.
+      #
+      # No createdb/createrole/superuser: Janeway migrates a database it has
+      # already been given. It does need to create EXTENSIONS (citext, in the
+      # very first migration), but citext and btree_gin are TRUSTED extensions
+      # in PG13+, so the database owner can create them without superuser.
+      - name: janeway
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        inherit: true
+        replication: false
+        bypassrls: false
+        connectionLimit: -1
+        passwordSecret:
+          name: janeway-db
+
   monitoring:
     enablePodMonitor: true
 

@@ -1,0 +1,12 @@
+# No provider or backend block — Terragrunt's root.hcl generates both. See the note in
+# ../nievah-frontdoor/versions.tf.
+terraform {
+  required_version = ">= 1.9"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
+    }
+  }
+}

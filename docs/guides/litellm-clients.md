@@ -18,6 +18,44 @@ usage tracking + the LiteLLM admin UI.
 - **Model names:** clients request a `model_name` from the proxy's `config.yaml`
   (`claude-opus-4-8`, `claude-sonnet-4-6`, `claude-haiku-4-5`, …).
 
+## 🔑 House rule: send `x-litellm-api-key`, never `Authorization`
+
+**Every client of this gateway authenticates with the `x-litellm-api-key` header.
+`Authorization` is reserved for one thing only: a Claude Code OAuth bearer
+(`sk-ant-oat…`) on a `-max` model.**
+
+```http
+POST /v1/chat/completions
+x-litellm-api-key: Bearer sk-<your LiteLLM virtual key>     ✅ gateway auth
+Authorization:     Bearer sk-ant-oat...                     ✅ ONLY for -max models
+```
+
+```http
+Authorization: Bearer sk-<your LiteLLM virtual key>          ❌ never on :4000
+```
+
+Note the `Bearer ` prefix is required **inside** `x-litellm-api-key` too — LiteLLM
+rejects a bare key with `Malformed API Key passed in. Ensure Key has 'Bearer ' prefix.`
+
+Why it matters:
+
+- Keeping the two credentials in separate headers is what lets LiteLLM tell
+  "who is allowed to use the gateway" apart from "whose Claude subscription pays".
+  If you authenticate with `Authorization`, LiteLLM sets
+  `authenticated_with_header = "authorization"` and then *deliberately* refuses to
+  forward that header upstream — so OAuth pass-through silently stops working and
+  you land on whatever the model entry's own credential is.
+- **The one exception is the `:8080` auth-proxy path** (the LAN/VPN ingress, the
+  in-cluster `:8080` URL, and the public `litellm-warp.sargeant.co` tunnel). It
+  exists because OpenAI-protocol clients *cannot* send a custom header; the nginx
+  sidecar copies `Authorization` into `x-litellm-api-key` for them. Those clients
+  are per-token only and can never reach the Max subscription.
+
+Sending the gateway key in `Authorization` is not a credential-leak risk — LiteLLM's
+`clean_headers()` drops any bearer that is not `sk-ant-oat…`, so your virtual key is
+never forwarded to Anthropic, OpenAI, or DeepSeek. It is a **correctness** rule: it is
+the difference between a `-max` call billing your subscription and failing outright.
+
 ## Warp custom inference
 
 Warp's custom inference requests are made by Warp's backend, so the endpoint must
@@ -44,13 +82,34 @@ Spend alone does **not** prove whether a request used an API key or Claude Code
 OAuth; LiteLLM can estimate/display spend for either path. The source of truth is
 the model config:
 
-- The Claude subscription models have **no** `litellm_params.api_key`.
-- `general_settings.forward_client_headers_to_llm_api: true` forwards the client's
-  Claude Code `Authorization` bearer token upstream.
-- `litellm_settings.forward_llm_provider_auth_headers: true` allows provider auth
-  headers to pass through rather than being treated only as proxy credentials.
+- The Claude subscription (`-max`) models carry a deliberately invalid sentinel
+  `litellm_params.api_key` (`oauth-pass-through-only-no-api-key`). **Do not "clean
+  this up" by removing it.** An absent `api_key` does not mean "client must supply
+  one" — LiteLLM resolves it via `AnthropicModelInfo.get_api_key(None)`, which falls
+  back to the `ANTHROPIC_API_KEY` env var. Until 2026-08-12 that meant a client which
+  omitted its OAuth bearer silently billed the operator's per-token Anthropic account
+  while the entry advertised `billing_mode: claude-max-subscription`. The sentinel
+  makes that case fail closed at Anthropic; a real `sk-ant-oat…` bearer still
+  overrides it, because `optionally_handle_anthropic_oauth()` prefers the OAuth
+  header and drops `x-api-key`.
+- `litellm_settings.model_group_settings.forward_client_headers_to_llm_api` lists
+  **only** the three `-max` groups. It used to be `general_settings.
+  forward_client_headers_to_llm_api: true`, a global that forwarded every client
+  `x-*` header to *every* provider (OpenAI, DeepSeek, Ollama) — not just Claude.
 - `general_settings.litellm_key_header_name: x-litellm-api-key` keeps LiteLLM
   gateway auth separate from the Claude OAuth bearer token.
+
+> **What actually carries the OAuth bearer.** Neither
+> `forward_client_headers_to_llm_api` nor `forward_llm_provider_auth_headers` is what
+> makes pass-through work — verified against the running 1.95.0 image.
+> `_get_forwardable_headers()` only ever forwards `x-*` and `anthropic-beta`, never
+> `Authorization`. The bearer travels via `add_provider_specific_headers_to_request()`,
+> which is called unconditionally and is already scoped to `anthropic,bedrock,vertex_ai`
+> — so a Claude OAuth token can never leak to OpenAI or DeepSeek. Do not re-add either
+> flag believing pass-through depends on it. In particular
+> `forward_llm_provider_auth_headers: true` lets **any** client send
+> `x-api-key: <anything>` and override the deployment's configured key for **any**
+> model (`litellm_pre_call_utils.py:1405`); it is intentionally unset.
 - Each Claude model has `model_info.auth_mode: claude-code-oauth-pass-through` and
   `model_info.billing_mode: claude-max-subscription`; this metadata should show on
   model detail views/API responses even though it is not secret material.
@@ -78,11 +137,11 @@ There are two ways the proxy talks upstream:
 
 | Path | Who | Billing | How |
 |---|---|---|---|
-| **Subscription** | **Claude Code only** (incl. the diatreme dispatcher) | Flat-rate Max plan | Claude Code forwards its **OAuth** token in `Authorization`; LiteLLM forwards it upstream (`forward_client_headers_to_llm_api` and `forward_llm_provider_auth_headers`). Gateway is authed via the `x-litellm-api-key` header. |
+| **Subscription** | **Claude Code only** (incl. the diatreme dispatcher), `-max` models | Flat-rate Max plan | Claude Code sends its **OAuth** token in `Authorization`; LiteLLM relays it to Anthropic via `add_provider_specific_headers_to_request()`. Gateway is authed separately via `x-litellm-api-key`. **Omit the OAuth token and the call now fails** rather than falling through to the operator's API key. |
 | **Per-token (API key)** | **Codex, OpenCode, OpenAI Agents SDK**, anything OpenAI-protocol | Per-token on a provider account | The client sends a LiteLLM virtual key in `Authorization` to the LAN/VPN or `:8080` proxy path; the proxy maps it to `x-litellm-api-key`; LiteLLM calls the provider with its configured `api_key`. |
 
 The three tools below put a **key** in `Authorization`, so they **cannot use the
-Claude Max subscription** — that's exclusive to Claude Code's OAuth. To use them
+Claude Max subscription**. That's exclusive to Claude Code's OAuth. To use them
 through LiteLLM you must add at least one **API-key'd model** to the proxy, e.g.:
 
 ```yaml
