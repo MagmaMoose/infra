@@ -1,0 +1,29 @@
+---
+# Chart source for the Janeway release. The chart is published as an OCI
+# artifact from MagmaMoose/charts — there is no chart index to fetch and no HTTP
+# repository to add.
+#
+# HelmRepository rather than OCIRepository on purpose: a HelmRelease pointed at
+# an OCIRepository has to name one immutable artifact revision, while this shape
+# keeps the `chart` + semver `version` range that every other HelmRelease in
+# this repo uses, so a chart release is picked up without a commit here.
+#
+# NAME: `magmamoose-charts`, not `calebsargeant-charts`. An object of that name
+# already exists in flux-system pointing at this exact URL, owned by the
+# `prod-finance-source` Kustomization — declaring a second one with that name
+# would make two Kustomizations fight over the same object. A second source
+# object costs nothing and keeps janeway's readiness independent of finance's.
+#
+# No secretRef: MagmaMoose/charts is public and in the same org as this repo,
+# the same reasoning as kubernetes/apps/github-runner/base/helmrepository.yaml.
+# The IMAGE is a different question — it is private and in another org, and gets
+# its own credential in the workload overlay.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: magmamoose-charts
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 10m
+  url: oci://ghcr.io/magmamoose/charts

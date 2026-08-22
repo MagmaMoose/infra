@@ -1,0 +1,57 @@
+---
+# Control plane: the OCI chart source and the namespace. These live in THIS repo
+# under base/ and are applied from the flux-system source. Must reconcile before
+# the workload, which references the HelmRepository it creates.
+#
+# wait: false on purpose, and for the same reason platform2's source bundle sets
+# it: the HelmRepository stays NotReady until the first chart is published to
+# ghcr.io/magmamoose/charts/janeway. With wait: true a NotReady source would
+# hang this Kustomization and, through the dependsOn below, block the namespace
+# and the CNPG Database from ever being applied — so nothing an operator could
+# pre-provision would land either.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: prod-janeway-source
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./kubernetes/apps/janeway/base
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  timeout: 2m
+  wait: false
+---
+# Workload: the HelmRelease plus everything firefly has to hand it — the CNPG
+# Database on the shared postgres-oci cluster, the mirror of that cluster's `app`
+# role password, the OCI-Vault ExternalSecrets, and the GHCR pull credential.
+# Deploy config is firefly-specific, so it lives in this infra repo and is pulled
+# from the flux-system source; only the chart comes from MagmaMoose/charts.
+#
+# timeout is 25m rather than the usual 10m: on a FIRST install the chart runs
+# `manage.py migrate` through 646 migrations as a pre-install hook and then a
+# bootstrap hook that loads ~900 default settings, on 2-vCPU arm64 nodes. The
+# HelmRelease's own install.timeout is 20m, so this has to be longer or Flux
+# gives up on a release that is still legitimately working.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: prod-janeway
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./kubernetes/apps/janeway/prod/workload
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  timeout: 25m
+  wait: true
+  dependsOn:
+    - name: prod-janeway-source
+    # infrastructure-services brings up the postgres-oci cluster the Database CR
+    # attaches to, the shared Valkey the cache points at, and the cloudflared
+    # tunnel that publishes the Service.
+    - name: infrastructure-services

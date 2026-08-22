@@ -1,3 +1,34 @@
+# Trivy misconfiguration IDs suppressed repo-wide, with the reason each is here.
+#
+# Scoped deliberately: this file is NOT a place to silence findings that are
+# merely inconvenient. Each entry has to be a rule that is wrong for this estate
+# rather than one this estate is failing.
+
+# KSV-0040 — "a resource quota policy with hard memory and CPU limits should be
+# configured per namespace".
+#
+# Suppressed because it is inapplicable here, and because leaving it on makes
+# the required `chargate` check block every pull request that adds a Kubernetes
+# manifest anywhere.
+#
+# Inapplicable: this cluster does not use per-namespace ResourceQuotas. The
+# Kyverno ClusterPolicy `default-limitrange`
+# (kubernetes/apps/kyverno-policies/base/clusterpolicy-default-limitrange.yaml)
+# generates a LimitRange in every namespace instead, with
+# `defaultRequest: {cpu: 10m, memory: 64Mi}` and deliberately no default limit —
+# "it exists to make unset impossible, not to size anything". A quota that
+# declared `limits.cpu` would go further and FORCE a CPU limit on every pod,
+# which is the opposite of the documented convention in cleanup.md: "Set CPU
+# requests, omit CPU limits — CPU is compressible".
+#
+# Blocking: the rule is evaluated across the whole scan rather than per
+# resource, so it fires on every file in a tree that contains a Namespace —
+# 568 times in kubernetes/ as of 2026-08-14, every one of them accepted as
+# pre-existing. Any newly added file therefore arrives as a net-new finding no
+# matter what it contains, and no per-file fix helps: inline
+# `# trivy:ignore:` comments do not apply to it, and adding a compliant
+# ResourceQuota makes it fire on every OTHER file in the same tree (verified by
+# bisecting with `trivy config`: with a quota, 8 findings; without, zero).
 # Trivy check IDs accepted repo-wide.
 #
 # KSV-0040 — "resource quota usage": every namespace should carry a ResourceQuota

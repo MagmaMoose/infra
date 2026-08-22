@@ -86,7 +86,7 @@ inputs = {
       }
       mt_link = { address = "10.255.255.13/30" }
       peer = {
-        lan_subnet = "10.20.0.0/16" # Site2 supernet
+        lan_subnet = "10.20.0.0/16"  # Site2 supernet
         mt_link_ip = "10.255.255.14" # MT2
       }
     }
@@ -100,7 +100,7 @@ inputs = {
         crosslink  = "ether2"
         mt_link    = "ether3"
       }
-      client_ports     = ["ether4", "ether5", "ether6", "ether7", "ether8"]
+      client_ports      = ["ether4", "ether5", "ether6", "ether7", "ether8"]
       access_port_vlans = {}
       lan = {
         bridge_ip = "10.20.99.2/24" # mgmt VLAN
@@ -112,7 +112,7 @@ inputs = {
       }
       mt_link = { address = "10.255.255.14/30" }
       peer = {
-        lan_subnet = "10.10.0.0/16" # Site1 supernet
+        lan_subnet = "10.10.0.0/16"  # Site1 supernet
         mt_link_ip = "10.255.255.13" # MT1
       }
     }

@@ -1,8 +1,15 @@
 name: Build & Deploy Docs
 
 on:
-#  push:
-#    branches: [main]
+  push:
+    branches: [main]
+    # Only rebuild when the site's own inputs move. Everything else on main
+    # would redeploy a byte-identical site.
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 permissions:
@@ -42,4 +49,4 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - id: deploy
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v3.0.2-node.24
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

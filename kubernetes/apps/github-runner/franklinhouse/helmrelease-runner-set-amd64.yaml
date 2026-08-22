@@ -2,6 +2,35 @@
 # Accepted Chargate/KICS findings for this privileged docker-in-docker CI runner — the
 # same set the other three scale sets carry. See
 # ../firefly/helmrelease-runner-set-arm64.yaml for the per-rule justification.
+# =============================================================================
+# TEMPORARY: THIS POOL IS PINNED TO A CONTROL-PLANE NODE.
+#
+# franklinhouse is running on 2 of 6 nodes. fh-worker-vm3, the only Ready
+# `node-role: apps` node, is 2 CPU / 1967Mi with ~553Mi unrequested — it cannot
+# fit this pod's 960Mi request. So this pool temporarily targets the SYSTEM tier
+# and lands on fh-system-vm3 (2 CPU / 3915Mi, ~1959Mi free).
+#
+# That node is also the cluster's ONLY healthy control-plane/etcd member, so the
+# sizing below is measured, not guessed. From 1962 runner pods over 14 days on
+# firefly: whole-pod memory peak 1113Mi, CPU peak 1.55 cores. The concurrent memory
+# ceiling (dind + runner; init containers run before them and do not stack) drops
+# from 6144Mi to 2816Mi, and ephemeral-storage is bounded for the first time in
+# either cluster.
+#
+# HONEST RESIDUAL RISK: 2816Mi is still above the ~1959Mi free on fh-system-vm3, so
+# the limits alone do not make a node OOM impossible. They cannot: dind peaked at
+# 1012Mi and runner at 980Mi, so any cap that covers both individually must exceed
+# what the node has free. What makes it safe in practice is that those peaks occur
+# in DIFFERENT phases of a job — the highest whole-pod total ever recorded is
+# 1113Mi, i.e. 57% of free memory. maxRunners stays at 1 so this is never doubled.
+# If you raise maxRunners here, re-do this arithmetic first.
+#
+# TO REVERT, once fh-worker-vm1 (6 CPU / 58Gi) or fh-worker-vm2 is back:
+#   1. nodeSelector `node-role: system` -> `node-role: apps` in BOTH
+#      listenerTemplate and template, and drop both `tolerations:` blocks.
+#   2. Restore limits: dind memory 4Gi, runner memory 2Gi.
+#   3. Keep the ephemeral-storage bounds — they are a fix, not a compromise.
+# =============================================================================
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -60,8 +89,16 @@ spec:
 
     listenerTemplate:
       spec:  # nosemgrep: yaml.kubernetes.security.run-as-non-root.run-as-non-root
+        # TEMPORARY (see file header): system tier, not `node-role: apps`.
+        # Selector and toleration MUST travel together — franklinhouse taints its system
+        # nodes, so selecting one without tolerating the taint is an unschedulable pod
+        # wearing a different disguise (COMMON_MISTAKES #24).
         nodeSelector:
-          node-role: apps
+          node-role: system
+        tolerations:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
         # NO priorityClassName — franklinhouse has only the built-in system-* classes;
         # naming a non-existent PriorityClass makes the pod unschedulable. See the note
         # in ./helmrelease-runner-set-arm64.yaml.
@@ -82,11 +119,17 @@ spec:
 
     template:
       spec:  # nosemgrep: yaml.kubernetes.security.run-as-non-root.run-as-non-root
-        # The on-prem Proxmox workers, which use franklinhouse's bare `node-role` key
-        # rather than the `topology.sargeant.co/tier` label the OCI pair carries.
+        # TEMPORARY (see file header): the system tier, because fh-worker-vm3 — the only
+        # Ready `node-role: apps` node — has just ~553Mi of unrequested memory and cannot
+        # fit this pod. fh-system-vm3 has ~1959Mi free. Revert to `node-role: apps` the
+        # day a real worker is back.
         nodeSelector:
-          node-role: apps
+          node-role: system
           kubernetes.io/arch: amd64
+        tolerations:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
 
         # Kept even at maxRunners: 1 so that raising maxRunners later cannot silently
         # stack two dind pods onto one worker.
@@ -185,12 +228,24 @@ spec:
               requests:
                 cpu: 100m
                 memory: 512Mi
+                # Scheduler-reserved, unlike the limit below. Bounds how much of
+                # fh-system-vm3's 23.45Gi disk this pod can be promised.
+                ephemeral-storage: 2Gi
               limits:
-                # 4Gi, NOT the 6Gi the OCI pool gets: this lands on a worker that is also
-                # running the app workloads and a Postgres primary. Limits are not
-                # scheduler-reserved, so an over-generous cap here is a node OOM, not a
-                # scheduling failure (COMMON_MISTAKES #14).
-                memory: 4Gi
+                # TEMPORARY sizing for a CONTROL-PLANE node (see file header). 1536Mi, not
+                # 4Gi: measured peak for this container across 1962 runner pods / 14d on
+                # firefly is 1012Mi, so this is ~52% headroom over real use rather than the
+                # ~4x guess the old value encoded. Limits are not scheduler-reserved, so on
+                # a 3915Mi node that also runs the API server an over-generous cap is a
+                # node OOM, not a scheduling failure (COMMON_MISTAKES #14) — and here that
+                # OOM would take the cluster's only healthy control plane with it.
+                memory: 1536Mi
+                # THE ff-oci2 GUARD. That node hit DiskPressure and evicted runners purely
+                # from CI image/layer churn, with no ephemeral-storage bound set anywhere.
+                # fh-system-vm3 has HALF ff-oci2's disk (23.45Gi, 11.04Gi free) and is the
+                # only healthy control-plane node, where DiskPressure also threatens etcd.
+                # This cap makes a runaway job evict its own pod instead of the node.
+                ephemeral-storage: 5Gi
             volumeMounts:
               - name: work
                 mountPath: /home/runner/_work
@@ -220,8 +275,14 @@ spec:
               requests:
                 cpu: 100m
                 memory: 256Mi
+                ephemeral-storage: 1Gi
               limits:
-                memory: 2Gi
+                # 1280Mi, not 2Gi: measured peak for this container is 980Mi (14d, 1962
+                # pods). Note dind and runner peak in DIFFERENT phases of a job — the
+                # highest whole-pod total ever observed is 1113Mi, not the 1992Mi their
+                # individual peaks would suggest if summed.
+                memory: 1280Mi
+                ephemeral-storage: 2Gi
             volumeMounts:
               - name: work
                 mountPath: /home/runner/_work

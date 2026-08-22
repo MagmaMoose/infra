@@ -1,13 +1,14 @@
 # Architecture Map
 
 ```
-Git → Atlantis (terragrunt plan/apply)    → cloud (GCP/OCI/Cloudflare)
+Git → .github/workflows/terragrunt.yml    → cloud (GCP/OCI/AWS/Cloudflare)
 Git → FluxCD (watches main)               → k3s firefly (RPi) → apps + infra tiers
 Ansible → bootstraps systems/k3s          → runtime-only after Flux owns the cluster
 ```
 
 Three sources of truth (in flow order):
-1. `terraform/` — Terragrunt wraps TF; GCS backend; 1 leaf = 1 Atlantis project = 1 state file
+1. `terraform/` — Terragrunt wraps TF; GCS backend (all clouds); 1 leaf = 1 state file.
+   `terragrunt.yml` plans/applies; Atlantis is legacy and covers only 20 of 27 leaves
 2. `ansible/` — host config, k3s bootstrap, network devices (idempotent roles)
 3. `kubernetes/` — Flux: cluster root → infrastructure (configs→controllers→services) + apps
 

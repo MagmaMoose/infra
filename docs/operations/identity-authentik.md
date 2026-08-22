@@ -1,13 +1,13 @@
 # Identity Provider (Authentik)
 
-`kubernetes/apps/authentik` deploys [Authentik](https://goauthentik.io/) — an
-open-source OIDC/SAML identity provider — on the amd64 `worker` node, at
+`kubernetes/apps/authentik` deploys [Authentik](https://goauthentik.io/) (an
+open-source OIDC/SAML identity provider) on the amd64 `worker` node, at
 `authentik.magmamoose.com`. It's the foundation for unifying SSO across the cluster
 (SonarQube, Grafana, DefectDojo, …) in place of per-app oauth2-proxy.
 
 ## How it's wired
 
-- **Postgres**: the shared CNPG cluster (`Database` CR, owner `neondb_owner`) — no
+- **Postgres**: the shared CNPG cluster (`Database` CR, owner `neondb_owner`). No
   bundled Postgres.
 - **Redis**: the shared authless **Valkey** (`valkey.database`), on its own DB index
   (`AUTHENTIK_REDIS__DB=4`) to avoid colliding with DefectDojo. The goauthentik chart
@@ -19,13 +19,13 @@ open-source OIDC/SAML identity provider — on the amd64 `worker` node, at
   front). Note `magmamoose.com` is on Tucows clientHold until that lifts.
 
 ## ⚠️ OCI Vault prerequisites
-- `authentik-secret-key` — `openssl rand -base64 60 | tr -d '\n'`
-- `authentik-bootstrap-password` — initial `akadmin` password
-- `authentik-bootstrap-token` — initial API token
-- `neondb-owner-password` — already exists; reused.
+- `authentik-secret-key`: `openssl rand -base64 60 | tr -d '\n'`
+- `authentik-bootstrap-password`: initial `akadmin` password
+- `authentik-bootstrap-token`: initial API token
+- `neondb-owner-password`: already exists; reused.
 
 > This is the IdP **foundation**. Migrating apps onto it (an OIDC provider per app,
-> then swapping each app's oauth2-proxy for Authentik) is the follow-on work — do it
+> then swapping each app's oauth2-proxy for Authentik) is the follow-on work. Do it
 > incrementally, app by app, verifying each before moving the next.
 
 ## First-run verification

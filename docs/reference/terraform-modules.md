@@ -4,13 +4,13 @@
 > per provider (e.g. `terraform/oci/modules/server`, `terraform/cloudflare/modules/cloudflare-dns`)
 > instead of a single top-level `terraform/modules/`. The old `terraform/modules/gcp/project/`
 > module described below was deleted as unused. The "consolidate to shared terraform-modules
-> repo" thesis below is still relevant — this doc is the planning artifact for that.
+> repo" thesis below is still relevant: this doc is the planning artifact for that.
 
 ## The Problem You've Identified
 
 You maintain three infra repos, each with provider-scoped module trees:
 
-```
+```text
 calebsargeant/infra/terraform/
 ├── cloudflare/modules/cloudflare-dns/
 └── oci/modules/                       # network, server, edge, mikrotik, …
@@ -50,7 +50,7 @@ The logic IS the same as Helm charts + reusable-workflows, **BUT** Terraform mod
 ### Why Separate Makes Sense
 
 **Shared `terraform-modules/` repo:**
-```
+```text
 terraform-modules/                     # Public repo
 ├── gcp/
 │   ├── project/
@@ -171,7 +171,7 @@ If you need to upgrade only one repo to v2.1.0 due to a bug fix, the others are 
 ### Structure
 
 **terraform-modules/ repo (public):**
-```
+```text
 terraform-modules/
 ├── aws/
 │   ├── vpc/

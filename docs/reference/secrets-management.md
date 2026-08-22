@@ -5,9 +5,9 @@ may ever appear in plaintext in a manifest, a ConfigMap, or a comment.
 
 Secrets come from three places, in this order of preference:
 
-1. **OCI Vault** via external-secrets — the default for application secrets
-2. **1Password** via 1Password Connect — where a human also needs the value
-3. **SOPS** (age-encrypted, `.enc.yaml`) — last resort, and now only for bootstrap
+1. **OCI Vault** via external-secrets: the default for application secrets
+2. **1Password** via 1Password Connect: where a human also needs the value
+3. **SOPS** (age-encrypted, `.enc.yaml`): last resort, and now only for bootstrap
 
 ## OCI Vault (preferred)
 
@@ -52,7 +52,7 @@ Check that a secret is syncing:
 kubectl get externalsecret -A | grep -v SecretSynced   # anything listed is broken
 ```
 
-## SOPS — what still uses it, and why
+## SOPS: what still uses it, and why
 
 Most application secrets moved to OCI Vault. Fourteen files remain on SOPS
 deliberately, because they cannot use the thing that would replace them:
@@ -60,10 +60,10 @@ deliberately, because they cannot use the thing that would replace them:
 | file(s) | why it stays |
 |---|---|
 | `infrastructure/configs/flux/*` | the configs tier reconciles **before** the controllers tier that contains external-secrets |
-| `external-secrets/oci-vault-secret-enc.yaml` | it *is* the credential external-secrets uses to reach the vault — circular |
+| `external-secrets/oci-vault-secret-enc.yaml` | it *is* the credential external-secrets uses to reach the vault (circular) |
 | `1password-connect/*`, `cert-manager/*` | same tier as external-secrets; ordering within a tier isn't guaranteed |
 | `postgres/secret.enc.yaml` | CNPG's own bootstrap credential |
-| loki / *arr `configmap.yaml`, headlamp Middlewares | not `Secret`s at all — external-secrets cannot produce them |
+| loki / *arr `configmap.yaml`, headlamp Middlewares | not `Secret`s at all; external-secrets cannot produce them |
 
 Encrypting a new file:
 
@@ -78,7 +78,7 @@ sops -e secret.yaml > secret.enc.yaml
 
 !!! warning "Mixed documents break the sops CLI"
     A multi-document file where only *some* documents carry a `sops:` block cannot
-    be decrypted or rekeyed by the CLI at all — it aborts on the first plaintext
+    be decrypted or rekeyed by the CLI at all. It aborts on the first plaintext
     field matching `encrypted_regex`. Flux's own implementation decrypts
     per-document and doesn't notice, so this fails silently and only bites during
     a key rotation. **Keep ciphertext in single-document files.**
@@ -88,7 +88,7 @@ sops -e secret.yaml > secret.enc.yaml
 Two phases, so there is never a window where the cluster cannot read its own
 secrets.
 
-**Phase 1 — add the new recipient.** List both keys in `.sops.yaml`, then re-wrap
+**Phase 1: add the new recipient.** List both keys in `.sops.yaml`, then re-wrap
 every encrypted file. Derive the file list from content, not from names:
 
 ```bash
@@ -102,13 +102,13 @@ done
     `configmap.yaml` or `*-secret-enc.yaml`. A name-pattern glob misses them, and
     phase 2 then makes them permanently undecryptable.
 
-    Check for **nested** `.sops.yaml` files too — a stale one doesn't break
+    Check for **nested** `.sops.yaml` files too: a stale one doesn't break
     existing files, it silently encrypts *new* ones to a retired key.
 
 Add the new private key to the cluster's `flux-system/sops-keys` Secret before
 proceeding, so Flux can decrypt under either key.
 
-**Phase 2 — drop the old recipient.** Only once every consumer holds the new key.
+**Phase 2: drop the old recipient.** Only once every consumer holds the new key.
 Re-run `updatekeys`, prune the old key from `sops-keys`, and verify both
 directions:
 
@@ -117,4 +117,4 @@ sops -d <file>   # with the new key: succeeds
 sops -d <file>   # with the old key: must FAIL
 ```
 
-Consumers here are Flux and one laptop — no CI workflow references an age key.
+Consumers here are Flux and one laptop. No CI workflow references an age key.

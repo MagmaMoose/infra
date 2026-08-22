@@ -31,8 +31,8 @@ inputs = {
   subnet_id = dependency.network.outputs.data_subnet_id
 
   # MySQL configuration
-  shape_name              = "MySQL.Free"  # Free tier shape
-  data_storage_size_in_gb = 50            # Free tier includes 50GB
+  shape_name              = "MySQL.Free" # Free tier shape
+  data_storage_size_in_gb = 50           # Free tier includes 50GB
   # MUST match the live DB system. It reports 26.7.0; this said 9.6.0, a version
   # OCI no longer offers. mysql_version forces replacement, and prevent_destroy is
   # false on this resource, so a plan run against the stale pin would have proposed
@@ -41,7 +41,7 @@ inputs = {
   # org runner group now permits this public repo, so CI can reach this leaf.
   #
   # Verified against the live system with `oci mysql db-system get`, not assumed.
-  mysql_version           = "26.7.0"
+  mysql_version = "26.7.0"
 
   # Admin credentials. OCI_MYSQL_ADMIN_PASSWORD MUST be set in the environment
   # for any terragrunt invocation on this stack (parse-time fetch — plan,
@@ -69,7 +69,7 @@ inputs = {
   maintenance_window_start_time = "SUNDAY 03:00"
 
   # Fault domain
-  fault_domain = 0  # FD-1
+  fault_domain = 0 # FD-1
 
   # Deletion protection (set to true in production)
   is_delete_protected = false

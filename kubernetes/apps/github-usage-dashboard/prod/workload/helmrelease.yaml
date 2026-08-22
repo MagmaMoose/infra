@@ -48,7 +48,7 @@ spec:
       # live in base/github-usage-dashboard/image-automation.yaml; the shared `media`
       # ImageUpdateAutomation scans ./kubernetes/apps and pushes the bump to main.
       # Multi-arch since v0.0.4; v0.0.6 added the live-usage render fix (github-usage#10).
-      tag: v0.0.10 # {"$imagepolicy": "flux-system:github-usage-dashboard:tag"}
+      tag: v0.0.11 # {"$imagepolicy": "flux-system:github-usage-dashboard:tag"}
       pullPolicy: IfNotPresent
       pullSecrets:
         - name: ghcr-pull-secret
