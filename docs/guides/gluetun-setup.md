@@ -15,7 +15,7 @@ Gluetun is a lightweight VPN client container that:
 
 The Gluetun sidecar pattern uses a shared network namespace where:
 
-```
+```text
 Pod: application (e.g., sabnzbd)
 ├── Container: gluetun (VPN client)
 │   ├── Creates VPN tunnel
@@ -81,7 +81,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 components:
-  - ../../../_components/gluetun-sidecar
+  - ../../../components/gluetun-sidecar
 
 resources:
   - deployment.yaml
@@ -379,7 +379,7 @@ To enable IPv6:
 - [Gluetun GitHub Repository](https://github.com/qdm12/gluetun)
 - [Gluetun Wiki](https://github.com/qdm12/gluetun-wiki)
 - [Privado VPN](https://privadovpn.com/)
-- [Component Source Code](../../kubernetes/_components/gluetun-sidecar/)
+- [Component source](https://github.com/CalebSargeant/infra/tree/main/kubernetes/components/gluetun-sidecar)
 
 ## Related Documentation
 

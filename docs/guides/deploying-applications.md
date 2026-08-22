@@ -55,7 +55,9 @@ kubectl logs -n <namespace> <pod-name>
 
 ## Available Applications
 
-See the [Helm Charts](../reference/helm-charts.md) reference for a complete list of available applications and their configurations.
+Applications live under `kubernetes/apps/`. Each has a base kustomization and a Flux
+Kustomization that points at it. For how Helm and Kustomize divide the work here, see the
+[Helm and Kustomize analysis](../reference/helm-charts.md).
 
 ## Configuration
 
@@ -93,5 +95,5 @@ helm rollback -n <namespace> <release-name>
 ## Next Steps
 
 - Configure [NFS storage](../operations/nfs-setup.md) for persistent data
-- Set up [monitoring](../reference/helm-charts/prometheus-stack.md) with Prometheus
+- Set up [monitoring](../operations/observability-stack.md) with Prometheus
 - Review [resource profiles](../reference/resource-profiles.md) for optimisation

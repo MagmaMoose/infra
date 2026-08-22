@@ -18,7 +18,7 @@ repos:
 ## 🏗️ Architecture
 
 ### Repository Structure
-```
+```text
 calebsargeant/infra/
 ├── .pre-commit-hooks.yaml        # Defines the "all" hook
 ├── hooks/

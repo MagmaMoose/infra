@@ -20,22 +20,38 @@ This repository contains a comprehensive infrastructure-as-code solution for man
 Install the required tools (macOS):
 
 ```bash
-brew install ansible terraform terragrunt helm kubectl docker
+brew install ansible terraform terragrunt helm kubectl kustomize flux sops pre-commit
 ```
 
 ### Bootstrap a Kubernetes Cluster
 
+Dry-run first. That's the convention for every playbook here.
+
 ```bash
-cd ansible
-ansible-playbook -i hosts pi-k3s-bootstrap.yml
+cd ansible && ansible-playbook -i hosts.yaml pi-k3s-bootstrap.yaml --check
+```
+
+```bash
+cd ansible && ansible-playbook -i hosts.yaml pi-k3s-bootstrap.yaml
 ```
 
 ### Deploy Applications
 
+Applications are deployed by FluxCD, which reconciles `main`. You deploy by merging, not by
+running a command. To render a change before you push it:
+
 ```bash
-cd kubernetes
-terragrunt run-all apply
+kustomize build kubernetes/clusters/firefly | head
 ```
+
+To make Flux pick a change up immediately instead of waiting for its interval:
+
+```bash
+flux reconcile kustomization <name> -n flux-system
+```
+
+Terraform is applied by the Terragrunt workflow, not from a laptop. See
+[Terraform delivery](https://calebsargeant.github.io/infra/operations/terraform-delivery/).
 
 ## 📚 Documentation
 
@@ -46,11 +62,11 @@ The complete documentation includes:
 - **Getting Started** - Prerequisites and setup guides
 - **Guides** - Step-by-step tutorials for common tasks
 - **Operations** - Operational procedures (NFS, auto-updates, etc.)
-- **Reference** - Technical documentation for Helm charts and Terraform modules
+- **Reference** - Terraform modules, AWS estate, workflows, scripts, and cluster topology
 
 ## Key Features
 
-- 🎯 **Single-node Kubernetes** on Raspberry Pi with k3s
+- 🎯 **k3s cluster** with a Raspberry Pi 5 control plane and on-prem plus OCI workers
 - 🚀 **Helm charts** for 20+ applications
 - 📁 **NFS server** for shared storage
 - 🔄 **Auto-update system** with Slack notifications
@@ -59,7 +75,10 @@ The complete documentation includes:
 
 ## Contributing
 
-Contributions are welcome! Please read the contributing guidelines in the documentation.
+See [Local development](https://calebsargeant.github.io/infra/contributing/development/).
+
+This repository is **public**. Every commit is world-visible, so never commit a plaintext
+secret.
 
 ## Licence
 

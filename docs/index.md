@@ -25,13 +25,21 @@ Embracing the simplicity of unified infrastructure management in a fragmented wo
 
 ## Overview
 
-This repository contains a comprehensive infrastructure-as-code solution for managing:
+This repository holds the infrastructure-as-code for two k3s clusters and the cloud estate
+around them:
 
-- **Kubernetes deployments** on Raspberry Pi (k3s single-node cluster)
-- **Helm charts** for application deployments
-- **Terraform modules** for cloud infrastructure
-- **Ansible playbooks** for system configuration
-- **Docker configurations** for containerised applications
+- **Kubernetes**, reconciled by FluxCD. `firefly` runs a Raspberry Pi 5 control plane with one
+  on-prem amd64 worker and two arm64 OCI VMs. `franklinhouse` is a second cluster in a separate
+  OCI tenancy. See [Cluster topology](reference/cluster-topology.md).
+- **Terraform**, wrapped by Terragrunt, across GCP, OCI, AWS and Cloudflare. See
+  [Terraform delivery](operations/terraform-delivery.md).
+- **Ansible** for host configuration and cluster bootstrap. See [Ansible](reference/ansible.md).
+- **Container images** built from `dockerfiles/`. See
+  [GitHub Actions workflows](reference/github-workflows.md).
+
+New here? Read [Local development](contributing/development.md), then
+[Troubleshooting](operations/troubleshooting.md) when something doesn't behave. Unfamiliar term?
+Try the [Glossary](glossary.md).
 
 ## Quick Start
 
@@ -46,7 +54,9 @@ You'll need these tools installed on your local machine:
 - [Helm](https://helm.sh/docs/intro/install/)
 - [Kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl-macos/)
 - [Docker](https://docs.docker.com/docker-for-mac/install/)
-- [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli-macos)
+- [Kustomize](https://kubectl.docs.kubernetes.io/installation/kustomize/)
+- [Flux CLI](https://fluxcd.io/flux/installation/)
+- [SOPS](https://github.com/getsops/sops)
 
 ### Bootstrap a Raspberry Pi Kubernetes Cluster
 
@@ -55,21 +65,28 @@ You'll need these tools installed on your local machine:
 3. Run the bootstrap playbook:
 
 ```bash
-cd ansible
-ansible-playbook -i hosts pi-k3s-bootstrap.yml
+cd ansible && ansible-playbook -i hosts.yaml pi-k3s-bootstrap.yaml --check
+```
+
+```bash
+cd ansible && ansible-playbook -i hosts.yaml pi-k3s-bootstrap.yaml
 ```
 
 This will install k3s and set up necessary tools. The self-hosted GitHub runner
-is no longer part of the Ansible bootstrap — it is deployed by Flux from
+is no longer part of the Ansible bootstrap. It is deployed by Flux from
 `kubernetes/apps/github-runner` using GitHub's actions-runner-controller (ARC).
 
 ### Deploy Applications
 
-Once bootstrapped, deploy Helm charts using Terragrunt:
+Once bootstrapped, FluxCD deploys everything under `kubernetes/` by reconciling `main`. You
+deploy by merging. Render a change before you push it:
 
 ```bash
-cd kubernetes
-terragrunt run-all apply
+kustomize build kubernetes/clusters/firefly | head
+```
+
+```bash
+flux reconcile kustomization <name> -n flux-system
 ```
 
 ## Key Features
@@ -86,8 +103,13 @@ Single-hook validation system for comprehensive code quality checks. [Learn more
 ### ☁️ Cloud Infrastructure
 Terraform modules for managing cloud resources on multiple providers. [Learn more](reference/terraform-modules.md)
 
-### 🚀 Helm Charts
-Production-ready Helm charts for common applications and services. [Learn more](reference/helm-charts.md)
+### ☁️ AWS front doors
+Serverless entry points on the AWS free tier: API Gateway, Lambda, SQS FIFO and DynamoDB.
+[Learn more](reference/terraform-aws.md)
+
+### 🧰 Scripts
+Operator scripts for vault secrets, credentials and cluster bootstrap.
+[Learn more](reference/scripts.md)
 
 ## Documentation
 
@@ -96,12 +118,19 @@ Explore the full documentation:
 - [Getting Started](getting-started/prerequisites.md) - Set up your environment
 - [Guides](guides/deploying-applications.md) - Step-by-step tutorials
 - [Operations](operations/nfs-setup.md) - Operational procedures
-- [Reference](reference/helm-charts.md) - Technical reference
-- [About](about/changelog.md) - Project information
+- [Reference](reference/cluster-topology.md) - Technical reference
+- [Contributing](contributing/development.md) - Local development and conventions
+- [Glossary](glossary.md) - Terms that mean something specific here
+- [About](about/changelog.md) - Releases
 
 ## Contributing
 
-Contributions are welcome! Please read the contributing guidelines before submitting pull requests.
+See [Local development](contributing/development.md) for tooling, pre-commit, and the branch
+and commit conventions.
+
+This repository is **public**. Every commit is world-visible, so never commit a plaintext
+secret. Secrets go to OCI Vault first, 1Password second, and SOPS only as a last resort. See
+[Secrets management](reference/secrets-management.md).
 
 ## Licence
 
