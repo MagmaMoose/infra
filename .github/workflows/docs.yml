@@ -1,8 +1,15 @@
 name: Build & Deploy Docs
 
 on:
-#  push:
-#    branches: [main]
+  push:
+    branches: [main]
+    # Only rebuild when the site's own inputs move. Everything else on main
+    # would redeploy a byte-identical site.
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'requirements-docs.txt'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:
 
 permissions:
@@ -16,10 +23,13 @@ concurrency:
 
 jobs:
   build:
-    # Per-repo runner toggle: SELFHOSTED_GITHUB_RUNNER=firefly runs the mkdocs build
-    # on the in-cluster runner. Unset/blank stays on GitHub-hosted. (The `deploy` job
-    # below stays on ubuntu-latest — GitHub Pages deployment, low value to self-host.)
-    runs-on: ${{ vars.SELFHOSTED_GITHUB_RUNNER || 'ubuntu-latest' }}
+    # GitHub-hosted on purpose, NOT the `vars.SELFHOSTED_GITHUB_RUNNER` toggle this used
+    # to carry. This repo is PUBLIC, so hosted minutes are unmetered here — self-hosting
+    # saves nothing and only puts this job in front of the private repos in the
+    # self-hosted queue, which runs at most two jobs at a time. Same policy the
+    # Caldrith-managed security.yml / release.yml now render for every public repo in the
+    # org (magmamoose/admin -> .github/settings.yml, `template_vars.runs_on`).
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

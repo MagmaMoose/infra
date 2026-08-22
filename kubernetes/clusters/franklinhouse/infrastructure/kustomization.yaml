@@ -1,0 +1,15 @@
+# Infrastructure tier for franklinhouse — rendered by the cluster-level `apps`
+# Flux Kustomization (kubernetes/clusters/franklinhouse → ./infrastructure).
+# Emits the per-tier Flux Kustomization CRs; the actual manifests under each
+# <tier>/stack are applied by those CRs (path → <tier>/stack).
+#
+# Mirrors kubernetes/infrastructure/ in shape, but is cluster-local: franklinhouse
+# runs its own CNPG clusters, so folding these into the shared tree would deploy
+# them to firefly as well. There is no ./configs tier here — franklinhouse has no
+# cluster-wide namespace/RBAC bundle (namespaces are owned by the app and postgres
+# overlays), so infrastructure-controllers has no configs dependency.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ./controllers
+  - ./services

@@ -1,6 +1,10 @@
-# Resource Profiles
+# Resource profiles
 
-AWS-style resource allocation profiles for Kubernetes workloads.
+<!-- sources: kubernetes/apps, kubernetes/infrastructure -->
+
+AWS-style size names for Kubernetes requests and limits. These are a naming convention that
+workloads still refer to in comments, not a mechanism you can switch on. Read
+[Status](#status) below before you use this page.
 
 ## Available Profiles
 ### P-type (Processing Intensive) - 2:1 CPU:Memory Ratio
@@ -73,20 +77,46 @@ AWS-style resource allocation profiles for Kubernetes workloads.
 | <span style="background-color: #ffd6cc; color: #721c24; padding: 2px 6px; border-radius: 3px; font-weight: bold;">r.xlarge</span> | 2 cores | 16Gi | 8 cores | 64Gi | Big data analytics |
 | <span style="background-color: #f8d7da; color: #721c24; padding: 2px 6px; border-radius: 3px; font-weight: bold;">r.2xlarge</span> | 4 cores | 32Gi | 16 cores | 128Gi | Massive memory workloads |
 
-## Usage
+## Status
 
-Add the resource profile label to your workload:
+!!! warning "The components that applied these profiles were deleted"
+    `kubernetes/**/resource-profiles/` was removed on 2026-08-07 in
+    [#569](https://github.com/CalebSargeant/infra/pull/569). There is no component to
+    reference any more, and the `_components/` path this page used to name hasn't existed
+    since the kustomize tree was restructured.
+
+The size names survive as a **vocabulary**. Workloads now carry their requests and limits
+inline, with a comment naming the profile the numbers came from:
 
 ```yaml
-metadata:
-  labels:
-    resource-profile: m.medium
+resources:
+  requests:
+    cpu: 150m
+    memory: 768Mi
+  limits:
+    cpu: 500m
+    memory: 2Gi   # m.nano
 ```
 
-Then include this component in your kustomization:
+The tables above are the decoder ring for those comments. When you read `# c.pico` in a
+manifest, this page tells you what the author meant.
 
-```yaml
-components:
-  - ../../_components/resource-profiles
+## Copying a profile into a workload
+
+!!! warning "Copy the limit, not just the request"
+    A profile sets both. `m.nano` is 150m/768Mi requested and 500m/2Gi limited. Carrying the
+    profile's *request* figure into the *limit* line is the easiest mistake to make here, and
+    it produces a container that's OOMKilled on every start with no logs at all, because it
+    dies before writing any. See
+    [Troubleshooting](../operations/troubleshooting.md#a-container-is-oomkilled-and-there-are-no-logs).
+
+Measure before you inline. A limit within about 10% of the real working set is a deferred
+OOM, not a right-sizing:
+
+```bash
+kubectl exec <pod> -n <ns> -- cat /sys/fs/cgroup/memory.current
 ```
 
+Requests are reserved by the scheduler; limits aren't. On a node that's already near capacity
+you often can't raise the request, but raising the limit alone is free and is usually the
+correct fix. Keep the request honest for scheduling and give the limit headroom for spikes.

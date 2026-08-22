@@ -8,7 +8,7 @@ This is the Kubernetes configuration subdirectory of the monolithic infrastructu
 
 ## Directory Structure
 
-```
+```text
 kubernetes/
 ├── clusters/
 │   ├── firefly/       # Main single-node K3s cluster (Raspberry Pi 5)
@@ -26,7 +26,7 @@ kubernetes/
 │   ├── miscellaneous/ # Other applications
 │   └── observability/ # Monitoring and logging
 ├── infrastructure/    # Infrastructure components
-├── _components/       # Kustomize components for cross-cutting concerns
+├── components/        # Kustomize components for cross-cutting concerns
 │   ├── node-selectors/
 │   └── resource-profiles/  # AWS-style resource allocation profiles
 └── .kusomization.workings.yaml  # Development/debugging file
@@ -57,7 +57,8 @@ Standardized resource allocation profiles following AWS naming conventions:
 - **M-type**: Memory optimized (1:4 CPU:Memory) - moderate memory apps
 - **R-type**: Memory intensive (1:8 CPU:Memory) - in-memory databases, caches
 
-See `_components/resource-profiles/README.md` for complete reference.
+See [Resource profiles](../reference/resource-profiles.md) for the full table. The
+component itself was deleted in #569; the size names survive as a naming convention.
 
 ## Common Commands
 
@@ -121,8 +122,10 @@ The repository uses SOPS (Secrets Operations) with GPG for encrypting sensitive 
 The main cluster is bootstrapped via Ansible. Refer to `/ansible/pi-k3s-bootstrap.yml` in the parent repository for the full bootstrap procedure, which installs:
 - K3s
 - Flux v2
-- GitHub Private Runner
 - SOPS/GPG secrets support
+
+The self-hosted GitHub runner is deployed by Flux (not Ansible) from
+`kubernetes/apps/github-runner`, using GitHub's actions-runner-controller (ARC).
 
 ### NFS Storage
 

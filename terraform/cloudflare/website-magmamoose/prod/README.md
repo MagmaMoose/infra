@@ -10,11 +10,19 @@ So `www` is the host that serves, and the apex exists only to forward to it.
 
 ## What this stack owns — and what it deliberately does not
 
-| Owned here (Terraform)      | Owned by the website repo (wrangler)     |
-| --------------------------- | ---------------------------------------- |
-| `magmamoose.com` (apex) DNS | The Worker itself                        |
-| The apex → `www` 301 rule   | `www`, its DNS record and its certificate |
-|                             | `_headers` (CSP, HSTS, caching)          |
+| Owned here (Terraform)          | Owned by the website repo (wrangler)     |
+| ------------------------------- | ---------------------------------------- |
+| `magmamoose.com` (apex) DNS     | The Worker itself                        |
+| The apex → `www` 301 rule       | `www`, its DNS record and its certificate |
+| Cloudflare Fonts (zone setting) | `_headers` (CSP, HSTS, caching)          |
+
+**Cloudflare Fonts** (`cloudflare_zone_setting.fonts`) is a zone-wide edge rewrite:
+Cloudflare strips the `fonts.googleapis.com` link from the served HTML and inlines
+CSS that serves Sora and IBM Plex Mono from `magmamoose.com` itself — faster, and it
+keeps visitors off Google's servers. The site's HTML is unchanged; the Google link
+stays in the repo for the direct/local case. The site's CSP already permits the
+rewrite (`style-src 'unsafe-inline'`, `font-src 'self'`) and keeps the Google
+origins for the un-rewritten case — don't remove them.
 
 Attaching a custom domain is part of `wrangler deploy`, and Cloudflare provisions
 that DNS record and certificate in the same call. Modelling `www` here as well would
@@ -87,6 +95,7 @@ No modules.
 | ---- | ---- |
 | [cloudflare_dns_record.apex](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/dns_record) | resource |
 | [cloudflare_ruleset.dynamic_redirect](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/ruleset) | resource |
+| [cloudflare_zone_setting.fonts](https://registry.terraform.io/providers/cloudflare/cloudflare/latest/docs/resources/zone_setting) | resource |
 
 ## Inputs
 
@@ -101,5 +110,6 @@ No modules.
 | Name | Description |
 | ---- | ----------- |
 | <a name="output_canonical_url"></a> [canonical\_url](#output\_canonical\_url) | Where the apex 301s to, and the host the site is actually served on. Its custom domain is attached by wrangler on deploy, from the Worker named in var.worker\_name. |
+| <a name="output_cloudflare_fonts_enabled"></a> [cloudflare\_fonts\_enabled](#output\_cloudflare\_fonts\_enabled) | Whether the edge Cloudflare Fonts rewrite (self-hosts the Google Fonts) is on for the zone. |
 | <a name="output_redirect_hostname"></a> [redirect\_hostname](#output\_redirect\_hostname) | The redirect-only hostname this stack manages (the apex) |
 <!-- END_TF_DOCS -->

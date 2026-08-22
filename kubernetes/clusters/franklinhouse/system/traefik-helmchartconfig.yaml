@@ -1,0 +1,22 @@
+---
+# k3s ships Traefik as a bundled HelmChart; this HelmChartConfig layers values
+# onto it rather than replacing it. Pins the Traefik Deployment to the system
+# (control-plane) nodes, which requires tolerating their NoSchedule taint.
+#
+# Known caveat: the k3s service-LB helper pods (svclb-traefik-*) are a DaemonSet
+# owned by the k3s servicelb controller and are NOT covered by these values, so
+# they continue to run on worker nodes too. That is expected.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    nodeSelector:
+      node-role: system
+    tolerations:
+      - key: "node-role.kubernetes.io/control-plane"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"

@@ -138,7 +138,7 @@ GITHUB_REPO="your-org/your-repo"
 
 ### 🏢 How It Works - Complete Architecture
 
-```
+```text
 💻 Server (Proxmox/Ubuntu/etc)
      │
      │ GitHub Token (ghp_...)
@@ -219,7 +219,7 @@ tail -f /var/log/auto-update.log
 
 ### 🏗️ Architecture Overview
 
-```
+```text
 Server (Proxmox/Ubuntu/etc)
     ↓ (GitHub API)
     ↓ Repository Dispatch Event

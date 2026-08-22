@@ -1,0 +1,4 @@
+# Pinned exactly, matching the estate convention that nothing floats in CI.
+# Renovate will PR bumps; the workflow re-runs itself on changes to this
+# directory, so a bump proves the guard still works before it merges.
+PyYAML==6.0.3

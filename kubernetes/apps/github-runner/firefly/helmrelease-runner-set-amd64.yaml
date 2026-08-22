@@ -1,0 +1,473 @@
+# Accepted Chargate/KICS findings for this privileged docker-in-docker CI runner. The
+# same set the retired StatefulSet carried, adjusted for what ARC made moot (ephemeral
+# pods replace the stale-work-dir sudo hook). A self-hosted runner that must run Docker
+# cannot satisfy PodSecurity-restricted, so these are accepted by design:
+#   dd29336b privileged            – required for the dind sidecar
+#   5572cc5e allowPrivilegeEscalation / dbbc6705,268ca686 capabilities /
+#   cf34805e,02323c00 runAsNonRoot / a9c2f49d readOnlyRootFilesystem /
+#   f377b83e seccompProfile        – the runner needs root in dind + root in the SDK copy
+#   4ac0e2b7 no CPU limits         – repo convention (CPU limits cause false CFS-throttle alerts)
+#   583053b7,7c81d34c image tag/digest – tag-pinned + Renovate-tracked, not digest-pinned
+#   a659f3b5,ade74944 probes       – a runner agent has no health endpoint; health is its
+#                                    GitHub registration, which the listener reports
+#   8b36775e annotations / 4a20ebac LimitRange / 48a5beba ResourceQuota / 1db3a5a5 PDB –
+#                                    not this repo's per-namespace pattern
+#   3e2d3b2f hardcoded secret key  – false positive: `githubConfigSecret` is a Secret
+#                                    NAME reference, not a credential; the actual key
+#                                    lives only in OCI Vault (nievah-github-private-key)
+# kics-scan disable=dd29336b-fe57-445b-a26e-e6aa867ae609,5572cc5e-1e4c-4113-92a6-7a8a3bd25e6d,dbbc6705-d541-43b0-b166-dd4be8208b54,268ca686-7fb7-4ae9-b129-955a2a89064e,cf34805e-3872-4c08-bf92-6ff7bb0cfadb,02323c00-cdc3-4fdc-a310-4f2b3e7a1660,a9c2f49d-0671-4fc9-9ece-f4e261e128d0,f377b83e-bd07-4f48-a591-60c82b14a78b,4ac0e2b7-d2d2-4af7-8799-e8de6721ccda,583053b7-e632-46f0-b989-f81ff8045385,7c81d34c-8e5a-402b-9798-9f442630e678,a659f3b5-9bf0-438a-bd9a-7d3a6427f1e3,ade74944-a674-4e00-859e-c6eab5bde441,8b36775e-183d-4d46-b0f7-96a6f34a723f,4a20ebac-1060-4c81-95d1-1f7f620e983b,48a5beba-e4c0-4584-a2aa-e6894e4cf424,1db3a5a5-bf75-44e5-9e44-c56cfc8b1ac5,3e2d3b2f-c22a-4df1-9cc6-a7a0aebb0c99
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: arc-firefly-amd64
+  namespace: arc-runners
+spec:
+  interval: 30m
+  # THE amd64 ESCAPE HATCH. Deliberately NOT the default pool.
+  #
+  # This is the ff-vm1 runner that used to be called `firefly`. It kept its node and its
+  # sizing and lost its name: `firefly` now belongs to the two-node arm64 OCI pool
+  # (helmrelease-runner-set.yaml), because that is the value the ORG variable
+  # `SELFHOSTED_GITHUB_RUNNER` already holds and pointing the default at the bigger pool (now `firefly-arm64`)
+  # required no org-admin action.
+  #
+  # NOTHING ROUTES HERE BY DEFAULT. A job reaches this pool only if its repo sets a
+  # REPO-level `SELFHOSTED_GITHUB_RUNNER` variable to `firefly-amd64`, which overrides
+  # the org-level `firefly-arm64`. Reach for that when a job genuinely cannot run on arm64:
+  #   * a build that needs `linux/amd64` natively rather than under emulation;
+  #   * a tool with no arm64 build at all;
+  #   * Chargate with `arch_strategy: flavor` (the monolithic MegaLinter flavor image is
+  #     amd64-only — `auto` is what makes the arm64 pool work, by substituting the
+  #     per-linter `megalinter-only-*` images instead).
+  # It is also the fallback if the arm64 pool misbehaves: one repo-level variable moves
+  # that repo back to known-good hardware without touching the cluster.
+  #
+  # NOTE — an ARC scale set is addressed by NAME, not by matching
+  # `[self-hosted, Linux, X64]`. Any job still using the literal array form will never be
+  # picked up; it must use the `vars.SELFHOSTED_GITHUB_RUNNER` expression. See the
+  # `scaleSetLabels` note below.
+  releaseName: arc-firefly-amd64
+  # The controller must exist before this chart renders: without it the four
+  # actions.github.com CRDs are absent, and the chart's own manager-RoleBinding wants the
+  # controller's ServiceAccount.
+  dependsOn:
+    - name: arc
+      namespace: arc-systems
+  chart:
+    spec:
+      chart: gha-runner-scale-set
+      # Pinned to exactly the controller's version — ARC does not support skew between
+      # the controller and the AutoscalingRunnerSet CRs it reconciles. Bump both in one
+      # commit.
+      version: "0.14.2"
+      sourceRef:
+        kind: HelmRepository
+        name: actions-runner-controller-charts
+        namespace: flux-system
+      interval: 30m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    # ORG-level scale set on MagmaMoose, matching what the StatefulSet did. One pool
+    # serves every repo in the org.
+    githubConfigUrl: https://github.com/magmamoose
+
+    # STRING form = "use this pre-defined Secret", so the chart renders no Secret of its
+    # own and ARC reads the one ESO writes (base/externalsecret.yaml). Passing a map here
+    # instead would put the App private key in git.
+    githubConfigSecret: arc-github-app # kics-scan ignore-line - Secret NAME reference, not a credential
+
+    # magmamoose/infra is PUBLIC, and the `Default` group now has
+    # allows_public_repositories=true — that is what unblocks terragrunt.yml, which had
+    # been unrunnable for exactly this reason. The fork guard in each workflow
+    # (`github.event.pull_request.head.repo.fork == false`) is still REQUIRED, not
+    # optional: a self-hosted runner executing fork-PR code with OCI credentials is the
+    # precise scenario GitHub warns about, and the group setting no longer blocks it.
+    runnerGroup: default
+    runnerScaleSetName: firefly-amd64
+
+    # Multi-label routing — see the fuller note in helmrelease-runner-set.yaml.
+    # Short version: ARC 0.14.0+ (pinned here at 0.14.2) supports multiple labels per
+    # scale set via `scaleSetLabels`.
+    #
+    #   firefly-amd64     — unique name; pins a job to THIS cluster's amd64 pool.
+    #   pool-amd64        — shared with franklinhouse's amd64 set, so `runs-on: pool-amd64`
+    #                       lands on whichever cluster has capacity.
+    #   pool-self-hosted  — carried by every scale set in both clusters and both arches;
+    #                       the widest "any runner we own" target.
+    #
+    # `pool-` prefix because `x64`/`self-hosted`/`linux` are GitHub-reserved labels — which
+    # is why the org-wide label is `pool-self-hosted`, not the reserved `self-hosted`.
+    # Labels do not update in place (actions/actions-runner-controller#4424) — changing
+    # them requires the scale set to be recreated.
+    scaleSetLabels:
+      - firefly-amd64
+      - pool-amd64
+      - pool-self-hosted
+
+    # Scale to ZERO when idle. This is the whole capacity argument for ARC on this
+    # cluster: the retired StatefulSet held 200m CPU + 768Mi of reservation 24/7 for a
+    # runner that is idle almost all of it. minRunners: 0 gives that back and only
+    # borrows it for the duration of a job.
+    minRunners: 0
+    # TWO concurrent runners, raised from 1.
+    #
+    # The 1 was reasoned from LIMITS, not from measurement: "the dind memory limit is 6Gi,
+    # so two concurrent MegaLinter jobs would take the node down". 14 days of
+    # `container_memory_working_set_bytes` say otherwise — the worst whole-pod peak this
+    # pool has ever reached is **1111Mi** (dind 1011Mi, runner 979Mi, never both at once),
+    # against the 8Gi its limits permit. Two runners therefore peak around 2.2Gi of real
+    # memory on a node with ~8.7Gi genuinely free. The old note asked for "~6Gi of real
+    # headroom" before raising this; that headroom exists, and always did — the estimate
+    # was 6x the true figure because it read the ceiling instead of the workload.
+    #
+    # SCHEDULING is the tighter constraint, and it is what actually has to be paid for.
+    # Each pod RESERVES 768Mi, so two need 1536Mi of request headroom. The same commit
+    # that raises this returns 768Mi to ff-vm1 by right-sizing three over-requested
+    # workloads against their own 14-day peaks (holmesgpt 1Gi->640Mi on a 516Mi peak,
+    # falco 512Mi->256Mi on a 179Mi peak, thanos-query 128Mi->64Mi x2 on a 25Mi peak).
+    # That is exactly one runner's worth, so the FIRST runner now fits without evicting
+    # anything; the second still has to preempt when the node is full, which it can, being
+    # `medium`. Returning another ~370Mi would make both fit cleanly — that is the next
+    # increment, not a blocker.
+    #
+    # Do NOT raise to 3 on this evidence. 1111Mi is a peak for the jobs that have actually
+    # run; the 6Gi dind limit exists because a MegaLinter flavor image once needed room,
+    # and limits are not scheduler-reserved (COMMON_MISTAKES #14), so three simultaneous
+    # outliers could still overcommit the node's real memory. Re-measure first.
+    maxRunners: 2
+
+    # Empty map, NOT `type: dind`, and this is load-bearing. With containerMode.type=dind
+    # the chart synthesises the dind sidecar from a hardcoded helper: `image: docker:dind`
+    # with no args and no resources. This cluster needs BOTH of the things that helper
+    # cannot express:
+    #   * `--mtu=1450`. dockerd's docker0 bridge defaults to 1500, so nested
+    #     MegaLinter/build containers put 1500-byte frames on a smaller path and large
+    #     transfers (TLS handshakes, apt/npm fetches) blackhole and HANG — that is what
+    #     previously stalled the chargate scans at ~0% CPU on ff-vm1, whose pod network is
+    #     flannel VXLAN at 1450 (verified: `cni0`/`flannel.1` = 1450 there). This pool
+    #     runs ONLY on ff-vm1, so 1450 is not a compromise here — it is the correct value
+    #     and the one that fixed the hang.
+    #   * resource requests/limits on the dind container, which is where the multi-GB
+    #     MegaLinter working set actually lives.
+    # An empty map still selects the chart's default-mode path, which passes
+    # template.spec.initContainers / containers / volumes through verbatim.
+    containerMode: {}
+
+    # Named explicitly rather than left to the chart's `lookup "apps/v1" "Deployment"`
+    # discovery. That lookup scans Deployments cluster-wide and `fail`s the render if it
+    # finds none — which is exactly what happens on a first install if this HelmRelease is
+    # attempted before the controller Deployment is Ready, and on any Flux dry-run where
+    # lookup returns empty. `arc-gha-rs-controller` is the chart's fullname for release
+    # `arc` (no nameOverride), and serviceAccount.name defaults to that fullname.
+    controllerServiceAccount:
+      namespace: arc-systems
+      name: arc-gha-rs-controller
+
+    # The listener is created by the controller in the CONTROLLER's namespace
+    # (arc-systems), so this — not anything in base/namespace.yaml — is where it gets
+    # pinned. Cloud tier for the same reason as the controller: the listener image IS the
+    # controller image, which is multi-arch.
+    listenerTemplate:
+      spec:
+        nodeSelector:
+          topology.sargeant.co/tier: native-cloud
+        priorityClassName: medium
+        containers:
+          # The container MUST be named `listener` — any other name is treated as a
+          # side-car and this config would not reach the listener process.
+          - name: listener
+            resources:
+              requests:
+                cpu: 20m
+                memory: 64Mi
+              limits:
+                memory: 192Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              runAsNonRoot: true
+              capabilities:
+                drop: ["ALL"]
+
+    template:
+      # DISK I/O RATE CAP — GATED OUT UNTIL THE NODE CAN HONOUR IT.
+      #
+      # Kubernetes has no Pod-spec API for I/O rate: `resources.limits` has no IOPS or
+      # bytes/sec key, and `ephemeral-storage` is CAPACITY, which is a different control
+      # and does not stop a job saturating the spindle. The only per-pod mechanism is a
+      # containerd blockio class, selected by the annotations below and applied as cgroup
+      # v2 `io.max`. ff-vm1 is the only amd64 node, so a MegaLinter image pull competes
+      # directly with every other workload the node carries.
+      #
+      # THE PRECONDITION IS HARD, NOT ADVISORY. A pod naming a blockio class that
+      # containerd does not know **fails to create** — it does not fall back to
+      # unthrottled. containerd's `ignore_blockio_not_enabled_errors` escape hatch is
+      # rejected as an unknown key on this build (v2.1.4-k3s1), so it cannot cover us.
+      # Uncomment ONLY after `ansible/firefly-vm1-io-throttle.yaml` has run on ff-vm1 and
+      # this prints a path (COMMON_MISTAKES #25 — record the command that proves it):
+      #
+      #   sudo /var/lib/rancher/k3s/data/current/bin/containerd \
+      #     -c /var/lib/rancher/k3s/agent/etc/containerd/config.toml config dump \
+      #     | grep blockio_config_file
+      #
+      # `ci-throttled` is 200MB/s read / 100MB/s write, 8k/4k IOPS against a device
+      # measured at 828MB/s-1.9GB/s, so ~25% of the disk. Both containers are named
+      # because the annotation is per-container: `dind` does the image-layer writes,
+      # `runner` does the checkout. The class name must match the one the playbook
+      # writes — a mismatch is an unschedulable pod, not an unthrottled one.
+      #
+      # metadata:
+      #   annotations:
+      #     blockio.resources.beta.kubernetes.io/container.dind: ci-throttled
+      #     blockio.resources.beta.kubernetes.io/container.runner: ci-throttled
+      spec:
+        # on-prem tier, written out rather than delegated to the Kyverno `place-on-prem`
+        # policy: these pods are created by ARC from a CRD, not from a Deployment/
+        # StatefulSet/DaemonSet/CronJob, so no placement policy matches them at all.
+        # These are the exact key/values that policy would have applied, plus the arch pin
+        # that is the entire reason this scale set exists — it is what makes
+        # `firefly-amd64` mean amd64 rather than "wherever there is room". ff-vm1 is the
+        # only amd64 node in the cluster, so this resolves to ff-vm1.
+        nodeSelector:
+          node-role.kubernetes.io/worker: ""
+          topology.sargeant.co/tier: on-prem
+          kubernetes.io/arch: amd64
+
+        # No podAntiAffinity here, unlike the arm64 pool, and it must STAY absent now that
+        # maxRunners is 2. The arm64 pool carries one to spread its two runners across
+        # ff-oci1/ff-oci2, which works because it has two matching nodes. This pool has
+        # exactly one, so the same rule would make the second runner permanently
+        # unschedulable — the previous note here said to add it back in the same commit
+        # that raises maxRunners above 1, which would have been an outage. Add it only if
+        # a second amd64 node ever joins.
+        # `medium`, which DIFFERS from the arm64 pool's `low` on purpose — the two files
+        # are otherwise kept in sync, so do not "resync" this line. The arm64 pool sits on
+        # ff-oci1/ff-oci2 at ~51% memory requested and has never had to preempt anything;
+        # this pool has exactly one node and that node is full.
+        #
+        # It was `low` (100), and the `low` PriorityClass carries `preemptionPolicy:
+        # Never`. ff-vm1 runs at ~98% of allocatable memory REQUESTED while only ~68% is
+        # genuinely in use, so the 768Mi this pod reserves does not fit even though the RAM
+        # is physically there — and at `low` the scheduler is not permitted to preempt to
+        # make it fit. The failure is silent in the way that matters: the pod stays
+        # Pending, but the listener has ALREADY acquired the job, and because this set
+        # advertises `pool-self-hosted` the job is held here rather than falling through to
+        # the arm64 pool (COMMON_MISTAKES #25). One run sat Pending for 8h that way.
+        #
+        # `medium` (1000, PreemptLowerPriority) is the SMALLEST class in this cluster that
+        # can preempt at all, so it is the least escalation that unsticks this. The cost is
+        # real and belongs in the open: when ff-vm1 is full, starting an amd64 job evicts
+        # roughly its shortfall in lower-priority pods, and on a full node those victims
+        # then stay Pending until the job finishes. Preemption treats PDBs as a preference
+        # rather than a guarantee, so replicated datastores are in the candidate pool too.
+        #
+        # THE ACTUAL FIX is to stop ff-vm1 over-declaring: ~2.5Gi of its requests are pure
+        # over-request (thanos-compactor 768Mi req / 55Mi used, loki 768/185, holmesgpt
+        # 1024/445, falco 576/153). Reclaim that and this class goes back to being
+        # insurance rather than a routine eviction machine.
+        priorityClassName: medium
+        restartPolicy: Never
+
+        initContainers:
+          # Copies the runner's bundled node/externals into a volume the dind daemon also
+          # mounts, so job containers started by dockerd can find them. Straight from
+          # ARC's own dind template — do not drop it.
+          - name: init-dind-externals
+            image: ghcr.io/actions/actions-runner:2.336.0
+            command: ["cp"]
+            args: ["-r", "/home/runner/externals/.", "/home/runner/tmpDir/"]
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            volumeMounts:
+              - name: dind-externals
+                mountPath: /home/runner/tmpDir
+
+          # The actions-runner image ships no `dotnet`. GitVersion — pulled in by
+          # gittools/actions/gitversion/setup during Diatreme releases — is a .NET global
+          # tool and dies with "Unable to locate executable file: dotnet". Stage the SDK
+          # out of Microsoft's official multi-arch image (linux/amd64 + linux/arm64 +
+          # linux/arm confirmed on the manifest index); the runner finds it via
+          # DOTNET_ROOT + PATH below.
+          #
+          # COST, stated plainly: under ARC this ~1GB copy runs on EVERY job rather than
+          # once per pod lifetime. If job startup latency becomes the complaint, the fix
+          # is a custom runner image with the SDK baked in, published by
+          # .github/workflows/docker-publish.yml — not deleting this.
+          - name: install-dotnet
+            image: mcr.microsoft.com/dotnet/sdk:8.0
+            command: ["sh", "-c", "cp -a /usr/share/dotnet/. /opt/dotnet/"]
+            # Root like ARC's own init container: the copy must write into the shared
+            # emptyDir, and a non-root uid can hit an unwritable volume dir and crash-loop
+            # the pod. Escalation off — a file copy never needs it.
+            securityContext:
+              runAsUser: 0
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                memory: 256Mi
+            volumeMounts:
+              - name: dotnet
+                mountPath: /opt/dotnet
+
+          # `gh` is shelled out to by Diatreme's release step (`gh release create`). The
+          # runner image does not ship it. Arch is derived from `uname -m` rather than
+          # hardcoded, which is why this block is byte-identical to the arm64 pool's and
+          # should stay that way. Runs as the image's own `runner` user (uid 1001) — the
+          # emptyDir is group/world-writable, so no root is needed here.
+          - name: install-gh
+            image: ghcr.io/actions/actions-runner:2.336.0
+            command: ["bash", "-c"]
+            args:
+              - |
+                set -euo pipefail
+                GH_VERSION=2.96.0
+                case "$(uname -m)" in
+                  x86_64)  GH_ARCH=amd64 ;;
+                  aarch64) GH_ARCH=arm64 ;;
+                  *)       echo "unsupported arch $(uname -m)" >&2; exit 1 ;;
+                esac
+                curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${GH_ARCH}.tar.gz" -o /tmp/gh.tar.gz
+                tar -xzf /tmp/gh.tar.gz -C /tmp
+                install -m 0755 "/tmp/gh_${GH_VERSION}_linux_${GH_ARCH}/bin/gh" /opt/gh/gh
+                /opt/gh/gh --version
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: ["ALL"]
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                memory: 128Mi
+            volumeMounts:
+              - name: gh
+                mountPath: /opt/gh
+
+          # NATIVE SIDECAR (restartPolicy: Always on an initContainer) — the shape ARC
+          # itself uses on Kubernetes >= 1.29; firefly is on 1.33. It starts before the
+          # runner container and keeps running for the pod's life, so the runner never
+          # races dockerd. Being an initContainer, its requests ADD to the pod total
+          # rather than being max()'d, which is why the pod reserves 200m/768Mi below.
+          - name: dind
+            image: docker:29.7.1-dind
+            args:
+              - dockerd
+              - --host=unix:///var/run/docker.sock
+              - --group=$(DOCKER_GROUP_GID)
+              # See the containerMode comment above. Load-bearing on ff-vm1: without it,
+              # chargate/MegaLinter hangs at ~0% CPU.
+              - --mtu=1450
+            env:
+              # 123 is the `docker` group gid inside ghcr.io/actions/actions-runner
+              # (verified: `docker:x:123:runner`), which is what lets uid 1001 use the
+              # socket. ARC hardcodes the same value.
+              - name: DOCKER_GROUP_GID
+                value: "123"
+            restartPolicy: Always
+            securityContext:
+              privileged: true
+            startupProbe:
+              exec:
+                command: ["docker", "info"]
+              initialDelaySeconds: 0
+              failureThreshold: 24
+              periodSeconds: 5
+            resources:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                # dind hosts the chargate/MegaLinter container, so this cap governs the
+                # whole scan. MegaLinter needs several GB; 512Mi OOM-kills it. Carried
+                # over unchanged from the StatefulSet, where it was arrived at the hard
+                # way, and kept at 6Gi rather than trimmed to match the arm64 pool's 4Gi:
+                # this pool runs the MONOLITHIC MegaLinter flavor image (the arm64 pool
+                # substitutes smaller per-linter images), which is the heavier of the two
+                # working sets, and ff-vm1 has the room. No CPU limit (repo convention).
+                memory: 6Gi
+            volumeMounts:
+              - name: work
+                mountPath: /home/runner/_work
+              - name: dind-sock
+                mountPath: /var/run
+              - name: dind-externals
+                mountPath: /home/runner/externals
+
+        containers:
+          # Must be named `runner`; the chart special-cases that name.
+          - name: runner
+            image: ghcr.io/actions/actions-runner:2.336.0
+            command: ["/home/runner/run.sh"]
+            env:
+              - name: DOCKER_HOST
+                value: unix:///var/run/docker.sock
+              - name: RUNNER_WAIT_FOR_DOCKER_IN_SECONDS
+                value: "120"
+              - name: DOTNET_ROOT
+                value: /opt/dotnet
+              - name: DOTNET_CLI_TELEMETRY_OPTOUT
+                value: "1"
+              - name: DOTNET_NOLOGO
+                value: "1"
+              # k8s REPLACES the image PATH rather than appending, so this must restate
+              # the image's own PATH verbatim
+              # (/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin, read off
+              # the image config) plus the two staged toolchains.
+              - name: PATH
+                value: "/opt/gh:/opt/dotnet:/opt/dotnet/tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                # No CPU limit (repo convention). Headroom for the agent plus the
+                # checked-out job itself; the heavy container work happens in dind.
+                memory: 2Gi
+            volumeMounts:
+              - name: work
+                mountPath: /home/runner/_work
+              - name: dind-sock
+                mountPath: /var/run
+              - name: dotnet
+                mountPath: /opt/dotnet
+              - name: gh
+                mountPath: /opt/gh
+
+        volumes:
+          - name: work
+            # Disk-backed (NOT medium: Memory) — a Memory emptyDir would count multi-GB
+            # image layers and MegaLinter output against pod memory and OOM the node.
+            # sizeLimit evicts a runaway build instead of filling the node root fs.
+            # Fresh per job now, which is what retires the StatefulSet's root-owned-
+            # leftovers problem and its sudo chown JOB_STARTED hook.
+            #
+            # 20Gi, double the arm64 pool's 10Gi, because ff-vm1 has ~277Gi of allocatable
+            # ephemeral storage against the OCI nodes' ~41.9Gi and can afford it.
+            emptyDir:
+              sizeLimit: 20Gi
+          - name: dind-sock
+            emptyDir: {}
+          - name: dind-externals
+            emptyDir: {}
+          - name: dotnet
+            # Holds the ~1GB .NET SDK. Disk-backed so it does not count against pod
+            # memory.
+            emptyDir: {}
+          - name: gh
+            emptyDir: {}

@@ -1,7 +1,0 @@
----
-# The self-hosted runner image. Defaults to the firefly-custom runner image,
-# which is the upstream runner plus `envsubst` (gettext) that Diatreme's
-# image-sign step needs. Built + published by
-# .github/workflows/docker-publish.yml -> dockerfiles/github-runner-firefly.
-# Override at deploy time (extra-vars) if you need a different runner.
-runner_image: ghcr.io/calebsargeant/github-runner-firefly:latest

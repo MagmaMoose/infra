@@ -6,7 +6,7 @@ This guide provides essential architectural knowledge for AI agents working in t
 
 This monolithic repository manages a **distributed home lab** across multiple cloud providers and a local Kubernetes cluster:
 
-- **Kubernetes Core**: Single-node k3s on Raspberry Pi (primary workload cluster "firefly")
+- **Kubernetes Core**: 4-node k3s cluster "firefly" — Raspberry Pi 5 control plane, one on-prem amd64 worker, and two arm64 OCI free-tier VMs (the native-cloud tier)
 - **Cloud Infrastructure**: Multi-provider Terraform via Terragrunt (GCP, OCI, Cloudflare, AWS/Azure future)
 - **Configuration Management**: Ansible for system setup, bootstrapping, and complex provisioning
 - **GitOps Pipeline**: FluxCD v2 watches this repo and auto-deploys Kubernetes manifests
@@ -46,6 +46,11 @@ kubernetes/
   clusters/firefly/
     flux-system/                 # Flux bootstrap — gotk-sync points here; the root Kustomization
     kustomization.yaml           # Meta — resources: [../../apps, ../../infrastructure]
+  clusters/franklinhouse/        # Second cluster (see docs/reference/franklinhouse.md)
+    flux-system/                 # Flux bootstrap + SOPS-encrypted GHCR pull secret
+    kustomization.yaml           # Meta — resources: [../../apps/access-control, ./infrastructure, ./system]
+    infrastructure/              # Cluster-LOCAL tiers (own CNPG operator + Postgres Clusters)
+    system/                      # Traefik HelmChartConfig (pinned to control-plane nodes)
   components/                    # Reusable kustomize Components: node-selectors/, resource-profiles/,
                                  # gluetun-sidecar/, wireguard-sidecar/, helm-releases/, ingress-standards/
   infrastructure/
@@ -56,7 +61,26 @@ kubernetes/
                                  # (Flux Kustomization: infrastructure-services, dependsOn controllers)
 ```
 
-The `franklinhouse` cluster lives in a separate public repo, [calebsargeant/infra-v2](https://github.com/CalebSargeant/infra-v2); this repo is firefly-only.
+The `franklinhouse` cluster was folded into this repo on 2026-08-13 (previously
+the **private** repo `calebsargeant/infra-v2`). It lives under
+`kubernetes/clusters/franklinhouse/` and is documented in
+[docs/reference/franklinhouse.md](docs/reference/franklinhouse.md).
+
+Two scoping rules keep the two clusters apart, and both matter when editing:
+
+- `clusters/franklinhouse/kustomization.yaml` references
+  **`../../apps/access-control` directly**, never `../../apps` —
+  `kubernetes/apps/kustomization.yaml` is *firefly's* app set, so aggregating it
+  would deploy all of firefly onto franklinhouse. For the same reason
+  `access-control` is deliberately absent from that aggregator.
+- franklinhouse's infrastructure tiers are **cluster-local** under
+  `clusters/franklinhouse/infrastructure/`, because the shared
+  `kubernetes/infrastructure/` tree is cluster-agnostic and its tier
+  Kustomizations point at firefly's `stack/` paths.
+
+franklinhouse also runs **its own CNPG Clusters** (`prod-database`,
+`staging-database`), a deliberate exception to the shared-Postgres rule below:
+it is a physically separate k3s cluster and cannot reach firefly's `postgres`.
 
 **Key patterns**:
 - Each `apps/<app>/prod/<app>/flux-kustomization.yaml` emits a `prod-<app>` Flux Kustomization CR; its `path:` points at `apps/<app>/base/<app>` (the manifests).
@@ -252,6 +276,70 @@ spec:
   owner: myapp
 ```
 
+### Which cluster: `postgres` or `postgres-oci`
+
+Co-locate the database with the workload. The two clusters are on opposite sides
+of the site-to-site link, and the round trip is not negligible — measured from a
+pod on ff-oci1: **5.604 ms to ff-vm1, 0.081 ms to ff-oci1**. For a chatty ORM
+application that is the dominant term in page latency (Janeway issues dozens of
+queries per render, so a 50-query page is ~280 ms of pure network wait on the
+wrong cluster).
+
+- workload on the **native-cloud** tier → `postgres-oci` in `database-oci`
+- workload on the **on-prem/worker** tier → `postgres` in `database`
+
+**Give each app its own LOGIN role**, declared in the cluster's `managed.roles`
+block with `passwordSecret` pointing at an ExternalSecret from OCI Vault — the
+shape `neondb_owner` and `admin` already use on `postgres`, and `janeway` now
+uses on `postgres-oci`. CNPG then reconciles the password from the vault, so it
+cannot drift, and rotating the vault entry rotates the credential.
+
+Do NOT reuse the cluster's `app` role (dunmir does, for historical reasons). It
+owns other applications' databases, so sharing it means either application's
+credentials can read the other's data — and because CNPG generates that
+password rather than taking it from the vault, reading it needs a
+ServiceAccount + Role + RoleBinding + kubernetes-provider `SecretStore` hop, a
+Role whose whole purpose is reading Secrets. A managed role removes all four
+objects. `postgres-oci` runs `enableSuperuserAccess: false`; that is fine,
+because `citext` and `btree_gin` are TRUSTED extensions in PG13+ and a database
+owner can create them.
+
+### Trivy KSV-0040: do not add a per-namespace ResourceQuota
+
+Counter-intuitive, and it cost an afternoon. Trivy's KSV-0040 ("a resource quota
+policy with hard memory and CPU limits should be configured per namespace") is
+evaluated per FILE across a directory scan: adding a `ResourceQuota` anywhere in
+an app tree makes it fire on **every other file in that tree**, and satisfying
+it in one file does not satisfy the others. Removing the ResourceQuota removes
+all of them. Since Kyverno's `default-limitrange` policy already generates a
+LimitRange in every namespace, and no other app here has a quota, the answer is
+simply not to add one. Namespaces also belong in
+`kubernetes/infrastructure/configs/namespaces/` rather than beside app
+manifests — that directory holds nothing but Namespace objects, so it stays
+clean.
+
+### Shared Valkey — database index registry
+
+`valkey.database.svc.cluster.local:6379` is authless and shared. **Claim an
+unused database index and record it here**, because Django's
+`RedisCache.clear()` (and any client's `FLUSHDB`) wipes a whole index — an app
+pointed at someone else's index destroys their data on an ordinary operation.
+
+| index | consumer |
+|---|---|
+| 0 | DefectDojo (Celery broker) |
+| 4 | authentik |
+| 6 | Janeway (Django cache) |
+
+It is configured as a **broker**, not a cache: `--appendonly yes
+--maxmemory 1gb --maxmemory-policy noeviction`. `noeviction` is deliberate (a
+queue that drops keys loses tasks) but means a full instance returns write
+errors rather than evicting, so a cache consumer must set TTLs on everything it
+writes. If a consumer ever needs untimed keys, move to `volatile-lru` — which
+evicts only keys that have an expiry, leaving broker queues alone — rather than
+raising `maxmemory` again. Keep the container memory request above `maxmemory`
+or the kubelet OOM-kills it before Valkey applies its own policy.
+
 ### Migrating Away from SQLite
 
 **If you encounter an app using SQLite, migrate it to CNPG.** SQLite binds data to a single disk and breaks portability, HA, and backups. It is not acceptable for persistent workloads in this cluster.
@@ -293,9 +381,15 @@ always-online, public-facing workloads (GitHub-App backends) and the
 
 ### Before Editing Kubernetes Manifests
 
-- Changes to `kubernetes/infrastructure/` or `kubernetes/components/` are cluster-agnostic (would affect any cluster reconciled from this repo)
-- Changes to `clusters/firefly/` affect only firefly
-- Run `kustomize build kubernetes/clusters/firefly` to validate
+- Changes to `kubernetes/infrastructure/` or `kubernetes/components/` are cluster-agnostic (would affect any cluster reconciled from this repo). **In practice `kubernetes/infrastructure/` is firefly's** — franklinhouse deliberately does not reconcile it (see `clusters/franklinhouse/infrastructure/`)
+- Changes to `clusters/firefly/` affect only firefly; `clusters/franklinhouse/` only franklinhouse
+- Changes to `kubernetes/apps/access-control/` affect **franklinhouse only**; every other app under `kubernetes/apps/` is firefly's
+- Validate **both** clusters — they share the `apps/` and `components/` trees:
+  ```bash
+  kustomize build kubernetes/clusters/firefly
+  kustomize build kubernetes/clusters/franklinhouse
+  ```
+  For the two `flux-system/` bootstrap dirs, add `--load-restrictor LoadRestrictionsNone` (both reference `../apps.yaml`, which plain `kustomize build` rejects; Flux itself does not enforce that restriction)
 - Test labels match resource profiles/node selectors
 - Encrypted secrets: remember `.enc.yaml` suffix
 

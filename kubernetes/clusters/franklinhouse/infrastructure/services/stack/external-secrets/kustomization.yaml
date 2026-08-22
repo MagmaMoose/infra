@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# The ClusterSecretStore and the OCI API credentials it authenticates with.
+# Deliberately in the SERVICES tier rather than alongside the operator in
+# controllers — see the note in
+# ../../../controllers/stack/external-secrets/kustomization.yaml. Short version:
+# the CRD must exist before this can even dry-run, and this tier is the one with
+# SOPS decryption enabled.
+resources:
+  - oci-vault-credentials.enc.yaml
+  - secret-store.yaml

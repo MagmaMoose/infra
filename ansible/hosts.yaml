@@ -67,6 +67,10 @@ all:
         ansible_ssh_user: admin
         ansible_ssh_private_key_file: ~/.ssh/id_rsa
 
+    # Legacy single-host group, kept as-is because server-k3s-bootstrap.yaml and
+    # server-k3s-fluxcd-reconcile.yaml target it. Note 192.168.69.112 is
+    # fh-system-vm2, one of the three control-plane VMs — see the
+    # franklinhouse_* groups below for the full cluster.
     franklin:
       hosts:
         192.168.69.112:
@@ -74,3 +78,45 @@ all:
         ansible_python_interpreter: /usr/bin/python3
         ansible_ssh_user: caleb
         ansible_ssh_private_key_file: ~/.ssh/id_rsa
+
+    # --- franklinhouse k3s cluster (folded in from calebsargeant/infra-v2) ---
+    # Full topology, including which Proxmox host each VM lives on, is in
+    # docs/reference/franklinhouse.md. One control-plane VM per Proxmox host, so
+    # losing a host loses a control-plane node.
+    franklinhouse_control_plane:
+      hosts:
+        192.168.69.111:   # fh-system-vm1 (VM 100, Proxmox node1)
+        192.168.69.112:   # fh-system-vm2 (VM 101, Proxmox node2)
+        192.168.69.113:   # fh-system-vm3 (VM 102, Proxmox node3)
+      vars:
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_ssh_user: caleb
+        ansible_ssh_private_key_file: ~/.ssh/id_rsa
+
+    franklinhouse_workers:
+      hosts:
+        192.168.69.121:   # fh-worker-vm1 (VM 103, Proxmox node1)
+        192.168.69.122:   # fh-worker-vm2 (VM 104, Proxmox node2)
+        192.168.69.123:   # fh-worker-vm3 (VM 105, Proxmox node3)
+      vars:
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_ssh_user: caleb
+        ansible_ssh_private_key_file: ~/.ssh/id_rsa
+
+    franklinhouse:
+      children:
+        franklinhouse_control_plane:
+        franklinhouse_workers:
+
+    # Proxmox hypervisors. No playbook targets these today — they are recorded
+    # here so the inventory reflects reality. They authenticate as root with a
+    # PASSWORD (1Password item "Proxmox", Firefly vault); SSH keys are not
+    # authorised on them, so ansible_ssh_private_key_file is deliberately absent.
+    franklinhouse_proxmox:
+      hosts:
+        192.168.69.211:   # node1
+        192.168.69.212:   # node2
+        192.168.69.213:   # node3
+      vars:
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_ssh_user: root

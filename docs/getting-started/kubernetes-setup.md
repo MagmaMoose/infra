@@ -23,6 +23,9 @@ Run the following command to bootstrap your pi (You need to be inside `./ansible
 ansible-playbook -i hosts pi-k3s-bootstrap.yml
 ```
 
-The above will install k3s, deploy a GitHub Private Runner, and install the necessary tools on the pi. View the file to see what it does.
+The above will install k3s and the necessary tools on the pi. View the file to see what it does.
+
+The self-hosted GitHub runner is not part of this bootstrap. It is deployed by
+Flux from `kubernetes/apps/github-runner` using GitHub's actions-runner-controller (ARC).
 ### Deploy
 Now you can deploy your Helm charts using Terragrunt.

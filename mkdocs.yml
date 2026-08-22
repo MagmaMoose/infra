@@ -50,7 +50,9 @@ nav:
   - Operations:
       - AppSec and Dev Tooling: operations/appsec-dev-tooling.md
       - Delivery & Automation: operations/delivery-and-automation.md
+      - Terraform delivery: operations/terraform-delivery.md
       - Identity (Authentik): operations/identity-authentik.md
+      - Janeway: operations/janeway.md
       - Runtime & Continuous Security: operations/runtime-continuous-security.md
       - DefectDojo: operations/defectdojo.md
       - Backup and Restore: operations/backup-and-restore.md
@@ -58,11 +60,16 @@ nav:
       - Auto Shutdown: operations/auto-shutdown.md
       - Auto Update: operations/auto-update.md
       - NFS Setup: operations/nfs-setup.md
+      - Troubleshooting: operations/troubleshooting.md
       - Kubernetes Restructure Plan: operations/kubernetes-restructure-plan.md
   - Reference:
       - Cluster Topology: reference/cluster-topology.md
+      - Terraform (AWS): reference/terraform-aws.md
       - Secrets Management: reference/secrets-management.md
+      - FranklinHouse Cluster: reference/franklinhouse.md
       - Ansible: reference/ansible.md
+      - GitHub Actions workflows: reference/github-workflows.md
+      - Scripts: reference/scripts.md
       - Resource Profiles: reference/resource-profiles.md
       - Terraform (OCI): reference/terraform-oci.md
       - Terraform Modules: reference/terraform-modules.md
@@ -70,26 +77,9 @@ nav:
       - OCI Infra Improvements: reference/oci-infra-improvements.md
       - OCI VRRP HA Design: reference/oci-vrrp-ha-design.md
       - Cloudflare ZTNA Improvements: reference/cloudflare-ztna-improvements.md
-      - Helm Charts:
-          - Overview: reference/helm-charts.md
-          - Prometheus Stack: reference/helm-charts/prometheus-stack.md
-          - AdGuard: reference/helm-charts/adguard.md
-          - Bazarr: reference/helm-charts/bazarr.md
-          - Heimdall: reference/helm-charts/heimdall.md
-          - Homebridge: reference/helm-charts/homebridge.md
-          - Lidarr: reference/helm-charts/lidarr.md
-          - MariaDB: reference/helm-charts/mariadb.md
-          - Nextcloud: reference/helm-charts/nextcloud.md
-          - NZBGet: reference/helm-charts/nzbget.md
-          - Ombi: reference/helm-charts/ombi.md
-          - Postgres: reference/helm-charts/postgres.md
-          - Prowlarr: reference/helm-charts/prowlarr.md
-          - qBittorrent: reference/helm-charts/qbittorrent.md
-          - Radarr: reference/helm-charts/radarr.md
-          - RDesktop: reference/helm-charts/rdesktop.md
-          - Readarr: reference/helm-charts/readarr.md
-          - Sonarr: reference/helm-charts/sonarr.md
-          - Tautulli: reference/helm-charts/tautulli.md
-          - Wetty: reference/helm-charts/wetty.md
+      - Helm and Kustomize analysis: reference/helm-charts.md
+  - Contributing:
+      - Local development: contributing/development.md
+  - Glossary: glossary.md
   - About:
       - Changelog: about/changelog.md

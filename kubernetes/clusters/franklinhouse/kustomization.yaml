@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Build target of the meta `apps` Kustomization (see ./apps.yaml). Renders the
+# per-app and per-tier Flux Kustomization CRs for franklinhouse; no app or tier
+# manifests cross this Kustomization itself — those are applied by the emitted CRs.
+#
+# Deliberately references ../../apps/access-control DIRECTLY rather than
+# ../../apps: kubernetes/apps/kustomization.yaml is firefly's app set (~50 apps),
+# and aggregating it here would deploy all of firefly to franklinhouse.
+#
+# ./infrastructure is franklinhouse-local rather than ../../infrastructure for the
+# same reason -- AGENTS.md defines kubernetes/infrastructure/ as cluster-agnostic
+# and its tier Kustomizations point at firefly's shared stack/ paths, whereas
+# franklinhouse runs its own CNPG clusters and Traefik config.
+# ../../apps/github-runner/franklinhouse-prod holds ONLY this cluster's ARC Flux
+# Kustomization CR; the manifests it points at live in ../../apps/github-runner/
+# {base,franklinhouse}. Same direct-reference rule as access-control above — the
+# firefly-only `prod/` sibling stays out of this list, and this entry stays out of
+# kubernetes/apps/kustomization.yaml.
+resources:
+  - ../../apps/access-control
+  - ../../apps/github-runner/franklinhouse-prod
+  - ./infrastructure
+  - ./system

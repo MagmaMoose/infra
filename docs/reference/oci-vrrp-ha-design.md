@@ -1,11 +1,11 @@
-# OCI MikroTik HA via VRRP + route-table failover — design doc
+# OCI MikroTik HA via VRRP + route-table failover: design doc
 
-Status: **Design — partial smoke test passed; implementation pending.**
+Status: **Design. Partial smoke test passed; implementation pending.**
 Resolves `oci-infra-improvements.md` #3.
 
 > **Pivot since the first version of this doc** (2026-05-19): the
 > original plan was "VRRP triggers a script that moves a floating
-> *secondary private IP* between VNICs." That doesn't work — OCI's
+> *secondary private IP* between VNICs." That doesn't work. OCI's
 > `UpdatePrivateIp` API can't change `vnic_id`; you'd have to
 > unassign + reassign, which creates a NEW private-ip OCID and breaks
 > the route tables that referenced the old one. The smoke test below
@@ -39,7 +39,7 @@ Single point of failure on a deliberately-redundant pair.
 When r1 fails, internet egress for the app + data subnets should
 automatically fail over to r2 without operator intervention. Recovery
 to the original master on r1's return is fine (pre-emption is OK in
-this topology — no asymmetric WAN cost).
+this topology: no asymmetric WAN cost).
 
 Target failover detection + reconvergence: **under 30 seconds**.
 
@@ -61,19 +61,19 @@ eu-amsterdam-1. 6 swaps of the app subnet's default-route
 
 Average: ~1.2 s API / ~1.9 s visible. Well under the 30 s target. Data
 plane convergence on top adds another second or two; total failover
-should land in the 3–5 s range once VRRP detection (sub-second) and
+should land in the 3 to 5 s range once VRRP detection (sub-second) and
 hook invocation are included.
 
 ## Why OCI makes this non-trivial
 
-OCI's VCN networking is SDN — there's no shared L2 between VNICs. A
+OCI's VCN networking is SDN: there's no shared L2 between VNICs. A
 classic VRRP setup where master broadcasts a gratuitous ARP for the
 virtual IP and clients learn the new MAC doesn't work; OCI ignores the
 ARP and keeps routing by VNIC ownership.
 
 Three options considered:
 
-### Option A — ECMP across two equal default routes
+### Option A: ECMP across two equal default routes
 
 Add two `0.0.0.0/0` routes pointing at r1's and r2's private IPs.
 OCI's intent: split traffic 50/50.
@@ -83,7 +83,7 @@ you can't have two route rules with the same destination. The
 terraform apply errors at validation. ECMP isn't a thing on OCI route
 tables.
 
-### Option B — BGP between MikroTiks and DRG
+### Option B: BGP between MikroTiks and DRG
 
 Each MikroTik peers BGP with the DRG and announces a default route.
 DRG picks the active announcer; if r1's session drops, r2 wins.
@@ -91,10 +91,10 @@ DRG picks the active announcer; if r1's session drops, r2 wins.
 **Possible but heavy.** Requires the DRG to be in BGP mode rather than
 the current static-routing mode (and our existing VPN tunnels to AWS
 peer ASNs would need rethinking). Operationally adds another moving
-part. Skip for now — revisit only if VRRP + route-table failover
+part. Skip for now; revisit only if VRRP + route-table failover
 proves inadequate.
 
-### Option C — VRRP for state + OCI route-table failover (recommended)
+### Option C: VRRP for state + OCI route-table failover (recommended)
 
 1. The OCI app + data route tables continue to have a single default
    route, with `network_entity_id` pointing at whichever router's
@@ -111,7 +111,7 @@ proves inadequate.
    its `network_entity_id` to the local instance's primary private IP
    OCID, and PUTs the rule list back.
 
-VRRP-on-OCI doesn't actually move L2 — it just drives the state
+VRRP-on-OCI doesn't actually move L2; it just drives the state
 machine that triggers the route-table update. Detection is sub-second
 (VRRP hello = 1 s by default); reassignment is OCI-control-plane-bound
 (~1.2 s API per route table, per the smoke test above).
@@ -120,13 +120,13 @@ machine that triggers the route-table update. Detection is sub-second
 
 ### Terraform changes (infra repo)
 
-#### `terraform/oci/modules/edge/iam.tf` (new file — edge-only dynamic group + policy)
+#### `terraform/oci/modules/edge/iam.tf` (new file: edge-only dynamic group + policy)
 
 Pattern mirrors `terraform/oci/modules/server/iam.tf` (added in #210)
 but with **a separate, edge-only dynamic group**. Reusing the server
 module's group would broaden the k3s nodes' privileges to include
 route-table-manage, and broaden the edge routers' privileges to
-include the k3s Vault-read — both directions are unnecessary
+include the k3s Vault-read. Both directions are unnecessary
 privilege expansion. Keeping them disjoint preserves least privilege.
 
 Matching rule scopes to the specific edge instance OCIDs (not "every
@@ -162,7 +162,7 @@ resource "oci_identity_policy" "edge_route_table_failover" {
 }
 ```
 
-#### `terraform/oci/modules/network/` — no changes
+#### `terraform/oci/modules/network/`: no changes
 
 The route tables stay exactly as they are today. `internet_gateway_ip`
 remains `"192.168.223.11"` (r1's primary private IP, the initial
@@ -173,7 +173,7 @@ This is the big simplification vs the original "floating IP" design:
 no module changes to the network module, no floating private IP
 resource, no `ignore_changes` on a re-parented VNIC.
 
-#### `terraform/oci/modules/mikrotik/` — add the failover container
+#### `terraform/oci/modules/mikrotik/`: add the failover container
 
 Same pattern as the existing `routeros_container.cloudflared`. New
 resources, all iterated `for_each = local.routers`:
@@ -223,7 +223,7 @@ Plus a new `routeros_interface_veth` for the container's IP
 (`172.17.0.3`, vs cloudflared's `.2`) and matching bridge-port
 attachment.
 
-#### `terraform/oci/modules/mikrotik/` — add VRRP
+#### `terraform/oci/modules/mikrotik/`: add VRRP
 
 Each router gets three RouterOS objects on `ether1` (OCI edge subnet
 interface):
@@ -249,14 +249,14 @@ interface):
 Both routers get all three objects via `routeros_*` resources
 iterating with `for_each = local.routers`. Priority differs per router;
 everything else identical. (The `.10` VRRP virtual address isn't used
-by OCI routing — it's just part of the VRRP protocol; OCI ignores it.
+by OCI routing. It's just part of the VRRP protocol; OCI ignores it.
 The actual egress redirect happens via the route-table API, not via
 ARP.)
 
 #### Edge VNIC config
 
 `skip_source_dest_check = true` is already set on both edge VNICs in
-`terraform/oci/modules/edge/main.tf` line 21 — VRRP hello multicast
+`terraform/oci/modules/edge/main.tf` line 21: VRRP hello multicast
 will pass between the VNICs. No change needed.
 
 ### Container image (separate repo: mikrotik-chr)
@@ -277,7 +277,7 @@ image's own README for full environment-variable docs.
 2. **VRRP-only test (no failover hook)**: add the VRRP interfaces to
    r1 + r2 with the `on-master`/`on-backup` hooks set to just logging
    (no `/tool/fetch`). Confirm state convergence via
-   `/interface/vrrp/print` on both routers — r1 master, r2 backup, no
+   `/interface/vrrp/print` on both routers: r1 master, r2 backup, no
    flapping over 10 minutes. Validates that VRRP hello multicast
    actually traverses the OCI edge subnet.
 3. **Failover script standalone**: bring up the container on each
@@ -297,7 +297,7 @@ image's own README for full environment-variable docs.
    r1 and route table follows.
 6. **Split-brain probe**: simulate a network partition between r1 and
    r2 (firewall the VRRP hellos for 30 s). VRRP should declare both
-   master — but only one PUT to the route table wins (whoever's last);
+   master, but only one PUT to the route table wins (whoever's last);
    the route table eventually stabilises on whichever is reachable
    when partition heals. Confirm no infinite update loop or
    priority-based oscillation.
@@ -332,22 +332,22 @@ flipping the flag is a no-op.
    bridge→host hop. Fallback already supported by the helper:
    `OCI_AUTH=api_key` + mounted `~/.oci/config`.
 2. **VRRP hello multicast across the OCI edge subnet?** Per OCI docs
-   it should — same subnet, same VCN — but worth confirming with the
+   it should (same subnet, same VCN), but worth confirming with the
    "VRRP-only test" (step 2 in the test plan) before relying on it.
 3. **Read-modify-write race on route-table updates?** OCI route table
    updates use full-list PUT semantics. If both routers think they're
    master simultaneously (split brain), both might race the API; OCI
    serialises but the loser's payload is discarded. Acceptable for
    VRRP-driven failover because the helper is idempotent (it re-PUTs
-   the same payload if invoked again with the same state) — no flap
+   the same payload if invoked again with the same state): no flap
    loop, just one wasted API call.
 
 ## Out of scope (intentionally)
 
-- DRG / VPN routing changes — VPN tunnels stay pointed at the existing
+- DRG / VPN routing changes: VPN tunnels stay pointed at the existing
   endpoints. This design only touches the **internet egress** routing.
 - WAN-side HA. The MikroTiks share the same OCI region's internet
   gateway; if eu-amsterdam-1's IGW has a region-wide problem, neither
   router can route. Geographic redundancy is its own project.
-- `auto-restart-interval` for cloudflared on r2 — tracked separately
+- `auto-restart-interval` for cloudflared on r2, tracked separately
   in `cloudflare-ztna-improvements.md` #2 residual gap.
