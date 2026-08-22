@@ -389,13 +389,25 @@ spec:
                 # (COMMON_MISTAKES #14). 4Gi + 1Gi keeps the worst case under what ff-oci2
                 # actually has free.
                 #
-                # This is also less of a squeeze than it looks: on arm64 Chargate's
-                # `arch_strategy: auto` runs MegaLinter's per-linter `megalinter-only-*`
-                # images sequentially instead of the one monolithic flavor image, so the
-                # peak working set is lower than the amd64 path it is being compared to.
-                # IF A SCAN OOMs, this number is the first thing to raise — and ff-oci1
-                # (34% used) can take it long before ff-oci2 can. No CPU limit (repo
-                # convention).
+                # CORRECTION (this comment previously argued the opposite, and the wrong
+                # version of it is what let 4Gi look comfortable): on arm64 Chargate's
+                # `arch_strategy: auto` runs the per-linter `megalinter-only-*` images
+                # CONCURRENTLY, not sequentially. See src/chargate/megalinter.py:
+                # `workers = max(1, min(config.jobs, len(commands)))` feeding a
+                # ThreadPoolExecutor, with `jobs` defaulting to 4. So the peak working set
+                # is up to FOUR scanner images at once — higher than the single monolithic
+                # flavor image on the amd64 path, not lower.
+                #
+                # That is why arm64 scans were dying rather than merely being slow. The
+                # response is CHARGATE_JOBS=2 in the runner env above (halving peak
+                # concurrency) rather than raising this cap, because the original
+                # reasoning about node headroom still holds — verified 2026-08-17:
+                # ff-oci2 is at 8276Mi real / 8850Mi requested of ~11.9Gi allocatable,
+                # leaving ~3.6Gi free, so a 6Gi dind + 2Gi runner ceiling genuinely does
+                # not fit there, and this scale set can land on either OCI node.
+                #
+                # Raise this to 6Gi (amd64 parity) only once ff-oci2 has headroom or the
+                # scale set is constrained to ff-oci1. No CPU limit (repo convention).
                 memory: 4Gi
             volumeMounts:
               - name: work
@@ -421,6 +433,25 @@ spec:
                 value: "1"
               - name: DOTNET_NOLOGO
                 value: "1"
+              # Chargate standalone concurrency. THIS is the arm64 fix: chargate runs
+              # MegaLinter's per-linter images CONCURRENTLY, not sequentially (see the
+              # corrected note on the dind memory cap below), defaulting to 4 at once —
+              # all inside dind's 4Gi cgroup, on a 2-core node whose CPU requests are
+              # already 83-90% committed. Four scanners that each load a multi-hundred-MB
+              # ruleset or vulnerability DB do not fit in 4Gi; dind gets OOM-killed, the
+              # docker daemon dies mid-scan, and the job then hangs until GitHub abandons
+              # it 16-28 minutes later. That is the "arm64 is slow" symptom: a dead
+              # daemon, not a slow scan.
+              #
+              # 2 rather than 1: 18 images at 2-wide is 9 waves instead of 5, which costs
+              # wall-clock, but a scan that finishes slowly beats one that dies at 25 min.
+              # Revisit together with the cap below once ff-oci2 has headroom.
+              #
+              # Must be a bare integer string: chargate's `_env_int_default` does
+              # `int(raw) if raw.isdigit()` and silently falls back to 4 otherwise.
+              # No-op on chargate < v2.11.1, which has no standalone mode.
+              - name: CHARGATE_JOBS
+                value: "2"
               # k8s REPLACES the image PATH rather than appending, so this must restate
               # the image's own PATH verbatim
               # (/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin, read off

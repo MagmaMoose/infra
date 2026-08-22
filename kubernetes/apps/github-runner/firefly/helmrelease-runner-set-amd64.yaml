@@ -396,10 +396,20 @@ spec:
                 # dind hosts the chargate/MegaLinter container, so this cap governs the
                 # whole scan. MegaLinter needs several GB; 512Mi OOM-kills it. Carried
                 # over unchanged from the StatefulSet, where it was arrived at the hard
-                # way, and kept at 6Gi rather than trimmed to match the arm64 pool's 4Gi:
-                # this pool runs the MONOLITHIC MegaLinter flavor image (the arm64 pool
-                # substitutes smaller per-linter images), which is the heavier of the two
-                # working sets, and ff-vm1 has the room. No CPU limit (repo convention).
+                # way, and kept at 6Gi rather than trimmed to match the arm64 pool's 4Gi.
+                #
+                # Do NOT trim it on the old reasoning, which claimed this pool's MONOLITHIC
+                # flavor image is the heavier of the two working sets. It is not obviously
+                # heavier: the arm64 pool substitutes per-linter images but runs up to
+                # `jobs` of them CONCURRENTLY (chargate's megalinter.py: ThreadPoolExecutor
+                # over `min(config.jobs, len(commands))`, default 4), so its peak can
+                # exceed a single flavor image. The arm64 file asserted the mirror image of
+                # this claim to justify 4Gi, and that is how arm64 scans ended up
+                # OOM-killing dind — the daemon dying mid-scan, which presents as a job
+                # hanging for 16-28 minutes rather than as a failure.
+                #
+                # The real reason this pool gets 6Gi is simply that ff-vm1 has the room and
+                # the OCI nodes do not. No CPU limit (repo convention).
                 memory: 6Gi
             volumeMounts:
               - name: work
