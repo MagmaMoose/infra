@@ -15,6 +15,21 @@ locals {
   region      = local.region_vars.locals.region
   environment = local.environment_vars.locals.environment
 
+  # Which OCI TENANCY a leaf belongs to, expressed as the prefix of the four env
+  # vars that carry its API credentials. `find_in_parent_folders("provider.hcl")`
+  # resolves to the NEAREST one, so a subtree can shadow the default simply by
+  # having its own provider.hcl — that is how a second tenancy lives in this repo
+  # without every leaf sharing one credential set.
+  #
+  # Defaults to "OCI" so terraform/oci/provider.hcl (and every leaf under it)
+  # keeps reading OCI_TENANCY_OCID / OCI_USER_OCID / OCI_FINGERPRINT /
+  # OCI_PRIVATE_KEY_PATH exactly as before — this change is a no-op for them.
+  oci_env_prefix = try(local.provider_vars.locals.env_prefix, "OCI")
+
+  oci_tenancy_ocid     = get_env("${local.oci_env_prefix}_TENANCY_OCID", "")
+  oci_user_ocid        = get_env("${local.oci_env_prefix}_USER_OCID", "")
+  oci_private_key_path = get_env("${local.oci_env_prefix}_PRIVATE_KEY_PATH", "")
+  oci_fingerprint      = get_env("${local.oci_env_prefix}_FINGERPRINT", "")
   # The OCI half of the generated provider.tf. Suppressed for aws leaves ONLY: a module may
   # declare `required_providers` exactly once, and this generate block owns that declaration,
   # so an AWS module carrying its own versions.tf would collide with it. Keyed on `== "aws"`
@@ -89,6 +104,26 @@ provider "google" {
   impersonate_service_account = "deployer@magmamoose-terraform.iam.gserviceaccount.com"
 }
 
+terraform {
+  required_providers {
+    oci = {
+      source  = "oracle/oci"
+      version = "${local.oci_version}"
+    }
+  }
+}
+
+# Credentials come from the \${local.oci_env_prefix}_* env vars — see the
+# oci_env_prefix local in this file. Region comes from the leaf's region.hcl
+# rather than an env var, so a second tenancy in a different region cannot pick up
+# the wrong one from the ambient environment.
+provider "oci" {
+  tenancy_ocid     = "${local.oci_tenancy_ocid}"
+  user_ocid        = "${local.oci_user_ocid}"
+  private_key_path = "${local.oci_private_key_path}"
+  fingerprint      = "${local.oci_fingerprint}"
+  region           = "${local.region}"
+}
 ${local.oci_provider}
 EOF
 }
