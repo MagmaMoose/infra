@@ -6,7 +6,7 @@ This guide provides essential architectural knowledge for AI agents working in t
 
 This monolithic repository manages a **distributed home lab** across multiple cloud providers and a local Kubernetes cluster:
 
-- **Kubernetes Core**: Single-node k3s on Raspberry Pi (primary workload cluster "firefly")
+- **Kubernetes Core**: 4-node k3s cluster "firefly" — Raspberry Pi 5 control plane, one on-prem amd64 worker, and two arm64 OCI free-tier VMs (the native-cloud tier)
 - **Cloud Infrastructure**: Multi-provider Terraform via Terragrunt (GCP, OCI, Cloudflare, AWS/Azure future)
 - **Configuration Management**: Ansible for system setup, bootstrapping, and complex provisioning
 - **GitOps Pipeline**: FluxCD v2 watches this repo and auto-deploys Kubernetes manifests
@@ -273,6 +273,70 @@ spec:
   name: myapp
   owner: myapp
 ```
+
+### Which cluster: `postgres` or `postgres-oci`
+
+Co-locate the database with the workload. The two clusters are on opposite sides
+of the site-to-site link, and the round trip is not negligible — measured from a
+pod on ff-oci1: **5.604 ms to ff-vm1, 0.081 ms to ff-oci1**. For a chatty ORM
+application that is the dominant term in page latency (Janeway issues dozens of
+queries per render, so a 50-query page is ~280 ms of pure network wait on the
+wrong cluster).
+
+- workload on the **native-cloud** tier → `postgres-oci` in `database-oci`
+- workload on the **on-prem/worker** tier → `postgres` in `database`
+
+**Give each app its own LOGIN role**, declared in the cluster's `managed.roles`
+block with `passwordSecret` pointing at an ExternalSecret from OCI Vault — the
+shape `neondb_owner` and `admin` already use on `postgres`, and `janeway` now
+uses on `postgres-oci`. CNPG then reconciles the password from the vault, so it
+cannot drift, and rotating the vault entry rotates the credential.
+
+Do NOT reuse the cluster's `app` role (dunmir does, for historical reasons). It
+owns other applications' databases, so sharing it means either application's
+credentials can read the other's data — and because CNPG generates that
+password rather than taking it from the vault, reading it needs a
+ServiceAccount + Role + RoleBinding + kubernetes-provider `SecretStore` hop, a
+Role whose whole purpose is reading Secrets. A managed role removes all four
+objects. `postgres-oci` runs `enableSuperuserAccess: false`; that is fine,
+because `citext` and `btree_gin` are TRUSTED extensions in PG13+ and a database
+owner can create them.
+
+### Trivy KSV-0040: do not add a per-namespace ResourceQuota
+
+Counter-intuitive, and it cost an afternoon. Trivy's KSV-0040 ("a resource quota
+policy with hard memory and CPU limits should be configured per namespace") is
+evaluated per FILE across a directory scan: adding a `ResourceQuota` anywhere in
+an app tree makes it fire on **every other file in that tree**, and satisfying
+it in one file does not satisfy the others. Removing the ResourceQuota removes
+all of them. Since Kyverno's `default-limitrange` policy already generates a
+LimitRange in every namespace, and no other app here has a quota, the answer is
+simply not to add one. Namespaces also belong in
+`kubernetes/infrastructure/configs/namespaces/` rather than beside app
+manifests — that directory holds nothing but Namespace objects, so it stays
+clean.
+
+### Shared Valkey — database index registry
+
+`valkey.database.svc.cluster.local:6379` is authless and shared. **Claim an
+unused database index and record it here**, because Django's
+`RedisCache.clear()` (and any client's `FLUSHDB`) wipes a whole index — an app
+pointed at someone else's index destroys their data on an ordinary operation.
+
+| index | consumer |
+|---|---|
+| 0 | DefectDojo (Celery broker) |
+| 4 | authentik |
+| 6 | Janeway (Django cache) |
+
+It is configured as a **broker**, not a cache: `--appendonly yes
+--maxmemory 1gb --maxmemory-policy noeviction`. `noeviction` is deliberate (a
+queue that drops keys loses tasks) but means a full instance returns write
+errors rather than evicting, so a cache consumer must set TTLs on everything it
+writes. If a consumer ever needs untimed keys, move to `volatile-lru` — which
+evicts only keys that have an expiry, leaving broker queues alone — rather than
+raising `maxmemory` again. Keep the container memory request above `maxmemory`
+or the kubelet OOM-kills it before Valkey applies its own policy.
 
 ### Migrating Away from SQLite
 

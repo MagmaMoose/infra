@@ -7,6 +7,19 @@ spec:
   accessModes:
     - ReadWriteOnce
   resources:
+    # Stays 1Gi. Expanding to 4Gi alongside the maxmemory bump was right in
+    # principle and is not schedulable in practice: this volume's replicas sit
+    # on the OCI-tier Longhorn disks, which are ~2/3 full, so the admission
+    # webhook rejects the expansion outright —
+    #
+    #   cannot schedule 3221225472 more bytes to disk ...
+    #   MinimalAvailablePercentage: 15
+    #
+    # That is a hard failure of the whole infrastructure-services Kustomization
+    # rather than a degraded volume, so it takes every service in the tier down
+    # with it — including anything that dependsOn it. maxmemory is sized to what
+    # this volume can back instead (see statefulset.yaml). Revisit if the OCI
+    # nodes gain disk.
     requests:
       storage: 1Gi
   # Longhorn (replicated, node-independent) so it can run on the worker node.

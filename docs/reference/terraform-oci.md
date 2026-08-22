@@ -23,7 +23,7 @@ export OCI_REGION="ap-sydney-1"  # or your preferred region
 
 ## Directory Structure
 
-```
+```text
 terraform/oci/
 ├── provider.hcl                # Provider-specific configuration
 ├── prod/                       # Production environment

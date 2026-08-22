@@ -1,0 +1,24 @@
+---
+# Namespace for Janeway, the journal publishing platform.
+#
+# Here rather than under kubernetes/apps/janeway/base/ — which is where
+# platform2 and github-runner put theirs — because AGENTS.md names this
+# directory as where namespaces live, and because keeping Namespace objects out
+# of an app tree matters for the security gate: Trivy's KSV-0040 flags EVERY
+# file in a directory tree that contains a Namespace without a matching
+# ResourceQuota, so a namespace declared beside the app manifests produces one
+# finding per file. This directory holds nothing but Namespace objects, so it
+# produces none.
+#
+# Deliberately NOT labelled `ghcr-pull-secret: sync`. That Kyverno policy
+# (../rbac/sync-ghcr-pull-secret-policy.yaml) clones the flux-system
+# `ghcr-pull-secret`, which is a MagmaMoose-org token and cannot read
+# ghcr.io/tengen-systems/*. Janeway's image lives in that other org, so its pull
+# credential is projected separately from OCI Vault — see
+# kubernetes/apps/janeway/prod/workload/ghcr-pull-secret.yaml.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: janeway
+  labels:
+    app.kubernetes.io/name: janeway

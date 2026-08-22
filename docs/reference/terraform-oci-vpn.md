@@ -4,7 +4,7 @@ This document describes the site-to-site VPN configuration between OCI (eu-amste
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        OCI eu-amsterdam-1                          │
 │                                                                     │
@@ -117,7 +117,7 @@ add chain=srcnat src-address=192.168.19.0/24 dst-address=192.168.223.0/24 action
 
 | Parameter | Value |
 |-----------|-------|
-| CPE IP | TBD (AWS VPN Gateway) |
+| CPE IP | Not yet allocated (AWS VPN Gateway) |
 | Remote Network | 10.0.0.0/16 (AWS VPC CIDR) |
 | IKE Version | IKEv2 |
 | Routing | Static or BGP |

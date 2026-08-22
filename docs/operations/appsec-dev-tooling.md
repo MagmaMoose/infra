@@ -58,11 +58,11 @@ Cloudflare-Tunnel Ingress on `magmamoose.com`).
 
 - **Database**: uses the shared CNPG cluster via a `Database` CR
   (`base/database.yaml`, owner `neondb_owner`) and the `neondb-owner-password` OCI
-  Vault secret — no new Cluster/role.
+  Vault secret. No new Cluster/role.
 - **SonarQube → DefectDojo (security findings)**: the `sonarqube-defectdojo-sync`
   CronJob (`kubernetes/apps/security-integrations`, hourly) triggers DefectDojo's
   native *SonarQube API Import*, so DefectDojo pulls each project's VULNERABILITY +
-  SECURITY_HOTSPOT findings (security — **not** code smells) and dedupes them against
+  SECURITY_HOTSPOT findings (security, **not** code smells) and dedupes them against
   the other tools feeding DefectDojo (Chargate/MegaLinter SARIF, Dependency-Track,
   Trivy …). Cross-tool dedup is enabled by the DefectDojo bootstrap
   (`enable_deduplication`). SonarQube's code-quality/coverage stays in SonarQube.
@@ -70,9 +70,9 @@ Cloudflare-Tunnel Ingress on `magmamoose.com`).
   chart's privileged `initSysctl` container (fine on the amd64 worker).
 
 ### OCI Vault prerequisites (add before/at first reconcile; the jobs retry)
-- `sonarqube-monitoring-passcode` — any strong string; SonarQube never reports ready without it.
-- `sonarqube-defectdojo-token` — a SonarQube user token (My Account → Security → Generate Token) DefectDojo uses to read findings.
-- `neondb-owner-password` — already exists; reused for the SonarQube DB.
+- `sonarqube-monitoring-passcode`: any strong string; SonarQube never reports ready without it.
+- `sonarqube-defectdojo-token`: a SonarQube user token (My Account → Security → Generate Token) DefectDojo uses to read findings.
+- `neondb-owner-password`: already exists; reused for the SonarQube DB.
 
 ### Follow-ups (documented, not yet wired)
 - SonarQube Prometheus metrics: enable `prometheusExporter` + `prometheusMonitoring.podMonitor` (the cluster scrapes all monitors via `…SelectorNilUsesHelmValues: false`).

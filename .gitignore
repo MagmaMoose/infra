@@ -81,9 +81,11 @@ notneeded/
 # macOS metadata
 .DS_Store
 
-# Claude Code working tree — only ephemeral state is gitignored; shared docs are tracked
-.claude/sessions/
-.claude/decisions/
+# Claude Code working tree — only ephemeral state is gitignored; shared docs are tracked.
+# sessions/ and decisions/ USED to be ignored here, which contradicted the line above and
+# broke what CLAUDE.md promises: it lists `.claude/{decisions,sessions}/` as load-on-demand
+# context, and headless agents clone this repo fresh — an ADR that never leaves one laptop is
+# not a decision record. Only genuinely ephemeral state stays ignored.
 .claude/worktrees/
 .claude/last_output.txt
 
@@ -96,3 +98,23 @@ terraform/aws/localstack/terraform.tfstate*
 terraform/aws/localstack/.outputs.json
 terraform/aws/modules/*/.terraform/
 terraform/aws/modules/*/_validate_provider.tf
+
+# Folded in from .claudeignore, which was removed: a file by that name does nothing in
+# Claude Code, so the coverage it claimed was never real. Only patterns git did not already
+# match are listed here (verified with `git check-ignore`), and `.terraform.lock.hcl` is
+# deliberately NOT among them — it is committed on purpose, 32 of them are tracked today.
+*.tfplan
+*.pem
+*.agekey
+*.log
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.coverage
+.tox/
+coverage/
+dist/
+build/
+.vscode/
+Thumbs.db
+Screenshot*.png

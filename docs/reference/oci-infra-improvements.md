@@ -43,8 +43,8 @@ resource declares `replace_triggered_by` on it. Result:
   so pointing it at a different Vault secret doesn't rebuild standalone-
   server VMs that ignore it (added in #213).
 
-The current `terraform_data` body (live in `terraform/oci/modules/server/main.tf`
-— keep this snippet in sync with the implementation):
+The current `terraform_data` body (live in `terraform/oci/modules/server/main.tf`;
+keep this snippet in sync with the implementation):
 
 ```hcl
 input = sha256(jsonencode(merge(
@@ -90,7 +90,7 @@ so ECMP across two equal default routes isn't an option. The
 VRRP-for-state + API-for-action pattern is Oracle's reference HA
 architecture for this exact problem.
 
-Implementation lands as a separate PR after the design is agreed —
+Implementation lands as a separate PR after the design is agreed;
 the design doc includes a pre-implementation smoke test (manual OCI
 API floating-IP reassignment) to validate the OCI control-plane
 latency before committing to the approach.
@@ -98,7 +98,7 @@ latency before committing to the approach.
 ## 4. Migrate `api://...:8728` to `apis://...:8729` (TLS-wrapped binary API)
 
 The routeros provider currently talks plaintext binary API on 8728. The
-existing TODO in
+existing `TODO` comment in
 [mikrotik/terragrunt.hcl](https://github.com/CalebSargeant/infra/blob/main/terraform/oci/prod/eu-amsterdam-1/mikrotik/terragrunt.hcl)
 captures this. Once cert is sorted, switch to 8729 + TLS, then drop the
 `routeros_api_management_cidrs` ingress rule on the edge security list
@@ -115,8 +115,8 @@ same primary private IPs. The cutover changes the public IP values once,
 after which the IPs survive instance recreate.
 
 DNS auto-follows via the [`cloudflare/dns/prod`](https://github.com/CalebSargeant/infra/blob/main/terraform/cloudflare/dns/prod/terragrunt.hcl)
-terragrunt dependency on `oci/prod/eu-amsterdam-1/edge` (added in #218)
-— the same apply that creates the reserved IPs also rewrites the
+terragrunt dependency on `oci/prod/eu-amsterdam-1/edge` (added in #218).
+The same apply that creates the reserved IPs also rewrites the
 `oci1`/`oci2`/`oci.sargeant.co` A records.
 
 Recommended sequencing for the flip:
@@ -127,7 +127,7 @@ Recommended sequencing for the flip:
    `terraform/cloudflare/dns/prod`. A records update.
 3. (Same chain, or immediately after) `terragrunt apply` in
    `terraform/oci/prod/eu-amsterdam-1/mikrotik` if the router-side
-   address-lists reference the public IPs directly (today they don't —
+   address-lists reference the public IPs directly (today they don't:
    they reference hostnames + RFC1918, so this step is a no-op).
 
 Expected disruption window: tens of seconds while DNS TTL expires for
