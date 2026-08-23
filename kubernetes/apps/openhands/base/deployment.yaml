@@ -80,6 +80,32 @@ spec:
               value: "1"
             - name: TZ
               value: Europe/Amsterdam
+            # Git identity, as ENVIRONMENT variables and deliberately NOT as a
+            # `git config` file. The agent SDK's VersionControlSection prompt branches on
+            # whether `git config` already shows credentials: if it does, it instructs the
+            # model to "add Co-authored-by: openhands <openhands@all-hands.dev> to any
+            # commits messages you make"; if it does not, it instructs the model to commit
+            # as openhands@all-hands.dev instead. Both branches are wrong for this fleet.
+            #
+            # Env vars take the second branch (they are invisible to `git config --get`)
+            # while still winning at commit time, because git reads GIT_AUTHOR_* and
+            # GIT_COMMITTER_* ahead of any config file. So the model is never told to write
+            # a trailer, and the identity it thinks it is using is overridden anyway.
+            # Writing a gitconfig here instead would flip it to the branch that DOES ask
+            # for the trailer. Do not "tidy" this into a config file.
+            #
+            # The address matches the one GitHub stamps on squash commits. That matters:
+            # GitHub credits every distinct commit-author email in a PR as a co-author on
+            # the squash commit it creates server-side, where no hook can reach it. Same
+            # address in, no co-author out.
+            - name: GIT_AUTHOR_NAME
+              value: Caleb Sargeant
+            - name: GIT_AUTHOR_EMAIL
+              value: 4991715+CalebSargeant@users.noreply.github.com
+            - name: GIT_COMMITTER_NAME
+              value: Caleb Sargeant
+            - name: GIT_COMMITTER_EMAIL
+              value: 4991715+CalebSargeant@users.noreply.github.com
             # Bootstrap writes the encrypted V1 settings through /api/settings. These
             # values are not read by the agent-server directly.
             - name: BOOTSTRAP_LLM_API_KEY
