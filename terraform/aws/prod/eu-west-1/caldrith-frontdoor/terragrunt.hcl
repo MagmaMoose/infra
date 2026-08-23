@@ -72,23 +72,23 @@ locals {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────
-# THIS LEAF CANNOT APPLY YET, AND NOT ONE OF ITS THREE PRECONDITIONS EXISTS. Read this before
-# running it and mistaking the failure for a Terraform defect:
+# THIS LEAF IS APPLIED AND SERVING. All three of its former preconditions now hold. The list is
+# kept because the ORDER still matters if this is ever rebuilt from nothing:
 #
-#   1. THE BUCKET. `inputs.artifact_bucket` names caldrith-artifacts-483461801743, and there is
-#      no `prod/eu-west-1/caldrith-artifacts` leaf — the only `artifacts` leaf in this repo
-#      applies into prd-nievah (666802049426). The bucket does not exist in 483461801743.
-#   2. THE OBJECTS. No workflow in MagmaMoose/caldrith publishes `edge/<v>.zip` or
-#      `edge/<v>-reconcile.zip`; `.github/workflows/` there holds chart-release, ci, release and
-#      security. So `inputs.artifact_version` names a released app tag, not a published build.
-#   3. THE HANDLERS. `caldrith.aws.producer`, `caldrith.aws.consumer` and
-#      `caldrith.aws.reconcile` do not exist — `src/caldrith/` has no `aws/` package. Even with
-#      the objects faked, this would deploy three functions that cannot import their handlers.
+#   1. THE BUCKET. `prod/eu-west-1/caldrith-artifacts` creates caldrith-artifacts-483461801743
+#      and the OIDC publish role. Apply it FIRST — this leaf takes the bucket by name rather
+#      than by `dependency`, for the cross-account reason spelled out below.
+#   2. THE OBJECTS. `.github/workflows/publish-edge.yml` in MagmaMoose/caldrith uploads
+#      `edge/<v>.zip` and `edge/<v>-reconcile.zip` together, on a v* tag push or by dispatch.
+#      Its gate compares a tag against the PREVIOUS TAG, not against S3 — so a version whose
+#      predecessor was never published reports `changed=false` and silently skips. Dispatch
+#      with `force: true` for a cold start, or nothing is ever written.
+#   3. THE HANDLERS. `caldrith.aws.{producer,consumer,reconcile}` exist and are what the three
+#      functions import.
 #
-# The apply fails at the first `aws_lambda_function`. Land the three in order — the artifacts
-# leaf (below), then the handler modules and the publish workflow, then this — and until the
-# workflow has run once, `artifact_version` should name a version that is KNOWN PUBLISHED rather
-# than whatever release tag is current, so the failure mode stays legible.
+# `artifact_version` must still name a version that is KNOWN PUBLISHED rather than merely a
+# released tag: the apply fails at the first `aws_lambda_function`, naming the S3 object rather
+# than the workflow that should have made it.
 #
 # COLD START, AND WHY THERE IS NO `dependency` BLOCK HERE.
 #
@@ -192,15 +192,24 @@ inputs = {
   # COLD START: this must name a version that has actually been published. Until step 3 above
   # has run at least once, no value here is correct.
   # ─────────────────────────────────────────────────────────────────────────────────────────
-  artifact_version = "1.15.2"
+  artifact_version = "1.19.1"
 
   # A clean hostname for the GitHub App's webhook URL. The module requests its own REGIONAL ACM
   # certificate (see api.tf); `certificate_arn` is only for reusing one managed elsewhere.
   #
   # TWO-PHASE, because the DNS validation record lives in another Terraform state
   # (terraform/cloudflare/dns-magmamoose/prod — a Cloudflare zone is a hard provider boundary).
-  # PHASE 1 IS WHAT IS COMMITTED HERE: apply with `enable_custom_domain = false`, read
-  # `certificate_validation_record`, add that CNAME to the Cloudflare leaf DNS-ONLY (grey
+  # BOTH PHASES ARE DONE: the certificate is ISSUED, the custom domain is AVAILABLE, and the
+  # `true` below is what matches the account.
+  #
+  # IT IS COMMITTED `true` DELIBERATELY — DO NOT "RESET" IT TO `false`. This file sat at
+  # `false` for days after phase 2 had been completed on the account, and a plan from that
+  # state DESTROYS `aws_apigatewayv2_domain_name.producer` and its api mapping. That is the
+  # hostname every GitHub App delivery is pointed at, for every registration, so the apply
+  # that "just flips a feature flag off" takes webhook ingest down until DNS is rebuilt.
+  #
+  # Rebuilding from nothing is the two-phase dance: apply with `enable_custom_domain = false`,
+  # read `certificate_validation_record`, add that CNAME to the Cloudflare leaf DNS-ONLY (grey
   # cloud), wait for ISSUED, then set this true and apply again — and finally CNAME
   # hooks-caldrith.magmamoose.com at `custom_domain_target`, grey cloud as well.
   #
@@ -229,7 +238,7 @@ inputs = {
   # hooks.nievah.magmamoose.com and has the same problem, undeployed so far.
   domain_name          = "hooks-caldrith.magmamoose.com"
   certificate_arn      = ""
-  enable_custom_domain = false
+  enable_custom_domain = true
 
   # Name of the admin (config) repository. It is ALSO the repo Caldrith refuses to manage —
   # `selection.builtin_excludes` drops it from every target list — so this value decides both
