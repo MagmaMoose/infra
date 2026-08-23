@@ -287,6 +287,93 @@ variable "github_api_url" {
   default     = "https://api.github.com"
 }
 
+variable "extra_registrations" {
+  description = <<-EOT
+    ADDITIONAL GitHub App registrations beyond the default one — each a separate App on a
+    separate host: a `*.ghe.com` tenancy, or a GHES instance.
+
+    SLUGS, URLS AND PARAMETER NAMES ONLY. Every field is a name or a URL and none of them is a
+    credential, so a secret in this variable is not merely discouraged, it is unrepresentable
+    — which is the point, because a `.hcl` input becomes a value in Terraform state and this
+    stack's whole security argument (module iam.tf) rests on that state holding no credential.
+
+    THE DEFAULT REGISTRATION IS NOT IN THIS LIST AND MUST NEVER BE. `caldrith.registration`
+    hardcodes `DEFAULT_REGISTRATION = "github"`: its webhook path is `/`, and its secrets are
+    the four FLAT, unprefixed parameters under the secret path. Those are live in 483461801743
+    right now. A `github` entry here would derive a second, slug-prefixed webhook-secret
+    parameter that nobody has written — and `producer._secret_param_for` short-circuits on the
+    default slug before it ever reads the map, so the entry would be inert while looking
+    authoritative in the console. The validation below refuses it.
+
+    WHAT EACH FIELD BECOMES, and every one of these shapes is a contract with code that is
+    already deployed rather than a convention this module chose:
+
+      slug                  The webhook path segment: the App points at
+                            https://<front-door>/h/<slug>. `registration_from_path` returns
+                            null for anything outside ^[a-z0-9][a-z0-9-]{0,31}$ and the
+                            producer then answers 404 — which GitHub does not retry and does
+                            not alarm on. Validated here so a bad slug is a failed plan rather
+                            than a silent fleet of lost deliveries.
+      api_url               REST base for that host. `https://api.<sub>.ghe.com` for a ghe.com
+                            tenancy, `https://<host>/api/v3` for GHES. It travels INSIDE the
+                            per-registration JSON; `var.github_api_url` remains the DEFAULT
+                            registration's own and is not repurposed for this.
+      app_id_param          SSM parameter NAMES, and all three are OPTIONAL. Left empty — the
+      private_key_param     normal case — the module derives the natural extension of the
+      webhook_secret_param  existing path: one extra segment per slug, giving
+                            <secret_path>/<slug>/app-id, /private-key and /webhook-secret.
+                            Set one only to point at a parameter managed elsewhere, and give
+                            it a LEADING SLASH: iam.tf builds each ARN by concatenating the
+                            name onto an `…:parameter` prefix, so a name without one produces
+                            a malformed ARN that grants nothing and reads as AccessDenied.
+
+    TERRAFORM CREATES NONE OF THOSE PARAMETERS, exactly as it creates none of the default
+    registration's. `output "secret_parameter_names"` is the operator's create-list and the
+    runbook is docs/ghe-onboarding.md in MagmaMoose/caldrith — including the cold-start step
+    after writing them, which is the one that gets missed.
+  EOT
+  type = list(object({
+    slug                 = string
+    api_url              = string
+    app_id_param         = optional(string, "")
+    private_key_param    = optional(string, "")
+    webhook_secret_param = optional(string, "")
+  }))
+  default = []
+
+  validation {
+    condition = alltrue([
+      for r in var.extra_registrations : can(regex("^[a-z0-9][a-z0-9-]{0,31}$", r.slug))
+    ])
+    error_message = "Every extra_registrations slug must match ^[a-z0-9][a-z0-9-]{0,31}$ — the alphabet caldrith.registration.valid_slug enforces. Outside it, registration_from_path returns null and the producer answers 404 to every delivery for that App, which GitHub neither retries nor reports anywhere but the App's Advanced tab."
+  }
+
+  validation {
+    condition     = !contains([for r in var.extra_registrations : r.slug], "github")
+    error_message = "The slug 'github' is caldrith.registration.DEFAULT_REGISTRATION, served by the flat WEBHOOK_SECRET_PARAM / APP_ID_PARAM / PRIVATE_KEY_PARAM parameters that are live in this account. An entry for it here does NOT swap the default cleanly — it splits it: the producer short-circuits on the default slug before reading REGISTRATION_SECRET_PARAMS, so it keeps verifying against the flat webhook secret, while AppConfig.registry lets an explicit 'github' entry WIN over the synthesized default, so the reconcile side switches to slug-prefixed app-id and private-key parameters nobody has written. Half-swapped credentials, applied clean. If the default really must move to the list form, do it deliberately in caldrith.settings, not from here."
+  }
+
+  validation {
+    condition     = length(distinct([for r in var.extra_registrations : r.slug])) == length(var.extra_registrations)
+    error_message = "extra_registrations slugs must be unique: the module keys two maps and three ARN lists by slug, and a duplicate means one registration's parameter names silently replace the other's."
+  }
+
+  validation {
+    condition     = alltrue([for r in var.extra_registrations : startswith(r.api_url, "https://")])
+    error_message = "Every extra_registrations api_url must be https://. The reconcile function sends an App JWT and an installation token to this host on every call; over http they are readable in transit."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for r in var.extra_registrations : [
+        for name in [r.app_id_param, r.private_key_param, r.webhook_secret_param] :
+        name == "" || startswith(name, "/")
+      ]
+    ]))
+    error_message = "An explicit SSM parameter name must be absolute (leading slash). iam.tf builds each ARN by concatenating the name onto the ':parameter' prefix, so a relative name yields a malformed ARN: the apply succeeds, the grant matches nothing, and every read fails AccessDenied. Leave the field empty to have the module derive the name instead."
+  }
+}
+
 variable "admin_repo" {
   description = <<-EOT
     Name of the admin (config) repository holding `.github/settings.yml`, passed through as
@@ -440,4 +527,18 @@ variable "monthly_budget_usd" {
   EOT
   type        = number
   default     = 1
+}
+
+variable "entitlement_enforce" {
+  description = <<-EOT
+    Whether an unentitled account is actually REFUSED, as opposed to merely logged.
+
+    Leave false until the entitlements table has a row for every account that should keep
+    working — the table is created empty, so arming this in the same apply that creates it
+    stops every existing installation at once. False runs the identical code path and emits
+    `reconcile.entitlement_observed` for each account it would have refused, which is the
+    list you seed from.
+  EOT
+  type        = bool
+  default     = false
 }
