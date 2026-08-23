@@ -45,12 +45,15 @@ terraform {
   }
 }
 
+# Credentials come from the ${local.oci_env_prefix}_* env vars — see the oci_env_prefix
+# local above. Region comes from the leaf's region.hcl rather than an env var, so a second
+# tenancy in a different region cannot pick up the wrong one from the ambient environment.
 provider "oci" {
-  tenancy_ocid     = "${get_env("OCI_TENANCY_OCID", "")}"
-  user_ocid        = "${get_env("OCI_USER_OCID", "")}"
-  private_key_path = "${get_env("OCI_PRIVATE_KEY_PATH", "")}"
-  fingerprint      = "${get_env("OCI_FINGERPRINT", "")}"
-  region           = "${get_env("OCI_REGION", "ap-sydney-1")}"
+  tenancy_ocid     = "${local.oci_tenancy_ocid}"
+  user_ocid        = "${local.oci_user_ocid}"
+  private_key_path = "${local.oci_private_key_path}"
+  fingerprint      = "${local.oci_fingerprint}"
+  region           = "${local.region}"
 }
   OCIEOF
   , "\n")
@@ -102,27 +105,6 @@ provider "google" {
   project         = "magmamoose-terraform"
   region          = "europe-west4"
   impersonate_service_account = "deployer@magmamoose-terraform.iam.gserviceaccount.com"
-}
-
-terraform {
-  required_providers {
-    oci = {
-      source  = "oracle/oci"
-      version = "${local.oci_version}"
-    }
-  }
-}
-
-# Credentials come from the \${local.oci_env_prefix}_* env vars — see the
-# oci_env_prefix local in this file. Region comes from the leaf's region.hcl
-# rather than an env var, so a second tenancy in a different region cannot pick up
-# the wrong one from the ambient environment.
-provider "oci" {
-  tenancy_ocid     = "${local.oci_tenancy_ocid}"
-  user_ocid        = "${local.oci_user_ocid}"
-  private_key_path = "${local.oci_private_key_path}"
-  fingerprint      = "${local.oci_fingerprint}"
-  region           = "${local.region}"
 }
 ${local.oci_provider}
 EOF
