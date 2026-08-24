@@ -1,0 +1,97 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared-tengen
+  namespace: general-system
+spec:
+  # Two replicas, not a DaemonSet like its sibling.
+  #
+  # The `cloudflared` DaemonSet is node-wide because it fronts most of the
+  # fleet's public hostnames, so a connector on every node keeps the hop from
+  # edge to origin local. This tunnel currently carries exactly one hostname
+  # (janeway.tengen.co.za), and a tunnel's availability comes from the number of
+  # connectors registered with Cloudflare rather than from node coverage: two
+  # replicas give four QUIC connections (cloudflared opens two per connector),
+  # spread across Cloudflare colos. A DaemonSet here would be six connectors for
+  # one low-traffic hostname, and would grow with the cluster for no reason.
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cloudflared-tengen
+  template:
+    metadata:
+      labels:
+        app: cloudflared-tengen
+    spec:
+      # No tune-udp-buffers init container, unlike the DaemonSet.
+      #
+      # That container raises net.core.{r,w}mem_max so QUIC does not log
+      # "failed to sufficiently increase receive buffer size". Those are NODE
+      # sysctls, and the DaemonSet already sets them on every node in the
+      # cluster, so repeating it here would need NET_ADMIN to write a value that
+      # is already correct.
+      containers:
+        - name: cloudflared
+          image: cloudflare/cloudflared:latest
+          args:
+            - tunnel
+            - --no-autoupdate
+            - --protocol
+            - quic
+            - --metrics
+            - 0.0.0.0:2000
+            - run
+            - --token
+            - $(TUNNEL_TOKEN)
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflared-tengen-token
+                  key: token
+          ports:
+            - name: metrics
+              containerPort: 2000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "100Mi"
+              cpu: "10m"
+            limits:
+              memory: "100Mi"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+      # Keep the two replicas off the same node, but do not let that block
+      # scheduling if only one node is available.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: cloudflared-tengen
