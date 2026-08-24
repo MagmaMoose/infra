@@ -1,0 +1,151 @@
+# Two KSV findings on this file are suppressed in the repo-root .trivyignore,
+# NOT here: KSV-0011 (no CPU limit) and KSV-0125 (Docker Hub is not on the
+# rule's trusted-registry list). Both are estate-wide decisions and the reasoning
+# lives with them in that file.
+#
+# An in-file `# kics-scan disable=` line was tried first and does nothing for
+# these — chargate treats a finding as suppressed only when the SARIF result
+# carries a `suppressions` array, and Trivy drops ignored findings instead of
+# marking them. It is removed rather than left as a comment that reads like it
+# is doing something.
+#
+# The other four findings this file first raised are FIXED below, not silenced:
+# KSV-0013 (pinned tag), KSV-0118 (pod-level security context), and
+# KSV-0020/0021 (uid and gid above 10000).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared-tengen
+  namespace: general-system
+  annotations:
+    # Checkov suppressions. For Kubernetes resources these are ANNOTATIONS —
+    # the `# checkov:skip=` comment form is Terraform-only and is silently
+    # ignored here, which is how it was first written and why the gate kept
+    # failing on exactly these two.
+    #
+    # CPU limits are deliberately unset across this estate: a CFS quota throttles
+    # a container while it is still under the ceiling, and this one is a
+    # latency-sensitive QUIC proxy on the request path. Same decision as KSV-0011
+    # in .trivyignore, and as the Kyverno default-limitrange, which ships a
+    # defaultRequest and no default limit. Memory IS limited.
+    checkov.io/skip1: CKV_K8S_11=CPU limits are unset estate-wide by decision; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited.
+    # The connector credential has to be an env var. A remotely-managed tunnel
+    # authenticates with `cloudflared tunnel run --token <token>`; the file-based
+    # form (credentials-file) exists only for locally-managed tunnels, which
+    # would drag the ingress config off the Cloudflare API and into this repo.
+    checkov.io/skip2: CKV_K8S_35=A remotely-managed tunnel authenticates with --token; the credentials-file form exists only for locally-managed tunnels.
+spec:
+  # Two replicas, not a DaemonSet like its sibling.
+  #
+  # The `cloudflared` DaemonSet is node-wide because it fronts most of the
+  # fleet's public hostnames, so a connector on every node keeps the hop from
+  # edge to origin local. This tunnel currently carries exactly one hostname
+  # (janeway.tengen.co.za), and a tunnel's availability comes from the number of
+  # connectors registered with Cloudflare rather than from node coverage: two
+  # replicas give four QUIC connections (cloudflared opens two per connector),
+  # spread across Cloudflare colos. A DaemonSet here would be six connectors for
+  # one low-traffic hostname, and would grow with the cluster for no reason.
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cloudflared-tengen
+  template:
+    metadata:
+      labels:
+        app: cloudflared-tengen
+    spec:
+      # cloudflared talks to the Cloudflare edge and to one in-cluster Service.
+      # It never calls the Kubernetes API, so mounting a token would only widen
+      # what a compromise of it reaches.
+      automountServiceAccountToken: false
+      # Pod-level, so it applies to the pod and not just the one container:
+      # without it the pod carries the default security context, which permits
+      # root. uid/gid are above 10000 deliberately — a uid that collides with a
+      # host account is what makes a container escape useful. cloudflared needs
+      # no filesystem of its own here (the credential arrives as an env var, and
+      # the root filesystem is read-only), so any non-root uid works.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      # No tune-udp-buffers init container, unlike the DaemonSet.
+      #
+      # That container raises net.core.{r,w}mem_max so QUIC does not log
+      # "failed to sufficiently increase receive buffer size". Those are NODE
+      # sysctls, and the DaemonSet already sets them on every node in the
+      # cluster, so repeating it here would need NET_ADMIN to write a value that
+      # is already correct.
+      containers:
+        - name: cloudflared
+          # Pinned by DIGEST, not :latest. The DaemonSet next door still floats.
+          # 2026.8.2 is the version the existing connectors already run, and the
+          # digest is the multi-arch index — both linux/amd64 and linux/arm64
+          # resolve from it, which this cluster needs since the OCI tier is arm64.
+          # Renovate keeps the pair current.
+          image: cloudflare/cloudflared:2026.8.2@sha256:0aa26e284f05e6c77ae375b8c9c11d9eb6a448fb7bcd8d40f31cb6176189eb38
+          imagePullPolicy: Always
+          args:
+            - tunnel
+            - --no-autoupdate
+            - --protocol
+            - quic
+            - --metrics
+            - 0.0.0.0:2000
+            - run
+            - --token
+            - $(TUNNEL_TOKEN)
+          env:
+            - name: TUNNEL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: cloudflared-tengen-token
+                  key: token
+          ports:
+            - name: metrics
+              containerPort: 2000
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 2000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "100Mi"
+              cpu: "10m"
+            limits:
+              memory: "100Mi"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+      # Keep the two replicas off the same node, but do not let that block
+      # scheduling if only one node is available.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: cloudflared-tengen

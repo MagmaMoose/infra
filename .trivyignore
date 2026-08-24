@@ -60,3 +60,39 @@
 KSV-0040
 KSV0040
 AVD-KSV-0040
+
+# KSV-0011 — "container should set resources.limits.cpu".
+#
+# Suppressed because this estate deliberately does not set CPU limits, so the
+# rule is one the repo has decided against rather than one it is failing to meet.
+# A CPU limit throttles through the CFS quota even while the container sits under
+# the ceiling, which shows up as latency rather than as a shortage, and the
+# workloads it would bite hardest here are the proxies and connectors on the
+# request path. The Kyverno `default-limitrange` policy
+# (kubernetes/apps/kyverno-policies/base/clusterpolicy-default-limitrange.yaml)
+# encodes the same decision: it generates a defaultRequest in every namespace and
+# deliberately no default limit — "it exists to make unset impossible, not to
+# size anything".
+#
+# MEMORY limits are still expected and still enforced; memory is the resource
+# where an unbounded container takes a node down with it, and CPU is not.
+KSV-0011
+KSV0011
+AVD-KSV-0011
+
+# KSV-0125 — "container uses an image from an untrusted registry".
+#
+# Suppressed because the rule's idea of "trusted" does not match this estate. It
+# scores against a fixed allowlist that does not include Docker Hub, and this
+# cluster runs vendor images from Docker Hub throughout by design —
+# cloudflare/cloudflared, valkey/valkey, busybox, n8nio/n8n. Those are the
+# vendors' own builds of their own software; the alternative the rule implies is
+# mirroring each into ghcr, which relocates a copy without changing who produced
+# the artifact or who could tamper with it upstream.
+#
+# What actually mitigates this is pinning, which is a separate rule (KSV-0013,
+# left ON) plus Renovate keeping the pins current. An image pinned to an exact
+# tag from the vendor is a smaller risk than a floating tag on a mirror we run.
+KSV-0125
+KSV0125
+AVD-KSV-0125

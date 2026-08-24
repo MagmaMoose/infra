@@ -2,6 +2,10 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - cloudflared
+  # Second tunnel, for hostnames in the `tengen` Cloudflare account. Tunnel
+  # routes are account-scoped, so the tunnel above (Magma Moose account) cannot
+  # serve them; see its externalsecret.yaml.
+  - cloudflared-tengen
   - minio
   - external-dns-cloudflare
   - external-dns-mikrotik

@@ -78,7 +78,11 @@ spec:
     priorityClassName: high
 
     config:
-      siteDomain: janeway.magmamoose.com
+      # Canonical host. Janeway builds absolute urls from the Press.domain row
+      # rather than from this, but this is DEFAULT_HOST and the CSRF trusted
+      # origin, so it has to agree with it — Press.domain is updated to match in
+      # the same change (see docs/operations/janeway.md).
+      siteDomain: janeway.tengen.co.za
       # Narrowed from the chart default of "*". Tenancy is NOT enforced here —
       # that is the Press.domain row — so this is defence in depth against Host
       # header spoofing rather than access control.
@@ -88,7 +92,14 @@ spec:
       # request.get_host(), so ALLOWED_HOSTS is never evaluated for them; and
       # readiness sends the public hostname explicitly. The Service DNS name is
       # kept for in-cluster callers that dial the Service directly.
-      allowedHosts: "janeway.magmamoose.com,janeway.janeway.svc.cluster.local"
+      #
+      # janeway.magmamoose.com is deliberately still here after the move to
+      # tengen.co.za. Janeway's middleware answers a request whose host is not
+      # the Press domain with a redirect TO the Press domain — but Django
+      # evaluates ALLOWED_HOSTS first, so dropping the old hostname would turn
+      # every existing link into a 400 instead of a redirect to the new one.
+      # Both tunnels still route it. Remove once the old links have aged out.
+      allowedHosts: "janeway.tengen.co.za,janeway.magmamoose.com,janeway.janeway.svc.cluster.local"
       # One tunnel hostname, so journals live at /<code>/ rather than each
       # needing its own DNS record and ingress rule.
       urlConfig: path
