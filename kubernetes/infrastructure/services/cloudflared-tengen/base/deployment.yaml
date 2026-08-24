@@ -1,3 +1,22 @@
+# Chargate/KSV suppressions — only the two that are estate policy rather than
+# defects. The other four findings this file first raised (KSV-0013 :latest,
+# KSV-0118 default pod security context, KSV-0020/0021 low uid/gid) are FIXED
+# below, not silenced.
+#
+#   KSV-0011 "should set resources.limits.cpu" — deliberate. A CPU limit throttles
+#   via CFS even below the ceiling, and this process is a latency-sensitive QUIC
+#   proxy carrying every request to the hostnames it fronts. It matches the
+#   estate: the cloudflared DaemonSet next door sets a memory limit and no CPU
+#   limit, and the Kyverno `default-limitrange` policy deliberately ships a
+#   defaultRequest with no default limit ("it exists to make unset impossible,
+#   not to size anything"). Memory IS limited, so a leak still cannot take a node.
+#
+#   KSV-0125 "image from an untrusted registry" — cloudflare/cloudflared on Docker
+#   Hub is the vendor's own build of the connector, and the tunnel protocol is
+#   theirs. Mirroring it into ghcr would move trust from Cloudflare to a copy of
+#   Cloudflare's artifact, which is not an improvement. Pinned to an exact tag
+#   below so the image cannot move under us.
+# kics-scan disable=KSV-0011,KSV-0125
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -24,6 +43,19 @@ spec:
       labels:
         app: cloudflared-tengen
     spec:
+      # Pod-level, so it applies to the pod and not just the one container:
+      # without it the pod carries the default security context, which permits
+      # root. uid/gid are above 10000 deliberately — a uid that collides with a
+      # host account is what makes a container escape useful. cloudflared needs
+      # no filesystem of its own here (the credential arrives as an env var, and
+      # the root filesystem is read-only), so any non-root uid works.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
       # No tune-udp-buffers init container, unlike the DaemonSet.
       #
       # That container raises net.core.{r,w}mem_max so QUIC does not log
@@ -33,7 +65,10 @@ spec:
       # is already correct.
       containers:
         - name: cloudflared
-          image: cloudflare/cloudflared:latest
+          # Pinned, not :latest. The DaemonSet next door still floats; this is
+          # the better default and Renovate keeps it current. 2026.8.2 is the
+          # version the existing connectors are already running.
+          image: cloudflare/cloudflared:2026.8.2
           args:
             - tunnel
             - --no-autoupdate
