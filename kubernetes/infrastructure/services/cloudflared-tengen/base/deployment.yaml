@@ -1,22 +1,17 @@
-# Chargate/KSV suppressions — only the two that are estate policy rather than
-# defects. The other four findings this file first raised (KSV-0013 :latest,
-# KSV-0118 default pod security context, KSV-0020/0021 low uid/gid) are FIXED
-# below, not silenced.
+# Two KSV findings on this file are suppressed in the repo-root .trivyignore,
+# NOT here: KSV-0011 (no CPU limit) and KSV-0125 (Docker Hub is not on the
+# rule's trusted-registry list). Both are estate-wide decisions and the reasoning
+# lives with them in that file.
 #
-#   KSV-0011 "should set resources.limits.cpu" — deliberate. A CPU limit throttles
-#   via CFS even below the ceiling, and this process is a latency-sensitive QUIC
-#   proxy carrying every request to the hostnames it fronts. It matches the
-#   estate: the cloudflared DaemonSet next door sets a memory limit and no CPU
-#   limit, and the Kyverno `default-limitrange` policy deliberately ships a
-#   defaultRequest with no default limit ("it exists to make unset impossible,
-#   not to size anything"). Memory IS limited, so a leak still cannot take a node.
+# An in-file `# kics-scan disable=` line was tried first and does nothing for
+# these — chargate treats a finding as suppressed only when the SARIF result
+# carries a `suppressions` array, and Trivy drops ignored findings instead of
+# marking them. It is removed rather than left as a comment that reads like it
+# is doing something.
 #
-#   KSV-0125 "image from an untrusted registry" — cloudflare/cloudflared on Docker
-#   Hub is the vendor's own build of the connector, and the tunnel protocol is
-#   theirs. Mirroring it into ghcr would move trust from Cloudflare to a copy of
-#   Cloudflare's artifact, which is not an improvement. Pinned to an exact tag
-#   below so the image cannot move under us.
-# kics-scan disable=KSV-0011,KSV-0125
+# The other four findings this file first raised are FIXED below, not silenced:
+# KSV-0013 (pinned tag), KSV-0118 (pod-level security context), and
+# KSV-0020/0021 (uid and gid above 10000).
 ---
 apiVersion: apps/v1
 kind: Deployment
