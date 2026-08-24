@@ -19,6 +19,8 @@ metadata:
   name: cloudflared-tengen
   namespace: general-system
 spec:
+  # checkov:skip=CKV_K8S_11:CPU limits are deliberately unset estate-wide; a CFS quota throttles this QUIC proxy while it is still under the ceiling. Same decision as KSV-0011 in .trivyignore and the Kyverno default-limitrange. Memory IS limited.
+  # checkov:skip=CKV_K8S_35:The connector credential has to be an env var. A remotely-managed tunnel authenticates with `cloudflared tunnel run --token <token>`; the file-based form (credentials-file) exists only for locally-managed tunnels, which would move the ingress config off the API and into this repo.
   # Two replicas, not a DaemonSet like its sibling.
   #
   # The `cloudflared` DaemonSet is node-wide because it fronts most of the
@@ -38,6 +40,10 @@ spec:
       labels:
         app: cloudflared-tengen
     spec:
+      # cloudflared talks to the Cloudflare edge and to one in-cluster Service.
+      # It never calls the Kubernetes API, so mounting a token would only widen
+      # what a compromise of it reaches.
+      automountServiceAccountToken: false
       # Pod-level, so it applies to the pod and not just the one container:
       # without it the pod carries the default security context, which permits
       # root. uid/gid are above 10000 deliberately — a uid that collides with a
@@ -60,10 +66,13 @@ spec:
       # is already correct.
       containers:
         - name: cloudflared
-          # Pinned, not :latest. The DaemonSet next door still floats; this is
-          # the better default and Renovate keeps it current. 2026.8.2 is the
-          # version the existing connectors are already running.
-          image: cloudflare/cloudflared:2026.8.2
+          # Pinned by DIGEST, not :latest. The DaemonSet next door still floats.
+          # 2026.8.2 is the version the existing connectors already run, and the
+          # digest is the multi-arch index — both linux/amd64 and linux/arm64
+          # resolve from it, which this cluster needs since the OCI tier is arm64.
+          # Renovate keeps the pair current.
+          image: cloudflare/cloudflared:2026.8.2@sha256:0aa26e284f05e6c77ae375b8c9c11d9eb6a448fb7bcd8d40f31cb6176189eb38
+          imagePullPolicy: Always
           args:
             - tunnel
             - --no-autoupdate
