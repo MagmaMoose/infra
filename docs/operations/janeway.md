@@ -2,7 +2,9 @@
 
 [Janeway](https://janeway.systems) is an open-source publishing platform for
 journals, preprints, conference proceedings and books. It runs at
-[janeway.magmamoose.com](https://janeway.magmamoose.com).
+[janeway.tengen.co.za](https://janeway.tengen.co.za). The original
+`janeway.magmamoose.com` still resolves and 302s there, so older links keep
+working; it is kept for that reason alone.
 
 | | |
 |---|---|
@@ -77,11 +79,19 @@ kubectl -n database-oci exec -it postgres-oci-1 -- \
   psql -U janeway -d janeway -c "UPDATE press_press SET domain = 'new.example.com';"
 ```
 
-Keep the hostname **one label deep** under `magmamoose.com`. The zone's
-Universal SSL certificate covers `magmamoose.com` and `*.magmamoose.com` only,
-so a two-label name fails in the TLS handshake before any HTTP is exchanged.
-Journals are served at a `/<code>/` path prefix precisely so no further
-hostnames are needed.
+Keep the hostname **one label deep** under its zone. A Universal SSL
+certificate covers `example.com` and `*.example.com` only, so a two-label name
+such as `journal.janeway.tengen.co.za` fails in the TLS handshake before any
+HTTP is exchanged. Journals are served at a `/<code>/` path prefix precisely so
+no further hostnames are needed.
+
+Note the hostname now lives in a **different Cloudflare account** from most of
+this estate. `tengen.co.za` is in the `tengen` account (`d2bd0f93…`) and is
+served by the `firefly-tengen` tunnel there; the rest of the fleet uses the
+`firefly` tunnel in the Magma Moose account. Tunnel routes are account-scoped —
+the edge resolves a hostname to a tunnel using that tunnel's own account — so
+the two cannot be mixed, and no CNAME bridges them. Changing the hostname again
+means deciding which account owns the zone first.
 
 ### Cloudflare Access
 
