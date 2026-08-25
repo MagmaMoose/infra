@@ -40,13 +40,29 @@ spec:
     # All inference goes through the in-cluster LiteLLM gateway (single entry point for
     # billing/keys). modelList is a litellm model registry: `openai/<name>` + the :8080
     # OpenAI-compat proxy + the master key (Bearer -> x-litellm-api-key inside the proxy).
+    # DEEPSEEK, NOT CLAUDE. Holmes reaches LiteLLM with a KEY in the header, which is the
+    # per-token path: per docs/guides/litellm-clients.md the Claude Max subscription is
+    # reachable only by forwarding Claude Code's OAuth bearer, so Holmes can never ride it.
+    # That leaves it on whichever provider account has credit, and measured against the
+    # gateway on 2026-08-25 that is DeepSeek alone:
+    #
+    #   deepseek-v4-flash  200 OK
+    #   deepseek-v4-pro    200 OK
+    #   gpt-5.4-mini       RateLimitError: You have no credits remaining
+    #   claude-haiku-4-5   BadRequestError: credit balance is too low
+    #   claude-sonnet-4-6  BadRequestError: credit balance is too low
+    #
+    # The Claude entries are removed rather than kept as a fallback. Holmes only knows the
+    # names in THIS map; an unknown name silently falls back to the first entry, so leaving a
+    # dead model here means a typo lands on a route that 500s with a billing error rather than
+    # failing loudly. Restore them when the Anthropic account has credit, not before.
     modelList:
-      claude-sonnet-4-6:
-        model: openai/claude-sonnet-4-6
+      deepseek-v4-pro:
+        model: openai/deepseek-v4-pro
         api_base: http://litellm.automation.svc.cluster.local:8080/v1
         api_key: "{{ env.LITELLM_MASTER_KEY }}"
-      claude-opus-4-8:
-        model: openai/claude-opus-4-8
+      deepseek-v4-flash:
+        model: openai/deepseek-v4-flash
         api_base: http://litellm.automation.svc.cluster.local:8080/v1
         api_key: "{{ env.LITELLM_MASTER_KEY }}"
 

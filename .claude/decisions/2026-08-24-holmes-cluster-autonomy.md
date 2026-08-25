@@ -54,8 +54,12 @@ Both trigger paths get the same ceiling, autonomously:
 
 | Path | Trigger | Permission |
 | --- | --- | --- |
-| Alert-driven | Alertmanager → Holmes | No human, max-before-dangerous |
 | PR-driven | Nievah → Holmes | No human, max-before-dangerous |
+
+An alert-driven path (Alertmanager → Holmes) was considered and is **out of scope**, not
+rejected: Alertmanager is not deployed here and standing it up is its own piece of work. The
+NetworkPolicy already admits the `observability` namespace so that adding it later is a
+deployment rather than a deployment plus a security change nobody remembers.
 
 **Read** stays cluster-wide. **Write** applies everywhere EXCEPT `flux-system`, `kube-*`
 (`kube-system`, `kube-public`, `kube-node-lease`), `database`, `database-oci`, `external-secrets`,
@@ -171,10 +175,13 @@ kubectl delete ns np-probe
 the nievah repo), `platform2/platform2-driver` (a HelmRelease, so a chart-values change), and
 `general-system/cloudflared-tengen` (not managed from this repo). Worth closing, none blocking.
 
-**Alertmanager is not deployed.** The alert-driven row of the table above has no trigger source on
-this cluster today. The NetworkPolicy already admits the `observability` namespace so that
-enabling it later is a deployment rather than a deployment plus a security change nobody
-remembers, but the row is aspirational until then. The PR-driven row works now.
+**Holmes had no working model route, and this ADR is what found it.** Every `/api/chat` call
+returned 500. Not a transient: Holmes authenticates to LiteLLM with a KEY, which is the per-token
+path, and per `docs/guides/litellm-clients.md` the Claude Max subscription is reachable only by
+forwarding Claude Code's OAuth bearer. Holmes can never ride it. Measured against the gateway,
+DeepSeek is the only provider with credit, so `modelList` is repointed there. Two days of logs
+contained four `/api/chat` requests, all of them the probes written for this ADR, so nothing had
+ever successfully used it.
 
 **Placement.** Holmes must work while the cluster is degraded, but it runs in the cluster it
 diagnoses, on the `worker` nodeSelector, at one replica. Per `COMMON_MISTAKES` #22 that tier now
