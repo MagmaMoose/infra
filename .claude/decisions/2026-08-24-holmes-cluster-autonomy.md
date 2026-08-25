@@ -54,9 +54,23 @@ Both trigger paths get the same ceiling, autonomously:
 | Alert-driven | Alertmanager → Holmes | No human, max-before-dangerous |
 | PR-driven | Nievah → Holmes | No human, max-before-dangerous |
 
-**Read** stays cluster-wide. **Write** is namespace-scoped via RoleBindings, never a ClusterRole,
-and excludes `flux-system`, `kube-system`, `database`, `database-oci`, `external-secrets`,
-`cert-manager`, `kyverno` and `holmesgpt`.
+**Read** stays cluster-wide. **Write** applies everywhere EXCEPT `flux-system`, `kube-*`
+(`kube-system`, `kube-public`, `kube-node-lease`), `database`, `database-oci`, `external-secrets`,
+`cert-manager`, `kyverno` and `holmesgpt`. That is 36 of the cluster's 46 namespaces today.
+
+**The exclusion is enforced by admission policy, not by RoleBindings.** An earlier draft of this
+ADR said namespace-scoped RoleBindings and never a ClusterRole. That is wrong for a grant defined
+as "everywhere except": 36 hand-maintained bindings drift, and a namespace created next month
+silently gets nothing, which looks identical to a policy that stopped working. So the grant is one
+ClusterRole plus one ClusterRoleBinding, and the same ValidatingAdmissionPolicy that constrains
+*what* a request may contain also constrains *where* it may land.
+
+That inverts the failure mode, and the inversion is the price of the decision: with RoleBindings a
+broken control fails closed and Holmes loses access, whereas here a missing policy would fail open
+into `flux-system`. Three things bound it. The binding sets `failurePolicy: Fail`, so a CEL
+evaluation error denies rather than admits. Holmes has no write on admission policies, so it
+cannot remove its own ceiling. And the policies are Flux-managed, so a deletion is reconciled back
+within the interval, leaving a window rather than a permanent hole.
 
 The write grant is exactly:
 
@@ -92,7 +106,12 @@ webhook to keep alive, and no extra dependency.
 
 - **Fork guard.** Pull requests from forks never reach the acting path, the same guard
   `.github/workflows/terragrunt.yml` already applies and describes as load-bearing.
-- **Repository allowlist.** Only allowlisted repositories reach the acting path.
+- **Repository allowlist, reusing the existing control plane.** `magmamoose/admin`'s
+  `.github/nievah.yml` already carries a deny-by-default `allowlist:` with glob patterns,
+  last-write-wins overrides, and safe-fail semantics: a missing or invalid file denies every repo.
+  The acting path is a new per-entry override alongside `autotriage` and `automerge`, defaulting
+  to off, so a repo opts in exactly the way it opts into every other autonomous behaviour. No
+  second list, no second parser, and the fail-closed behaviour is inherited rather than rebuilt.
 - **The question is templated, never quoted.** Nievah composes the question from structured facts
   it derives itself (repository, namespace, workload name). Pull-request prose is never
   interpolated into it. This is the difference between a pull request *causing* an investigation
@@ -133,5 +152,6 @@ resolves to three nodes, two of them across a VPN. Where the diagnostician runs 
 deliberate choice, not whatever the tier resolves to. A cluster that is fully down takes Holmes
 and Nievah with it, and that is accepted.
 
-**Reversal.** Delete the RoleBindings. The ValidatingAdmissionPolicies and the read-only role can
-stay; the capability disappears with the bindings alone.
+**Reversal.** Delete the ClusterRoleBinding. The policies and the read-only role can stay; the
+capability disappears with that one object. Per repository, clear the override in
+`.github/nievah.yml`, which takes effect on the next fetch without a deploy.
