@@ -27,8 +27,11 @@ Two facts about this cluster shape the design:
 - **Flux reverts drift.** Anything patched on a Flux-managed object is reconciled away within the
   interval. That is a free undo button, and it means Holmes can restart things but cannot durably
   change config. That limit is desirable rather than unfortunate.
-- **There are zero PodDisruptionBudgets, cluster-wide.** `create pods/eviction` is therefore
-  identical to `delete pods` today: there is no floor for an eviction to respect.
+- **PodDisruptionBudget coverage is already good**, which an earlier draft of this ADR got
+  wrong. 24 PDBs exist; the repo has a deliberate rule (`cleanup.md`) of writing them for our
+  own >=2-replica workloads and leaving operator-generated ones alone. Of the 14 workloads
+  running more than one replica, 11 are covered. So `create pods/eviction` usually does have a
+  floor to respect, and it is a meaningfully safer verb than `delete pods`.
 
 ## Options considered
 
@@ -134,17 +137,44 @@ self-inflicted denial of service even though each action is individually self-he
 an alert on Holmes' own action rate and a hard cap in its agent loop, and it is monitored rather
 than prevented.
 
-**The `bash` toolset is outside all of this.** It runs with `builtin_allowlist: extended` and is
-bounded by what is in the container, not by the API server. It must be audited before any write
-verb is granted, and disabled on the acting path if that audit is not conclusive.
+**The `bash` toolset stays enabled, and this is an accepted risk rather than an oversight.** It
+runs `builtin_allowlist: extended`, bounded by what is in the container rather than by the API
+server, so it is the one path the ceiling above does not cover. The decision taken is that Holmes
+and Nievah may use any tool within reason, on the grounds that a diagnostician which cannot run
+diagnostic commands is not worth deploying. What bounds it instead is the container image, the
+read-only Kubernetes credential the toolset inherits, and the NetworkPolicy: bash cannot exceed
+the ServiceAccount it runs as. What it CAN do that RBAC does not describe is reach the network
+from inside the cluster, so egress is the surface to watch, and an egress policy is the natural
+next control if this ever needs tightening.
 
-**Prerequisite: a NetworkPolicy.** There is none in the `holmesgpt` namespace, so every pod in the
-cluster can already reach the API. Granting a write verb without fixing that grants it to
-everything running.
+**Prerequisite, now met: a NetworkPolicy.** The Holmes API takes no credential of its own, so
+reaching it IS the authorisation, and the `holmesgpt` namespace had no ingress policy. Every pod
+in all 46 namespaces could call it, which would have made a write grant a grant to everything
+running. A default-deny plus an allowlist for `nievah` and `observability` ships alongside this
+ADR.
 
-**Recommended alongside: PodDisruptionBudgets.** With none defined, eviction buys nothing over
-deletion. Adding PDBs to anything with more than one replica would let eviction refuse to remove
-the last replica, which raises the safe ceiling for free.
+**Enforcement of that policy is UNVERIFIED.** Nothing in `ansible/` passes
+`--disable-network-policy`, and seven NetworkPolicies already exist elsewhere in the cluster,
+which together suggest k3s' embedded controller is active. Neither is proof. Confirm with a
+throwaway namespace before relying on it, because an unenforced NetworkPolicy is indistinguishable
+from a working one until someone tests it:
+
+```bash
+kubectl create ns np-probe
+kubectl run probe -n np-probe --image=busybox:1.36 --restart=Never -- \
+  wget -q -T3 -O- http://holmesgpt-holmes.holmesgpt.svc.cluster.local/
+# expect a timeout. a 200 means the policy is not being enforced.
+kubectl delete ns np-probe
+```
+
+**PDB gaps.** Three of the 14 multi-replica workloads lack one: `nievah/nievah-worker` (owned by
+the nievah repo), `platform2/platform2-driver` (a HelmRelease, so a chart-values change), and
+`general-system/cloudflared-tengen` (not managed from this repo). Worth closing, none blocking.
+
+**Alertmanager is not deployed.** The alert-driven row of the table above has no trigger source on
+this cluster today. The NetworkPolicy already admits the `observability` namespace so that
+enabling it later is a deployment rather than a deployment plus a security change nobody
+remembers, but the row is aspirational until then. The PR-driven row works now.
 
 **Placement.** Holmes must work while the cluster is degraded, but it runs in the cluster it
 diagnoses, on the `worker` nodeSelector, at one replica. Per `COMMON_MISTAKES` #22 that tier now

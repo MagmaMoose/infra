@@ -1,0 +1,59 @@
+---
+# Ingress control for the Holmes investigation API.
+#
+# WHY THIS EXISTS BEFORE ANY WRITE VERB. Holmes is about to be granted the ability to act on
+# the cluster (see .claude/decisions/2026-08-24-holmes-cluster-autonomy.md). Its API takes no
+# credential of its own: reaching it IS the authorisation. Without an ingress policy every pod
+# in all 46 namespaces can call it, so granting Holmes a write verb would grant that verb to
+# everything running. This policy is what makes "two callers" true rather than aspirational.
+#
+# TWO OBJECTS, deliberately. A default-deny with no companion allow is a silent outage; an
+# allow with no default-deny is decoration. Kustomize applies both or neither.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: holmesgpt
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# The allowlist. `namespaceSelector` matches on `kubernetes.io/metadata.name`, which the API
+# server sets on every namespace and nobody can forge from inside a pod — unlike a hand-applied
+# label, which any namespace owner could copy to grant themselves access.
+#
+# Port is the CONTAINER port (5050), not the Service port (80). NetworkPolicy is enforced at the
+# pod, after kube-proxy has already rewritten the destination, so a policy written against 80
+# matches nothing and denies everything. That failure is invisible until someone calls the API.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-holmes-callers
+  namespace: holmesgpt
+spec:
+  # `app: holmes`, which is what the chart actually sets. NOT `app.kubernetes.io/name`:
+  # the pod carries only `app` and `pod-template-hash`, so the conventional label selects
+  # nothing, the allow rule covers no pod, and the default-deny above blocks the API
+  # completely. Verified against the live pod rather than assumed from the chart's docs.
+  podSelector:
+    matchLabels:
+      app: holmes
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Nievah: the PR-driven path.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: nievah
+        # observability: the alert-driven path, plus Prometheus if Holmes is ever scraped.
+        # Alertmanager is NOT deployed on this cluster today, so this half of the ADR's table
+        # has no trigger source yet. The rule is written now so that enabling Alertmanager is
+        # a deployment rather than a deployment plus a security change nobody remembers.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+      ports:
+        - port: 5050
+          protocol: TCP
