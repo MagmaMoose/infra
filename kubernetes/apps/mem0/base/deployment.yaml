@@ -90,10 +90,11 @@ spec:
         # Same image as the app: alembic/env.py imports server/db.py, so it derives the
         # URL from exactly the env below (POSTGRES_* + APP_DB_NAME), ignoring the
         # hardcoded sqlalchemy.url in alembic.ini.
-        #trivy:ignore:KSV-0013
         - name: migrate
-          image: ghcr.io/magmamoose/mem0-server:latest
-          imagePullPolicy: Always
+          # Pinned to the digest of the image built at the time this PR was merged.
+          # Update this alongside the main container when the image changes.
+          image: ghcr.io/magmamoose/mem0-server@sha256:10f02cd1b3156029ff06dc59ee724b67f0fc1868d629bc910a20d5c050e9956d
+          imagePullPolicy: IfNotPresent
           workingDir: /app
           command: ["alembic", "upgrade", "head"]
           env:

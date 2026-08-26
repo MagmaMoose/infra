@@ -96,3 +96,15 @@ AVD-KSV-0011
 KSV-0125
 KSV0125
 AVD-KSV-0125
+
+# DS-0026 — "no HEALTHCHECK instruction in Dockerfile".
+#
+# Suppressed because it is inapplicable in a Kubernetes environment. Kubernetes
+# completely ignores Docker HEALTHCHECK; pod health is managed by the Deployment's
+# readinessProbe and livenessProbe. Satisfying DS-0026 by adding HEALTHCHECK would
+# require adding curl or wget to every image, widening the attack surface with no
+# operational benefit — the HEALTHCHECK would never be evaluated in production.
+# KICS counterpart (b03a748a-542d-44f4-bb86-9199ab4fd2d5) is suppressed inline in
+# each affected Dockerfile via `# kics-scan disable=`.
+DS-0026
+AVD-DS-0026

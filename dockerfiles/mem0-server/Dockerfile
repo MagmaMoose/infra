@@ -41,8 +41,9 @@
 #   b03a748a / DS-0026  no HEALTHCHECK – Kubernetes ignores Docker HEALTHCHECK entirely;
 #                       the Deployment has HTTP readiness + liveness probes. Adding one
 #                       would pull curl/wget into the image — more attack surface, no effect.
+#                       Trivy suppression is in the repo-root .trivyignore (DS-0026).
+#                       KICS suppression is inline below (b03a748a).
 # kics-scan disable=b03a748a-542d-44f4-bb86-9199ab4fd2d5
-#trivy:ignore:DS-0026
 
 ARG PYTHON_BASE=python:3.12-slim@sha256:7a8b475003c4fe15a2cd4e55e5cfc2f3560bdc9333d624f24cdd6d4340fd7a17
 

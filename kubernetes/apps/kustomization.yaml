@@ -28,8 +28,7 @@ resources:
   #          entries have been in the ConfigMap since 2026-08-03 and both litellm pods
   #          restarted 2026-08-22, after it. (LiteLLM reads its YAML at startup only, so
   #          this was a real prerequisite; it is simply already satisfied.)
-  #trivy:ignore:DS176209
-  #   [TODO] Two OCI Vault entries, both absent today (checked: the vault holds 162
+  #   [PENDING] Two OCI Vault entries, both absent today (checked: the vault holds 162
   #          secrets, none matching mem0-*). Without them the ExternalSecret never
   #          populates and the pod cannot start — deliberately, since the alternative is
   #          the fleet's memory running unauthenticated:
