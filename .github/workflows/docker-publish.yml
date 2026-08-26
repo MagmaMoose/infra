@@ -71,11 +71,12 @@ jobs:
           - { name: "n8n", path: "dockerfiles/n8n", tag_prefix: "n8n-v", registry_name: "n8n", registry_owner: "calebsargeant", platforms: "linux/amd64,linux/arm64" }
           - { name: "openfortivpn", path: "dockerfiles/openfortivpn", tag_prefix: "openfortivpn-v", registry_name: "openfortivpn", registry_owner: "calebsargeant", platforms: "linux/amd64,linux/arm64" }
           - { name: "atlantis_firefly", path: "dockerfiles/atlantis-firefly", tag_prefix: "atlantis-firefly-v", registry_name: "atlantis-firefly", registry_owner: "calebsargeant", platforms: "linux/amd64,linux/arm64" }
-          # arm64 ONLY: the mem0/mem0-api-server base publishes a manifest index with
-          # linux/arm64 and nothing else, so an amd64 leg fails the build outright. The
-          # Deployment is correspondingly pinned to the native-cloud (arm64) node tier.
+          # Multi-arch since dockerfiles/mem0-server stopped layering on the published
+          # mem0/mem0-api-server image (arm64-only, ~11 months stale) and started building
+          # from upstream source on python:3.12-slim. The arm64-only override that used to
+          # live here is what pinned mem0 to the OCI nodes, away from its own Postgres.
           # Published under the ORG namespace to match the rest of the agent fleet.
-          - { name: "mem0_server", path: "dockerfiles/mem0-server", tag_prefix: "mem0-server-v", registry_name: "mem0-server", registry_owner: "magmamoose", platforms: "linux/arm64" }
+          - { name: "mem0_server", path: "dockerfiles/mem0-server", tag_prefix: "mem0-server-v", registry_name: "mem0-server", registry_owner: "magmamoose", platforms: "linux/amd64,linux/arm64" }
 
     steps:
       - name: Determine if Build is Needed

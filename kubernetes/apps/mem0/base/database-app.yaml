@@ -1,0 +1,23 @@
+---
+# SECOND database, and it is not optional. mem0's server keeps its auth state — users,
+# API keys, refresh tokens, request logs — in a SQLAlchemy schema that is separate from
+# the pgvector memory store, under its own database (`APP_DB_NAME`, default `mem0_app`).
+# Upstream creates it from `server/init-db.sh` wired into the postgres container's
+# docker-entrypoint-initdb.d; on CNPG that hook does not exist, so it is declared here.
+#
+# Nothing creates it lazily: `alembic upgrade head` (deployment.yaml's `migrate`
+# initContainer) connects to this database by name and fails if it is absent, and the
+# server raises at import if migrations have not run. No `vector` extension needed —
+# this half is ordinary relational tables. Same owner as agent_memory so one credential
+# serves both.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: mem0-app
+  namespace: database
+spec:
+  cluster:
+    name: postgres
+  name: mem0_app
+  owner: neondb_owner
+  databaseReclaimPolicy: retain
