@@ -2,42 +2,70 @@
 
 The single durable-memory service for the agent fleet (Nievah/Claude Code, Hermes,
 OpenHands, HolmesGPT). It is the `mem0` OSS REST server backed by **pgvector on the
-shared CNPG `postgres` cluster** (NOT a new database — a `Database` CR on the existing
+shared CNPG `postgres` cluster** (NOT a new database — `Database` CRs on the existing
 cluster, per COMMON_MISTAKES #3), with LLM + embeddings routed through the in-cluster
 **LiteLLM** gateway. Lifted out of the retired `zoey` app (`zoey/k8s-mem0/`) and
 promoted to a Flux-managed fleet service. Graph memory (Neo4j) is intentionally
 dropped — vector memory only.
 
-See ADR `.claude/decisions/2026-07-23-fleet-shared-memory-mem0.md`.
+See ADR `.claude/decisions/2026-07-23-fleet-shared-memory-mem0.md`, and
+`MagmaMoose/nievah#197` for the fix-it-or-replace-it decision this shape came out of.
 
 ## Layout
-- `base/mem0/database.yaml`      — CNPG `Database` CR (`agent_memory`, owner `neondb_owner`), ns `database`
-- `base/mem0/extension-job.yaml` — one-shot Job that `CREATE EXTENSION vector` (needs superuser), ns `database`
-- `base/mem0/externalsecret.yaml`— DATABASE_URL + POSTGRES_PASSWORD + LiteLLM key (OCI Vault), ns `automation`
-- `base/mem0/{deployment,service,ingress}.yaml` — the mem0 REST server, ns `automation`
-- `../../../dockerfiles/mem0-server/Dockerfile` — the image (mem0 server + pgvector deps),
-  built by `.github/workflows/docker-publish.yml` like every other image in this repo
+- `base/database.yaml`       — TWO CNPG `Database` CRs, ns `database`, both owned by
+  `neondb_owner`: `agent_memory` (the pgvector store) and `mem0_app` (the server's
+  auth/user/api-key schema, which alembic migrates). The second is not optional — see below.
+- `base/extension-job.yaml`  — one-shot Job that `CREATE EXTENSION vector` on
+  `agent_memory` (needs superuser), ns `database`
+- `base/externalsecret.yaml` — DATABASE_URL + POSTGRES_PASSWORD + LiteLLM key +
+  ADMIN_API_KEY + JWT_SECRET (OCI Vault), ns `automation`
+- `base/{deployment,service,ingress}.yaml` — the mem0 REST server, ns `automation`
+- `base/networkpolicy.yaml`  — ingress allowlist for the server, ns `automation`
+- `../../../dockerfiles/mem0-server/Dockerfile` — the image, built by
+  `.github/workflows/docker-publish.yml` like every other image in this repo
 
-## PREREQUISITES / VALIDATE-ON-FIRST-DEPLOY (read before merging)
+## Two databases, not one
 
-1. **Container image must be built, pushed, AND made public.** The upstream
-   `mem0/mem0-api-server` image does not ship the pgvector client deps, so we layer them
-   on in `dockerfiles/mem0-server/Dockerfile`. `.github/workflows/docker-publish.yml`
-   builds it to `ghcr.io/magmamoose/mem0-server` on any push to `main` touching that
-   directory (`:latest`), or on a `mem0-server-v*` tag (pinned version). Two gotchas:
+`agent_memory` holds the vectors. `mem0_app` holds users, API keys, refresh tokens and
+request logs — a plain SQLAlchemy schema under alembic. Upstream creates the second one
+from `server/init-db.sh`, wired into the postgres container's `docker-entrypoint-initdb.d`;
+CNPG has no such hook, so it is declared as a `Database` CR instead. Nothing creates it
+lazily: `alembic upgrade head` connects to it by name and fails if it is absent.
+
+## The image is built from upstream SOURCE
+
+This is the load-bearing decision and it is easy to undo by accident. `mem0/mem0-api-server`
+on Docker Hub has exactly **one** tag (`latest`), last pushed 2025-09-10, while mem0ai/mem0's
+`server/` tree is actively security-patched — two large rounds since (2026-07-30 and
+2026-08-21). There is no server image release channel upstream; releases are SDK-only. So
+`dockerfiles/mem0-server/Dockerfile` does what upstream's own `server/Dockerfile` does:
+`python:3.12-slim` plus `server/requirements.txt`, at a pinned commit.
+
+Two consequences worth knowing before editing anything:
+
+1. **It is multi-arch, and that is why the Deployment is on-prem.** The published image is
+   arm64-only, which forced mem0 onto the OCI node tier while its Postgres runs on ff-vm1 —
+   every query crossed the site-to-site VPN. `python:3.12-slim` is multi-arch, so the
+   `placement.sargeant.co/tier` label in `base/kustomization.yaml` is now `on-prem` and the
+   pod sits on the same node as the database. Reverting the Dockerfile to the published base
+   silently re-breaks that, because an arm64-only image on `on-prem` (amd64 ff-vm1) is an
+   outright pull failure.
+2. **Three pins move together**: `MEM0_REF` (the server commit), `mem0ai==` (the SDK the
+   server imports — upstream's requirements float it, and server and SDK ship from the same
+   repo) and the base image's **index** digest. A per-arch digest breaks the other leg.
+
+## PREREQUISITES / VALIDATE-ON-FIRST-DEPLOY (read before un-parking)
+
+1. **Container image must be built, pushed, AND public.**
+   `.github/workflows/docker-publish.yml` builds it to `ghcr.io/magmamoose/mem0-server` on
+   any push to `main` touching `dockerfiles/mem0-server/**` (`:latest`), or on a
+   `mem0-server-v*` tag (pinned version).
    - **Visibility: already public, and not by accident.** There are no `imagePullSecrets`
      anywhere in `kubernetes/` — every image here is pulled anonymously — so a private
      package would ImagePullBackOff. GHCR packages normally default to private, BUT a
      package created by `GITHUB_TOKEN` under the org inherits the visibility of the repo
      that pushed it, and `MagmaMoose/infra` is public. Verified anonymously:
      `GET ghcr.io/v2/magmamoose/mem0-server/manifests/latest` -> `200`.
-     Do not assume this for a package pushed by a PAT or from a private repo — check
-     first, since the failure looks like a mysterious pull error rather than a 403.
-   - **arm64 only.** The upstream base publishes a manifest index containing
-     `linux/arm64` and nothing else, so the matrix entry overrides `platforms` and the
-     Deployment carries the `node-selectors/native-cloud` component (ff-oci1/ff-oci2).
-     Do not remove that nodeSelector — ff-vm1 is amd64 and simply cannot run this image.
-
    - **Org namespace, not the personal one.** mem0 publishes under
      `ghcr.io/magmamoose/*` (like nievah and the rest of the fleet), whereas the other
      images in `dockerfiles/` use `ghcr.io/calebsargeant/*`. The workflow authenticates
@@ -48,47 +76,84 @@ See ADR `.claude/decisions/2026-07-23-fleet-shared-memory-mem0.md`.
 
    Do not hand-build and push this from a laptop: it needs a `write:packages` token that
    no local credential here carries, and yields an artifact nobody can reproduce.
-2. **LiteLLM rollout required.** The LiteLLM ConfigMap in this change adds
-   `text-embedding-3-small` and `gpt-4o-mini`. LiteLLM reads its YAML config at startup
-   only — after this PR merges and Flux reconciles the ConfigMap, trigger a rollout so
-   the new model entries load:
+2. **Two OCI Vault entries — the only thing still outstanding.** Neither exists yet:
    ```
-   kubectl rollout restart deployment/litellm -n automation
+   mem0-admin-api-key    # the X-API-Key every fleet caller presents
+   mem0-jwt-secret       # required at import even though the JWT flow is unused here
    ```
-   Without this step, mem0's first embedding/completion calls will fail with "model not
-   found". Confirm the env vars (`OPENAI_BASE_URL`, `OPENAI_API_KEY`) match the
-   provisioned ExternalSecret. Adjust models to `claude-*`/`deepseek-*` if you prefer
-   non-OpenAI extraction.
-3. **pgvector extension.** This CNPG version's `Database` CR has no `spec.extensions`,
+   Generate each with `openssl rand -base64 48`. Until they exist the ExternalSecret never
+   populates and the pod will not start — which is the intended failure, since the
+   alternative is the fleet's memory serving unauthenticated.
+3. **LiteLLM model entries — satisfied.** The server's own default model moved to
+   `gpt-5-mini`, which this gateway does not register, so `deployment.yaml` sets
+   `MEM0_DEFAULT_LLM_MODEL` / `MEM0_DEFAULT_EMBEDDER_MODEL` explicitly to the two that ARE
+   registered. LiteLLM reads its YAML at startup only; the entries have been in the ConfigMap
+   since 2026-08-03 and both litellm pods restarted 2026-08-22, so they are loaded. If the
+   ConfigMap changes again: `kubectl rollout restart deployment/litellm -n automation`.
+4. **pgvector extension.** This CNPG version's `Database` CR has no `spec.extensions`,
    and `neondb_owner` is not a superuser, so `extension-job.yaml` creates the extension
    using the existing `admin` superuser (secret `nextcloud-db-admin` in ns `database`).
    Reviewed choice — there is no dedicated postgres-superuser secret on this cluster.
-4. **AUTH_DISABLED=true** for v1 (LAN-only ingress + in-cluster callers). Add an admin
-   key before exposing beyond the LAN.
+5. **First boot is worth watching.** In order: `wait-for-databases` (both DBs reachable,
+   `vector` present) -> `migrate` (`alembic upgrade head` against `mem0_app`) -> the server.
+   A failure in either initContainer shows as that container's status, not as a restarting
+   app. Then measure the working set, because the memory limit is an estimate:
+   ```
+   kubectl exec deploy/mem0 -n automation -- cat /sys/fs/cgroup/memory.current
+   ```
+   Tighten the **request** against that number; leave the limit generous (COMMON_MISTAKES
+   #13, #14).
 
-## Hardening follow-ups (before un-parking)
+## Authentication
 
-Surfaced by the security review of this PR; none block the (parked) merge, all are worth
-doing before the app actually reconciles:
+`ADMIN_API_KEY`, presented as the `X-API-Key` header. The server compares it with
+`secrets.compare_digest` and treats the caller as admin without a registered user, so no
+setup wizard or user registration is needed for machine-to-machine use:
+
+```
+curl -H "X-API-Key: $MEM0_ADMIN_API_KEY" https://mem0.sargeant.co/memories?user_id=caleb
+```
+
+`AUTH_DISABLED=true` was the v1 posture and is gone. It was never a misconfiguration — the
+published server shipped with no auth at all and the vendor's guide recommends fronting it
+with a reverse proxy — but the current server has a real auth layer, so there is no reason
+to keep the door open.
+
+Reachability is constrained independently by `base/networkpolicy.yaml`: `nievah`,
+`openhands`, `holmesgpt`, the `hermes` pod in `automation`, and Traefik in `kube-system` for
+the LAN ingress. It is ONE policy selecting `app: mem0` rather than the namespace-wide
+default-deny used in `holmesgpt` — `automation` is shared with five other apps, and a
+`podSelector: {}` there would cut ingress to all of them.
+
+## Health probes
+
+Both probes hit `/auth/setup-status`, which runs `SELECT count(*) FROM users` against
+`mem0_app`. They used to hit `/docs`, the FastAPI Swagger page, which renders from the
+in-process OpenAPI schema and stays `200` while Postgres is face down — so the pod reported
+Ready while unable to serve a single memory. `/auth/setup-status` is the one endpoint that
+both round-trips the database and needs no credential, which matters because a `httpGet`
+probe cannot read a Secret for its headers.
+
+## Hardening follow-ups
 
 1. **Verify AppArmor node support before enabling a profile.** The modern
    `securityContext.appArmorProfile` (GA in k8s 1.30, cluster is 1.33) is deliberately NOT
    set: there is no AppArmor configuration in `ansible/`/`terraform/`, and a pod requesting a
    non-`Unconfined` profile **fails to start** if the kubelet finds AppArmor unavailable.
-   mem0 has no `nodeSelector`, so it could land on the Pi. Check
-   `cat /sys/module/apparmor/parameters/enabled` on each node, then add the profile.
+   Check `cat /sys/module/apparmor/parameters/enabled` on ff-vm1, then add the profile.
 2. **Dedicated postgres-superuser secret.** `extension-job.yaml` borrows
    `nextcloud-db-admin` (the CNPG `admin` superuser). That makes one credential serve two
    unrelated consumers — rotating for one breaks the other, and the blast radius spans both.
    A dedicated `postgres-superuser` vault entry is the real fix.
-3. **In-cluster reachability.** The repo has no `NetworkPolicy`, so a `ClusterIP` service in
-   `automation` is reachable unauthenticated by *any* pod — "LAN-only ingress" constrains
-   north-south only. Since this store aggregates memory across Claude Code, Hermes, OpenHands
-   and HolmesGPT, set the admin key (item 4 above) before first real use, not just before
-   exposing it wider.
-4. **Liveness probe signal.** `/docs` (FastAPI Swagger) renders fine while Postgres or LiteLLM
-   is down, so a wedged backend never restarts the pod. Swap for a real health endpoint if the
-   image grows one.
+3. **Egress policy.** `networkpolicy.yaml` restricts ingress only. mem0's egress is Postgres,
+   LiteLLM and DNS; an egress rule that misses one presents as a hang rather than an error,
+   so add it with the pod running rather than blind.
+4. **The memory-change history is ephemeral.** mem0 keeps a SQLite audit trail of
+   ADD/UPDATE/DELETE events and opens it with a bare `sqlite3.connect()` — it does not create
+   the parent directory, so the default `/app/history/history.db` is an immediate crash on a
+   read-only root. It is pointed at the `/tmp` emptyDir, which means it is lost on restart.
+   Accepted: nothing in the fleet reads `/memories/{id}/history`, and the durable state is in
+   Postgres. If that trail ever matters it needs a PVC, not a different path.
 
 ## MCP exposure (the fleet interface — fast follow)
 

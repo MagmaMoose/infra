@@ -17,15 +17,24 @@ resources:
   # front, which makes it a deletion rather than a migration.
   - ./litellm
   # PARKED — fleet-shared memory (mem0 on shared CNPG pgvector, via LiteLLM). The Database
-  # CR + pgvector bootstrap Job are safe to reconcile early; the mem0 pod ImagePullBackOffs
-  # if the image is missing or private.
-  #   [done] ghcr.io/magmamoose/mem0-server:latest is built (linux/arm64) and PUBLIC —
-  #          the org package inherited this public repo's visibility, verified with an
-  #          anonymous manifest GET returning 200.
-  #   [TODO] `kubectl rollout restart deployment/litellm -n automation` so the new
-  #          text-embedding-3-small / gpt-4o-mini entries load. Without it mem0 starts
-  #          but its first embedding call fails "model not found". LiteLLM is replicas:1
-  #          on ff-vm1 (CPU-request saturated), so do this when that node has headroom.
+  # CRs + pgvector bootstrap Job are safe to reconcile early; the mem0 pod fails closed if
+  # the image or the vault entries are missing.
+  #   [done] ghcr.io/magmamoose/mem0-server:latest is built and PUBLIC — the org package
+  #          inherited this public repo's visibility, verified with an anonymous manifest
+  #          GET returning 200. Now MULTI-ARCH (amd64+arm64): the image is built from
+  #          upstream source instead of the arm64-only mem0/mem0-api-server, which is what
+  #          lets the Deployment sit on-prem beside its Postgres.
+  #   [done] LiteLLM has the text-embedding-3-small / gpt-4o-mini entries loaded — the
+  #          entries have been in the ConfigMap since 2026-08-03 and both litellm pods
+  #          restarted 2026-08-22, after it. (LiteLLM reads its YAML at startup only, so
+  #          this was a real prerequisite; it is simply already satisfied.)
+  #   [TODO] Two OCI Vault entries, both absent today (checked: the vault holds 162
+  #          secrets, none matching mem0-*). Without them the ExternalSecret never
+  #          populates and the pod cannot start — deliberately, since the alternative is
+  #          the fleet's memory running unauthenticated:
+  #             mem0-admin-api-key   the X-API-Key every caller presents
+  #             mem0-jwt-secret      required at import even though the JWT flow is unused
+  #          Generate each with `openssl rand -base64 48`.
   # Then uncomment. See kubernetes/apps/mem0/README.md.
   # - ./mem0
   - ./n8n

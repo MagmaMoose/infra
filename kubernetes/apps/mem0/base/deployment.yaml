@@ -40,10 +40,13 @@ spec:
         app: mem0
     spec:
       automountServiceAccountToken: false
-      # Wait for the agent_memory DB + pgvector extension before mem0 starts, so its
-      # first-boot table creation doesn't race the bootstrap Job.
       initContainers:
-        - name: wait-for-pgvector
+        # Gate 1 — the databases exist and agent_memory has pgvector, so mem0's
+        # first-boot table creation doesn't race the bootstrap Job. Both databases are
+        # checked: agent_memory holds the vectors, mem0_app holds the auth schema that
+        # gate 2 migrates. A missing mem0_app would otherwise surface as an alembic
+        # stack trace on a loop.
+        - name: wait-for-databases
           image: postgres:16-alpine
           imagePullPolicy: IfNotPresent
           command:
@@ -52,6 +55,9 @@ spec:
             - |
               until psql "host=postgres-rw.database.svc.cluster.local port=5432 user=neondb_owner dbname=agent_memory sslmode=require" -tAc "SELECT 1 FROM pg_extension WHERE extname='vector'" | grep -q 1; do
                 echo "waiting for agent_memory + vector extension..."; sleep 3;
+              done
+              until psql "host=postgres-rw.database.svc.cluster.local port=5432 user=neondb_owner dbname=mem0_app sslmode=require" -tAc "SELECT 1" | grep -q 1; do
+                echo "waiting for mem0_app database..."; sleep 3;
               done
           env:
             - name: PGPASSWORD
@@ -75,15 +81,68 @@ spec:
               drop: ["ALL"]
             seccompProfile:
               type: RuntimeDefault
+        # Gate 2 — the auth schema. mem0's server ships alembic migrations for its
+        # users/api-keys/refresh-tokens/request-logs tables and does NOT run them at
+        # startup; upstream's compose runs `alembic upgrade head` ahead of uvicorn. Run
+        # as an initContainer rather than an entrypoint so a failing migration shows up
+        # as its own container status instead of as an app that mysteriously restarts.
+        # Same image as the app: alembic/env.py imports server/db.py, so it derives the
+        # URL from exactly the env below (POSTGRES_* + APP_DB_NAME), ignoring the
+        # hardcoded sqlalchemy.url in alembic.ini.
+        - name: migrate
+          image: ghcr.io/magmamoose/mem0-server:latest
+          imagePullPolicy: Always
+          workingDir: /app
+          command: ["alembic", "upgrade", "head"]
+          env:
+            - name: POSTGRES_HOST
+              value: postgres-rw.database.svc.cluster.local
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_USER
+              value: neondb_owner
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mem0
+                  key: POSTGRES_PASSWORD
+            - name: APP_DB_NAME
+              value: mem0_app
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: HOME
+              value: /tmp
+            - name: TMPDIR
+              value: /tmp
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 384Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+              readOnly: false
       containers:
         - name: mem0
-          # Built from dockerfiles/mem0-server by .github/workflows/docker-publish.yml
-          # (the upstream mem0/mem0-api-server image lacks the pgvector client deps).
-          # PREREQUISITE before un-parking: the workflow must have run at least once AND
-          # the resulting GHCR package must be made PUBLIC — new packages default to
-          # private and the cluster pulls with no imagePullSecrets anywhere, so a private
-          # package is an ImagePullBackOff. Pin a released `mem0-server-v*` tag here once
-          # one is cut; `:latest` + Always is the bootstrap state.
+          # Built from dockerfiles/mem0-server by .github/workflows/docker-publish.yml.
+          # That Dockerfile builds mem0's `server/` from UPSTREAM SOURCE at a pinned
+          # commit rather than layering on the published mem0/mem0-api-server image,
+          # which has one tag, is ~11 months stale, and is arm64-only. Multi-arch as a
+          # result, which is what lets this pod sit on-prem beside its Postgres.
+          # Pin a released `mem0-server-v*` tag here once one is cut; `:latest` +
+          # Always is the bootstrap state.
           image: ghcr.io/magmamoose/mem0-server:latest
           imagePullPolicy: Always
           ports:
@@ -106,10 +165,12 @@ spec:
                   key: POSTGRES_PASSWORD
             - name: POSTGRES_COLLECTION_NAME
               value: memories
+            # --- Auth/user schema: a SEPARATE database on the same cluster (see
+            # database.yaml). Migrated by the `migrate` initContainer above. ---
+            - name: APP_DB_NAME
+              value: mem0_app
             # --- LLM + embeddings: routed through the in-cluster LiteLLM gateway
-            # (OpenAI-compatible :8080 auth-proxy). mem0's default models
-            # (gpt-4o-mini + text-embedding-3-small) are registered in the LiteLLM
-            # config in this change so they resolve. OPENAI_API_KEY is the LiteLLM key. ---
+            # (OpenAI-compatible :8080 auth-proxy). OPENAI_API_KEY is the LiteLLM key. ---
             - name: OPENAI_BASE_URL
               value: http://litellm.automation.svc.cluster.local:8080/v1
             - name: OPENAI_API_KEY
@@ -117,12 +178,39 @@ spec:
                 secretKeyRef:
                   name: mem0
                   key: OPENAI_API_KEY
+            # Both models are set EXPLICITLY because the server's own defaults moved:
+            # it now defaults to `gpt-5-mini`, which this gateway does not register, so
+            # relying on the default would fail every extraction call with "model not
+            # found". These two ARE registered (kubernetes/apps/litellm/base/configmap.yaml).
+            - name: MEM0_DEFAULT_LLM_MODEL
+              value: gpt-4o-mini
+            - name: MEM0_DEFAULT_EMBEDDER_MODEL
+              value: text-embedding-3-small
             - name: MEM0_TELEMETRY
               value: "false"
-            # LAN-only ingress + in-cluster callers for v1. Add an admin key before
-            # exposing wider (see README).
+            # --- Authentication ---
+            # Was AUTH_DISABLED=true. The server now ships an auth layer, so the fleet
+            # authenticates with a static admin key presented as `X-API-Key`. Stated as
+            # "false" rather than omitted so the posture is legible in the manifest;
+            # the server treats absent and "false" identically.
             - name: AUTH_DISABLED
-              value: "true"
+              value: "false"
+            - name: ADMIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mem0
+                  key: ADMIN_API_KEY
+            # Required even though the browser JWT flow is unused here — the server
+            # raises at import when auth is on and this is empty.
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: mem0
+                  key: JWT_SECRET
+            # Sole CORS origin. The Next.js dashboard is not deployed (and is stripped
+            # from the image), so this only needs to not be `http://localhost:3000`.
+            - name: DASHBOARD_URL
+              value: https://mem0.sargeant.co
             - name: PYTHONUNBUFFERED
               value: "1"
             # --- Read-only root filesystem support (see securityContext below) ---
@@ -134,24 +222,40 @@ spec:
             # HOME points at the /tmp scratch rather than a /home/... mount on purpose: a
             # writable volumeMount over an OS directory (/home, /etc, /var, ...) trips KICS
             # b7652612 (high) whatever readOnly says — the rule is about mounting over an OS
-            # dir, not about the flag. One emptyDir serves both; mem0's only durable state is
-            # the agent_memory DB, so an ephemeral home (~/.mem0) is correct anyway.
+            # dir, not about the flag. One emptyDir serves both.
             - name: HOME
               value: /tmp
             - name: TMPDIR
               value: /tmp
+            # mem0 keeps a SQLite audit trail of memory ADD/UPDATE/DELETE events and
+            # opens it with a bare sqlite3.connect() — it does NOT create the parent
+            # directory, so the default /app/history/history.db is an immediate crash on
+            # a read-only root. Pointed at the scratch mount, which makes it EPHEMERAL:
+            # accepted, because nothing in the fleet reads /memories/{id}/history and the
+            # durable state (the vectors, and the auth schema) is in Postgres. If that
+            # audit trail ever matters, it needs a PVC, not a different path.
+            - name: HISTORY_DB_PATH
+              value: /tmp/history.db
           resources:
             requests:
               cpu: 50m
-              memory: 256Mi
+              memory: 384Mi
             limits:
-              memory: 512Mi
+              # ESTIMATE, not a measurement — the from-source image imports a much larger
+              # graph than the old one (sqlalchemy, alembic, cryptography, bcrypt, the
+              # anthropic and google-generativeai clients) and has never run here. Sized
+              # generously on purpose: per COMMON_MISTAKES #14 a limit is not
+              # scheduler-reserved, so headroom is free, whereas a limit near the real
+              # working set is a deferred OOMKill (#13). Measure on first boot with
+              # `kubectl exec deploy/mem0 -n automation -- cat /sys/fs/cgroup/memory.current`
+              # and tighten the REQUEST, not this.
+              memory: 1Gi
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
             runAsUser: 65534
             # RO root + emptyDir scratch (mirrors cronjob-sonarqube-sync, and the sibling
-            # initContainer/Job below). The container mounts no persistent volume — all runtime
+            # initContainers above). The container mounts no persistent volume — all runtime
             # writes were already ephemeral on the container overlay — so this costs no
             # durability. If first boot fails on an unwritable path, add another emptyDir for
             # that path; do NOT flip this back to false.
@@ -160,16 +264,23 @@ spec:
               drop: ["ALL"]
             seccompProfile:
               type: RuntimeDefault
+          # /auth/setup-status, NOT /docs. /docs is the FastAPI Swagger page: it renders
+          # from the in-process OpenAPI schema and stays 200 while Postgres is face down,
+          # so the old probes reported Ready on a pod that could not serve a single
+          # memory. /auth/setup-status runs `SELECT count(*) FROM users` against mem0_app
+          # and is deliberately unauthenticated (it is what the setup wizard polls), so it
+          # is the one endpoint that both proves the database round-trips and needs no
+          # credential — probes cannot read a Secret for an httpGet header.
           readinessProbe:
             httpGet:
-              path: /docs
+              path: /auth/setup-status
               port: 8000
             initialDelaySeconds: 15
             periodSeconds: 10
             failureThreshold: 6
           livenessProbe:
             httpGet:
-              path: /docs
+              path: /auth/setup-status
               port: 8000
             initialDelaySeconds: 40
             periodSeconds: 20
@@ -180,8 +291,8 @@ spec:
               mountPath: /tmp
               readOnly: false
       volumes:
-        # Ephemeral by design: mem0's durable state is the agent_memory DB on the shared
-        # CNPG cluster, not the pod filesystem. ONE scratch mount — HOME and TMPDIR both
-        # point at it (see env above).
+        # Ephemeral by design: mem0's durable state is the agent_memory + mem0_app
+        # databases on the shared CNPG cluster, not the pod filesystem. ONE scratch
+        # mount — HOME, TMPDIR and the SQLite history file all point at it (see env).
         - name: tmp
           emptyDir: {}
