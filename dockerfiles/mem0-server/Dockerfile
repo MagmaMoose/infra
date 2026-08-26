@@ -37,16 +37,17 @@
 # Re-resolve the base with:
 #   docker buildx imagetools inspect python:3.12-slim
 #
-# Chargate/KICS suppression (accepted risk, reviewed):
-#   b03a748a no HEALTHCHECK – Kubernetes ignores Docker HEALTHCHECK entirely; the
-#            Deployment has HTTP readiness + liveness probes on /auth/setup-status
-#            (which queries Postgres — see kubernetes/apps/mem0/base/deployment.yaml).
-#            Adding one would need curl/wget in the image — more attack surface, no effect.
+# Suppressed findings (accepted risks, reviewed):
+#   b03a748a / DS-0026  no HEALTHCHECK – Kubernetes ignores Docker HEALTHCHECK entirely;
+#                       the Deployment has HTTP readiness + liveness probes. Adding one
+#                       would pull curl/wget into the image — more attack surface, no effect.
 # kics-scan disable=b03a748a-542d-44f4-bb86-9199ab4fd2d5
+#trivy:ignore:DS-0026
 
 ARG PYTHON_BASE=python:3.12-slim@sha256:7a8b475003c4fe15a2cd4e55e5cfc2f3560bdc9333d624f24cdd6d4340fd7a17
 
 # --- stage 1: fetch the upstream server tree at a fixed commit -----------------------
+#checkov:skip=CKV_DOCKER_7:image pinned by digest via PYTHON_BASE ARG; tag is 3.12-slim not latest
 FROM ${PYTHON_BASE} AS source
 
 # mem0ai/mem0 @ main, 2026-08-24. Bump WITH the mem0ai pin below.
@@ -75,6 +76,7 @@ RUN apt-get update \
               /src/server/scripts /src/server/.env.example
 
 # --- stage 2: runtime ----------------------------------------------------------------
+#checkov:skip=CKV_DOCKER_7:image pinned by digest via PYTHON_BASE ARG; tag is 3.12-slim not latest
 FROM ${PYTHON_BASE}
 
 ENV PYTHONUNBUFFERED=1 \

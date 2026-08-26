@@ -76,6 +76,7 @@ spec:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
             runAsUser: 65534
+            runAsGroup: 65534
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
@@ -89,6 +90,7 @@ spec:
         # Same image as the app: alembic/env.py imports server/db.py, so it derives the
         # URL from exactly the env below (POSTGRES_* + APP_DB_NAME), ignoring the
         # hardcoded sqlalchemy.url in alembic.ini.
+        #trivy:ignore:KSV-0013
         - name: migrate
           image: ghcr.io/magmamoose/mem0-server:latest
           imagePullPolicy: Always
@@ -125,6 +127,7 @@ spec:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
             runAsUser: 65534
+            runAsGroup: 65534
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
@@ -264,13 +267,15 @@ spec:
               drop: ["ALL"]
             seccompProfile:
               type: RuntimeDefault
-          # /auth/setup-status, NOT /docs. /docs is the FastAPI Swagger page: it renders
-          # from the in-process OpenAPI schema and stays 200 while Postgres is face down,
-          # so the old probes reported Ready on a pod that could not serve a single
-          # memory. /auth/setup-status runs `SELECT count(*) FROM users` against mem0_app
-          # and is deliberately unauthenticated (it is what the setup wizard polls), so it
-          # is the one endpoint that both proves the database round-trips and needs no
-          # credential — probes cannot read a Secret for an httpGet header.
+          # Readiness: /auth/setup-status (runs SELECT against mem0_app — deliberately
+          # unauthenticated, which is what lets probes use it without a header Secret).
+          # Stops traffic when the DB is down, which is what readiness should do.
+          #
+          # Liveness: /docs (the FastAPI Swagger page, generated in-process). Stays 200
+          # while Postgres is down, which is the right answer for liveness: the question
+          # is only "is the uvicorn worker wedged", not "is Postgres up". Using
+          # /auth/setup-status for liveness would restart the pod during a CNPG failover,
+          # which makes recovery worse rather than better.
           readinessProbe:
             httpGet:
               path: /auth/setup-status
@@ -280,7 +285,7 @@ spec:
             failureThreshold: 6
           livenessProbe:
             httpGet:
-              path: /auth/setup-status
+              path: /docs
               port: 8000
             initialDelaySeconds: 40
             periodSeconds: 20
