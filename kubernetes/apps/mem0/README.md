@@ -44,12 +44,10 @@ on Docker Hub has exactly **one** tag (`latest`), last pushed 2025-09-10, while 
 Two consequences worth knowing before editing anything:
 
 1. **It is multi-arch, and that is why the Deployment is on-prem.** The published image is
-   arm64-only, which forced mem0 onto the OCI node tier while its Postgres runs on ff-vm1 —
-   every query crossed the site-to-site VPN. `python:3.12-slim` is multi-arch, so the
-   `placement.sargeant.co/tier` label in `base/kustomization.yaml` is now `on-prem` and the
-   pod sits on the same node as the database. Reverting the Dockerfile to the published base
-   silently re-breaks that, because an arm64-only image on `on-prem` (amd64 ff-vm1) is an
-   outright pull failure.
+   arm64-only; building from source provides `python:3.12-slim` which is multi-arch (amd64+arm64).
+   This allows the `placement.sargeant.co/tier` label in `base/kustomization.yaml` to be `on-prem`,
+   placing the pod on ff-vm1 beside its Postgres database, eliminating cross-VPN latency.
+   Reverting to the published arm64-only base would force mem0 back to the OCI node tier.
 2. **Three pins move together**: `MEM0_REF` (the server commit), `mem0ai==` (the SDK the
    server imports — upstream's requirements float it, and server and SDK ship from the same
    repo) and the base image's **index** digest. A per-arch digest breaks the other leg.
