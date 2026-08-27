@@ -66,11 +66,12 @@ self-hosted queue.
 | `n8n` | `calebsargeant` | `linux/amd64,linux/arm64` | `n8n-v` |
 | `openfortivpn` | `calebsargeant` | `linux/amd64,linux/arm64` | `openfortivpn-v` |
 | `atlantis-firefly` | `calebsargeant` | `linux/amd64,linux/arm64` | `atlantis-firefly-v` |
-| `mem0-server` | `magmamoose` | `linux/arm64` only | `mem0-server-v` |
+| `mem0-server` | `magmamoose` | `linux/amd64,linux/arm64` | `mem0-server-v` |
 
-`mem0-server` is arm64 only because its base image publishes a manifest index with
-`linux/arm64` and nothing else, so an amd64 leg fails the build outright. Its Deployment is
-pinned to the arm64 node tier to match.
+`mem0-server` is built from upstream source rather than the published `mem0/mem0-api-server`
+image (which is arm64 only and no longer security-patched). Building from source provides
+access to the latest patches and multi-platform support. The Deployment runs on the on-prem
+node tier where the Postgres database lives, eliminating cross-VPN latency.
 
 !!! warning "`dockerfiles/wordpress-postgres` is not built"
     It's been in the tree since January 2026 and appears in no matrix entry, so no image is
