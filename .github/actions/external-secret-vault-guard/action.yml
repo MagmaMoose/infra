@@ -36,6 +36,42 @@ inputs:
       to compare rather than emit a wall of false failures.
     required: false
     default: "25"
+  allow-skip:
+    description: >-
+      Permit exiting 0 when the OCI credentials are absent. FALSE BY DEFAULT, and
+      that default is the whole point of this input: the guard previously skipped
+      whenever credentials were missing and reported success, so a repository that
+      had simply never set the secrets got a green check that verified nothing —
+      for as long as nobody looked. Set this true ONLY where the run genuinely
+      cannot hold secrets: a pull request from a fork, or Dependabot. Anywhere
+      else, missing credentials are a misconfiguration and should be red.
+    required: false
+    default: "false"
+  oci-tenancy-ocid:
+    description: OCI tenancy OCID. Pass from a secret.
+    required: false
+    default: ""
+  oci-user-ocid:
+    description: OCI user OCID for the SECRET_INSPECT-only principal.
+    required: false
+    default: ""
+  oci-fingerprint:
+    description: API key fingerprint for that user.
+    required: false
+    default: ""
+  oci-key-content:
+    description: >-
+      The API private key, inline. Never written to disk by this action.
+    required: false
+    default: ""
+  oci-region:
+    description: OCI region of the vault (e.g. eu-amsterdam-1).
+    required: false
+    default: ""
+  oci-vault-ocid:
+    description: OCID of the vault whose secret NAMES are listed.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -55,10 +91,24 @@ runs:
       # visible to every process on the runner. OCI_KEY_CONTENT holds the PEM
       # inline so it never touches the filesystem -- no file, no chmod, and no
       # shell mangling its newlines into "PEM routines: no start line".
+      #
+      # DECLARED HERE, as inputs mapped to env, rather than left for the caller to
+      # set as step-level `env:`. The comment above already said credentials arrive
+      # as env vars and nothing set them, in either the action or the workflow, for
+      # the whole life of the guard — an unset env var is invisible, while an unset
+      # input is a blank line in this file.
+      env:
+        OCI_TENANCY_OCID: ${{ inputs.oci-tenancy-ocid }}
+        OCI_USER_OCID: ${{ inputs.oci-user-ocid }}
+        OCI_FINGERPRINT: ${{ inputs.oci-fingerprint }}
+        OCI_KEY_CONTENT: ${{ inputs.oci-key-content }}
+        OCI_REGION: ${{ inputs.oci-region }}
+        OCI_VAULT_OCID: ${{ inputs.oci-vault-ocid }}
       run: |
         args=()
         for p in ${{ inputs.paths }}; do args+=(--path "$p"); done
         for s in ${{ inputs.vault-stores }}; do args+=(--vault-store "$s"); done
         args+=(--min-vault-secrets "${{ inputs.min-vault-secrets }}")
         if [ "${{ inputs.report-orphans }}" = "true" ]; then args+=(--report-orphans); fi
+        if [ "${{ inputs.allow-skip }}" = "true" ]; then args+=(--allow-skip); fi
         python "${{ github.action_path }}/check_external_secret_refs.py" "${args[@]}"

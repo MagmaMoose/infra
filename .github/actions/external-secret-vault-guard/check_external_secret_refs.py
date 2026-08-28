@@ -423,6 +423,15 @@ def main() -> int:
                     help="offline TSV fixture (name<TAB>STATE); test use only")
     ap.add_argument("--list", action="store_true", help="print refs and exit 0")
     ap.add_argument("--no-annotations", action="store_true")
+    ap.add_argument(
+        "--allow-skip",
+        action="store_true",
+        help=(
+            "Exit 0 instead of 2 when the OCI credentials are absent. For runs that "
+            "genuinely cannot hold secrets (fork pull requests, Dependabot) — never as a "
+            "blanket default, which is the defect this flag exists to end."
+        ),
+    )
     args = ap.parse_args()
 
     paths = args.path or ["."]
@@ -476,12 +485,41 @@ def main() -> int:
             states[name.strip()] = (state.strip() or "ACTIVE")
     else:
         missing_env = [v for v in OCI_ENV_VARS if not os.environ.get(v, "").strip()]
+        if missing_env and not args.allow_skip:
+            # THE DEFAULT IS NOW RED. The original reasoning — never fail closed,
+            # because that reds every fork and Dependabot PR — was right about forks
+            # and wrong about everything else. It made "the secrets were never
+            # created" indistinguishable from "this run cannot hold them", and the
+            # first is a misconfiguration that then hides behind a green check for as
+            # long as nobody reads the annotation. It did exactly that: the guard
+            # shipped, was never given credentials, and verified nothing while passing
+            # every pull request in the repo it was written to protect.
+            #
+            # A caller that genuinely cannot hold secrets says so with --allow-skip:
+            # one visible line at the call site, rather than a silent property of
+            # every run everywhere.
+            gh("ERROR — vault comparison IMPOSSIBLE, and skipping was not permitted")
+            gh(f"  missing credentials: {', '.join(missing_env)}")
+            gh(f"  {len(findings.refs)} references were parsed but NOT verified.")
+            gh("")
+            gh("  Either provide the credentials (see this action's README), or pass")
+            gh("  allow-skip: true at the call site for runs that cannot hold them")
+            gh("  (fork pull requests, Dependabot). Do not set it unconditionally —")
+            gh("  that restores the behaviour this exit code exists to end.")
+            note = (
+                f"External Secret vault guard could not run: {', '.join(missing_env)} "
+                f"unset and allow-skip is false. {len(findings.refs)} references parsed, "
+                f"none verified."
+            )
+            if not args.no_annotations:
+                gh(f"::error title=External Secret vault guard NOT RUN::{note}")
+            summary(f"### External Secrets\n\n**FAILED** — {note}")
+            return 2
+
         if missing_env:
-            # Never fail closed (that reds every fork/Dependabot PR) and never
-            # pass silently (that makes a check look green while doing nothing).
-            # "PASS" is never printed on this path; "SKIPPED" is never printed
-            # on a real pass. Two green outcomes, two distinct words.
-            gh("VAULT COMPARISON SKIPPED")
+            # Skipping was explicitly permitted for this run. Still never prints
+            # "PASS": two green outcomes, two distinct words.
+            gh("VAULT COMPARISON SKIPPED (allow-skip)")
             gh(f"  missing credentials: {', '.join(missing_env)}")
             gh(f"  {len(findings.refs)} references were parsed but NOT verified.")
             gh("  Expected on fork and Dependabot pull requests. On a normal branch")
