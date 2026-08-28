@@ -132,12 +132,25 @@ spec:
       existingSecretKey: secret-key
 
     bootstrap:
-      pressName: Magma Moose Press
-      pressContact: caleb@magmamoose.com
+      # Tengen identity throughout — the site moved to janeway.tengen.co.za, so
+      # the press it bootstraps should not rebuild the old one. These values only
+      # take effect on a FIRST install (install_janeway is guarded on a Press
+      # existing), so the running deployment was renamed in the database to
+      # match; they are here so a rebuild from empty lands in the same place.
+      pressName: Tengen Press
+      pressContact: caleb@tengen.co.za
       journalCode: journal
       journalName: Journal
       superuser:
-        email: caleb@magmamoose.com
+        # Note the bootstrap guard checks whether THIS address already has an
+        # account, not whether any superuser exists. caleb@tengen.co.za was
+        # registered through the public form before this changed, so on the
+        # running deployment the guard skips and the account was promoted to
+        # superuser in the database instead. caleb@magmamoose.com is still a
+        # superuser deliberately: it is the only address Mailgun will currently
+        # deliver to, so it is the working way back in until the sandbox
+        # restriction below is lifted. Drop it once that is done.
+        email: caleb@tengen.co.za
         existingSecret: janeway-superuser
         existingSecretKey: password
 
@@ -149,12 +162,19 @@ spec:
     # every reset token was written to the pod log and shipped to the log store.
     #
     # KNOWN LIMIT — this is a Mailgun SANDBOX domain. Sandboxes deliver ONLY to
-    # addresses explicitly authorised in Mailgun (5 max). caleb@magmamoose.com is
-    # authorised and verified delivering; anyone else who registers gets nothing.
-    # That is fine for an unadvertised journal and NOT fine once real authors are
-    # invited. Lifting it means verifying a real domain (e.g. mg.magmamoose.com)
-    # in Mailgun, adding its DNS records, then changing `user` here and the vault
-    # entry — `host`, `port` and `useTls` stay as they are.
+    # addresses explicitly authorised in Mailgun, 5 maximum. Two are registered:
+    # caleb@magmamoose.com (activated, verified delivering) and caleb@tengen.co.za
+    # (added 2026-08-25, pending its confirmation click). Anyone else who
+    # registers gets nothing — and worse than nothing, because Janeway raises on
+    # the rejected send and renders a server error AFTER creating the account, so
+    # the user sees a failure while a dormant account exists.
+    #
+    # Lifting it is blocked on BILLING, not on configuration or credentials.
+    # Creating mg.tengen.co.za returns "Domains limit of 1 has been exceeded for
+    # the account" — the sandbox occupies the single slot this plan allows, so a
+    # real sending domain needs a paid plan. Once upgraded: create the domain,
+    # publish its SPF/DKIM into the tengen.co.za zone, then change `user` and
+    # `from` here plus the vault entry. `host`, `port` and `useTls` stay put.
     email:
       host: smtp.mailgun.org
       port: 587
@@ -162,11 +182,17 @@ spec:
       user: postmaster@sandbox03d507c3312f467d846168e83a2bfef1.mailgun.org
       existingSecret: janeway-email
       existingSecretKey: password
-      # Verified to deliver from the sandbox despite not being the sending
-      # domain. Note SPF/DKIM therefore align to the sandbox, not to
-      # magmamoose.com, so a strict DMARC receiver may still treat it harshly —
-      # another reason the real domain above is the proper fix.
-      from: noreply@janeway.magmamoose.com
+      # DEFAULT_FROM_EMAIL, which is the Django-level fallback and NOT what most
+      # Janeway mail actually uses: press-scoped messages (password reset,
+      # registration confirmation) send from `press.main_contact`, and
+      # journal-scoped ones from the `general/from_address` setting. Both of
+      # those live in the database and are set to tengen addresses; this is here
+      # so the fallback agrees with them rather than naming a retired domain.
+      #
+      # SPF/DKIM still align to the sandbox rather than to tengen.co.za, so a
+      # strict DMARC receiver may treat it harshly — another reason the real
+      # sending domain above is the proper fix.
+      from: noreply@tengen.co.za
 
     persistence:
       # `longhorn`, the untagged class, rather than `longhorn-on-prem`. Be clear
@@ -201,9 +227,16 @@ spec:
       size: 8Gi
 
     # No Ingress. The tunnel dials the ClusterIP Service directly, so an Ingress
-    # would be a second door into the same room, and the DNS record is owned by
-    # Terraform (dns-magmamoose) rather than external-dns. Having it in both
-    # places double-manages the record and breaks terragrunt apply.
+    # would be a second door into the same room, and the DNS record is not
+    # external-dns' to manage.
+    #
+    # janeway.tengen.co.za lives in the TENGEN Cloudflare account
+    # (d2bd0f93…) and is served by the `firefly-tengen` tunnel there, created
+    # through the API — no terraform stack describes it yet, because the
+    # cloudflare provider in this repo is wired to the Magma Moose token.
+    # janeway.magmamoose.com still resolves through the original tunnel and the
+    # dns-magmamoose stack, and is kept only so old links 302 to the new host.
+    # Letting external-dns near either would double-manage the records.
     ingress:
       enabled: false
 
