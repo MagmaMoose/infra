@@ -93,7 +93,7 @@ data:
       # OCI Vault entry nievah-mcp-token, which Nievah reads as MCP_AUTH_TOKEN;
       # substituted from the NIEVAH_MCP_TOKEN env at load.
       nievah:
-        url: http://nievah.nievah.svc.cluster.local:8000/mcp
+        url: http://nievah.nievah.svc.cluster.local:8000/mcp  # DevSkim: ignore DS137138 — ClusterIP east-west, not externally reachable; same pattern as n8n and HA entries
         transport: streamable-http
         headers:
           Authorization: "Bearer ${NIEVAH_MCP_TOKEN}"
