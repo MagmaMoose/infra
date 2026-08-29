@@ -103,6 +103,19 @@ projects:
   # Effusion rather than a footnote to it: a GitHub Actions runner assuming a per-run OIDC role
   # per account removes the credential problem entirely instead of scoping around it.
 
+  # NO PROJECT FOR terraform/aws/dunmir/**, and here the reason is stronger than for the leaves
+  # above rather than merely the same.
+  #
+  # Dün Mir's platform is expected to land in a **standalone account outside the organisation**,
+  # not a member account — because AWS applies the free tier across an organisation dating from
+  # the MANAGEMENT account's creation (#641), so a member account inherits an already-expired
+  # 12-month RDS allowance. See terraform/aws/dunmir/provider.hcl. Atlantis cannot assume into
+  # an account that is not in the organisation at all, so this is not a credential that could be
+  # granted; it is one that cannot exist in the current design.
+  #
+  # Applied by hand with `AWS_PROFILE=mm-dunmir`, per docs/operations/dunmir-aws.md. The
+  # deployment itself is a one-line bump of `image_uri`, which the product's own workflow prints.
+
   # ─── Cloudflare ──────────────────────────────────────────────────────────
   - name: cloudflare-dns-prod
     dir: terraform/cloudflare/dns/prod

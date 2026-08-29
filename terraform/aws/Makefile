@@ -84,3 +84,87 @@ validate:
 	    && $(TFBIN) validate 2>&1 | tail -1; \
 	    rm -f _validate_provider.tf ); \
 	done
+
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# Dün Mir — the free-tier backend (Lambda + RDS + Cognito + S3 behind CloudFront).
+#
+#   make dunmir-dev         everything below, in order
+#   make dunmir-up          start LocalStack + Postgres + the Cognito stand-in
+#   make dunmir-seed        create the local user pool and write its ids for Terraform
+#   make dunmir-zip         build the function package from a sibling dunmir checkout
+#   make dunmir-apply       build the stack inside LocalStack (the same module the leaf uses)
+#   make dunmir-migrate     apply schema/postgres.sql, the way production does
+#   make dunmir-smoke       drive it end to end and assert the invariants
+#   make dunmir-image-test  run the REAL container image under AWS's Runtime Interface Emulator
+#   make dunmir-down        stop everything
+#
+# TWO PROOFS, AND BOTH ARE NEEDED. `dunmir-smoke` exercises the WIRING but runs a zip, because
+# container-image Lambdas are a LocalStack Pro feature. `dunmir-image-test` exercises the
+# ARTEFACT production actually deploys. Neither one catches what the other does.
+
+DUNMIR ?= $(HERE)../../../dunmir
+DM     := $(HERE)localstack-dunmir
+DM_ZIP ?= $(DM)/dunmir-lambda.zip
+
+.PHONY: dunmir-dev dunmir-up dunmir-down dunmir-seed dunmir-zip dunmir-apply dunmir-migrate \
+        dunmir-smoke dunmir-image-test dunmir-destroy dunmir-logs dunmir-validate
+
+dunmir-dev: dunmir-up dunmir-seed dunmir-zip dunmir-apply dunmir-migrate dunmir-smoke
+
+dunmir-up:
+	docker compose -f $(DM)/docker-compose.yml up -d
+	@echo "waiting for localstack..."
+	@for i in $$(seq 1 60); do \
+	  curl -sf http://localhost:4566/_localstack/health >/dev/null && exit 0; \
+	  sleep 2; \
+	done; echo "localstack did not become healthy" >&2; exit 1
+
+dunmir-down:
+	docker compose -f $(DM)/docker-compose.yml down -v
+
+# BEFORE the apply, not part of it: the function is configured with the pool's SIGNING KEYS
+# rather than a URL to fetch them from, so the pool has to exist first. That is the same
+# ordering the real apply has (Terraform creates the pool, then reads its JWKS with an `http`
+# data source) — it is just visible here because the stand-in lives outside Terraform.
+dunmir-seed:
+	$(DM)/seed.sh
+
+dunmir-zip:
+	DUNMIR=$(DUNMIR) $(DM)/build_zip.sh
+
+dunmir-apply:
+	cd $(DM) && $(TFBIN) init -input=false
+	cd $(DM) && $(TFBIN) apply -auto-approve -input=false -var lambda_zip_path=$(abspath $(DM_ZIP))
+
+dunmir-destroy:
+	cd $(DM) && $(TFBIN) destroy -auto-approve -input=false -var lambda_zip_path=$(abspath $(DM_ZIP))
+
+# The same invocation the runbook uses on AWS. It has to be an invocation rather than a psql
+# session because in production the database has no public address, and this function is the
+# only thing inside the VPC that can reach it.
+dunmir-migrate:
+	aws --endpoint-url=$(AWS_ENDPOINT_URL) lambda invoke \
+	  --function-name $$(cd $(DM) && $(TFBIN) output -raw function_name) \
+	  --cli-binary-format raw-in-base64-out --payload '{"task":"migrate"}' /dev/null >/dev/null
+	@echo "schema applied"
+
+smoke_dunmir_deps = $(DM)/.outputs.json
+dunmir-smoke:
+	cd $(DM) && $(TFBIN) output -json > $(DM)/.outputs.json
+	python3 $(DM)/smoke.py $(DM)/.outputs.json
+
+dunmir-image-test:
+	DUNMIR=$(DUNMIR) $(DM)/image_test.sh
+
+dunmir-logs:
+	aws --endpoint-url=$(AWS_ENDPOINT_URL) logs tail /aws/lambda/dunmir-local-api --follow
+
+# Validates the MODULE, which is what Atlantis will run. The localstack root is validated
+# implicitly by `dunmir-apply`.
+dunmir-validate:
+	@printf "%-18s " dunmir-platform; \
+	( cd $(HERE)modules/dunmir-platform \
+	  && printf 'provider "aws" {\n  region = "eu-west-1"\n}\nprovider "aws" {\n  alias  = "us_east_1"\n  region = "us-east-1"\n}\n' > _validate_provider.tf \
+	  && $(TFBIN) init -backend=false -input=false >/dev/null 2>&1 \
+	  && $(TFBIN) validate 2>&1 | tail -1; \
+	  rm -f _validate_provider.tf )
