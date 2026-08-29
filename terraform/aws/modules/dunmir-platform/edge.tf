@@ -1,136 +1,207 @@
-# CloudFront in front of the Function URL, and the ACM certificate for the custom domain.
+# The public entrypoint: an API Gateway HTTP API in front of the function.
 #
-# WHY CLOUDFRONT AT ALL, ON A FREE-TIER STACK
-#   Two reasons, and neither is caching.
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# THIS WAS CLOUDFRONT + ORIGIN ACCESS CONTROL IN FRONT OF A LAMBDA FUNCTION URL. That design
+# cannot work for this API, and the reason is worth keeping so nobody re-derives it:
 #
-#   1. A Function URL cannot have a custom domain. RouterOS agents dial out to a hostname baked
-#      into their configuration, so `api.dunmir.magmamoose.com` is not cosmetic — it is what
-#      makes the backend movable without touching every device in every fleet.
-#   2. It is what makes the origin private. The Function URL is `AWS_IAM`-authorised, and
-#      CloudFront's Origin Access Control signs each request with SigV4. Without the
-#      distribution the URL would have to be `NONE`, i.e. open to anyone who learns the
-#      hostname.
+#   1. OAC with `signing_behavior = "always"` puts CloudFront's OWN SigV4 credential in the
+#      `Authorization` header of every origin request, **overwriting the viewer's**. Every
+#      credential this product accepts rides on that header — the Cognito ID token, the agent's
+#      `dunmir_…` bearer, the shared `ADMIN_TOKEN` — so the function would have received a
+#      SigV4 signature where it expected a bearer and answered 401 to literally everything.
+#      Forwarding the header with `AllViewerExceptHostHeader` does not help: the override
+#      happens at signing time, after the origin request policy has run.
+#   2. OAC does not hash request bodies. AWS requires the CALLER to send
+#      `x-amz-content-sha256` on any POST/PUT, because Lambda does not accept unsigned
+#      payloads. Neither the browser nor a deployed RouterOS agent sends that header, and the
+#      agent's wire contract is frozen — so every mutation and every backup upload would have
+#      been rejected with a 403 before the function was entered, leaving nothing in its logs.
+#   3. Since October 2025 a newly created function URL also requires `lambda:InvokeFunction`
+#      alongside `lambda:InvokeFunctionUrl` in the resource policy.
 #
-#   CloudFront's free tier is one of the ALWAYS-free ones: 1 TB out and 10M requests a month,
-#   permanently. This costs nothing.
+# Any one of those is a total outage, and none is reproducible on LocalStack, whose community
+# image has no CloudFront at all. The sibling `chargate-broker` and `caldrith-frontdoor` modules
+# reached the same conclusion for the same reason; this now matches them.
 #
-# WHY NOT CLOUDFLARE, GIVEN THE CONSOLE IS ALREADY THERE
-#   Cloudflare could proxy `api.` to the Function URL just as well, but it could not make the
-#   origin private: the `*.lambda-url.*.on.aws` hostname would still answer directly, so every
-#   edge control would be one DNS lookup away from being bypassed. OAC is the reason this is
-#   CloudFront.
-#
-# THE CACHE IS DISABLED, DELIBERATELY. Every path here is either an authenticated read or a
-# mutation. `CachingDisabled` plus an origin request policy that forwards everything means the
-# distribution is a signing proxy and nothing else — a cached `/api/session/me` would serve one
-# operator's identity to the next.
+# WHAT IT COSTS. HTTP API is $1.00 per million requests after a 1M/month tier that expires
+# after twelve months. This is the second line item that is not permanently free (RDS is the
+# other — see `db_mode`), and unlike RDS it is negligible: the default heartbeat interval is
+# ONE HOUR (`DEFAULT_HEARTBEAT_INTERVAL_SECONDS=3600`), so a thousand devices generate ~720k
+# requests a month, about $0.72. CloudFront's always-free tier bought a design that does not
+# function, which is not a saving.
+# ─────────────────────────────────────────────────────────────────────────────────────────────
 
 locals {
-  wants_domain         = var.api_domain_name != ""
-  creates_distribution = !var.localstack
+  wants_domain = var.api_domain_name != ""
+  creates_api  = !var.localstack
 
-  # A certificate is requested as soon as a domain is named, but ATTACHED only once an ARN is
-  # supplied — see the two-phase note on `api_domain_name`. A distribution cannot be created
-  # with a certificate still in PENDING_VALIDATION, and the validation record cannot be created
-  # until the certificate exists, so the cycle has to be broken by a human in the middle.
-  attaches_certificate = local.wants_domain && var.certificate_arn != ""
+  # A certificate is requested as soon as a domain is named, but the custom domain is only
+  # CREATED once `enable_custom_domain` is set — see the two-phase note on `api_domain_name`.
+  # A domain cannot be created against a certificate still in PENDING_VALIDATION, and the
+  # validation record cannot be written until the certificate exists, so a human breaks the
+  # cycle in the middle.
+  attaches_domain = local.creates_api && local.wants_domain && var.enable_custom_domain
 }
 
-# us-east-1, always. CloudFront accepts certificates from no other region, whatever region the
-# rest of the stack is in — and the failure ("The specified SSL certificate doesn't exist, isn't
-# in us-east-1…") arrives at apply time, after everything else is already built.
+resource "aws_apigatewayv2_api" "api" {
+  count = local.creates_api ? 1 : 0
+
+  name          = "${local.name}-api"
+  description   = "Dun Mir operator console + agent ingest"
+  protocol_type = "HTTP"
+
+  # NO `cors_configuration` BLOCK, deliberately. The application does its own credentialed CORS
+  # (`app/main.py` adds a CORSMiddleware that allow-lists the console origin and, critically,
+  # sets `expose_headers` for the CSRF token). An HTTP API's own CORS handling INTERCEPTS
+  # preflights and rewrites the CORS response headers, which would silently drop
+  # `Access-Control-Expose-Headers` — and a hidden CSRF token means every cookie-mode mutation
+  # 403s with nothing in the network tab looking wrong. Leaving it unset sends OPTIONS to the
+  # function like any other method.
+
+  # Closes the `*.execute-api.<region>.amazonaws.com` hostname once a custom domain is live, so
+  # the custom domain is the only way in rather than merely the pretty way in. Off until then,
+  # or phase 1 would create an API nothing can reach.
+  disable_execute_api_endpoint = local.attaches_domain
+
+  tags = { Name = "${local.name}-api" }
+}
+
+resource "aws_apigatewayv2_integration" "api" {
+  count = local.creates_api ? 1 : 0
+
+  api_id = aws_apigatewayv2_api.api[0].id
+
+  integration_type   = "AWS_PROXY"
+  integration_uri    = aws_lambda_function.api.invoke_arn
+  integration_method = "POST"
+
+  # 2.0 is the event shape Mangum's HTTPGateway handler parses (`event["version"] == "2.0"`),
+  # and the one the local run exercises. 1.0 would still invoke the function and would still
+  # be handled — by a different code path, with different header casing and a different
+  # `sourceIp` location — so this is not a detail to leave to a default.
+  payload_format_version = "2.0"
+
+  # Matches the function's own timeout. API Gateway's ceiling is 30s and its default is 29s;
+  # leaving them mismatched means the gateway gives up while the function goes on billing.
+  timeout_milliseconds = var.lambda_timeout_seconds * 1000
+}
+
+# ONE route for everything. The application owns its URL space — the frozen `/v1/*` agent
+# contract, Pro's `/api/*` reads, the SPA's deep links — and re-declaring any of it here would
+# be a second routing table to keep in step, with a 404 from the gateway (which logs nothing
+# useful) as the failure mode.
+resource "aws_apigatewayv2_route" "default" {
+  count = local.creates_api ? 1 : 0
+
+  api_id    = aws_apigatewayv2_api.api[0].id
+  route_key = "$default"
+  target    = "integrations/${aws_apigatewayv2_integration.api[0].id}"
+}
+
+resource "aws_apigatewayv2_stage" "default" {
+  count = local.creates_api ? 1 : 0
+
+  api_id      = aws_apigatewayv2_api.api[0].id
+  name        = "$default"
+  auto_deploy = true
+
+  # THE ONLY THING BOUNDING CONCURRENCY, and it is doing two jobs.
+  #
+  # Lambda's account default is 1000 concurrent executions. Each execution environment holds an
+  # asyncpg pool, and a db.t4g.micro tops out near 112 connections — so unbounded concurrency
+  # exhausts the DATABASE long before it exhausts Lambda, and the failure is 500s for everyone
+  # rather than throttling for some. Throttling here is what keeps the two in proportion, and
+  # it also caps the bill if the endpoint is ever scraped.
+  default_route_settings {
+    throttling_rate_limit  = var.throttle_rate_limit
+    throttling_burst_limit = var.throttle_burst_limit
+  }
+
+  # Access logs. Without these the edge is invisible: anything the gateway rejects before the
+  # integration runs — a throttle, a payload over the limit, a bad path — produces no line in
+  # the function's log group and no metric anyone watches, so "the console is broken" has no
+  # first place to look.
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.api[0].arn
+    format = jsonencode({
+      requestId       = "$context.requestId"
+      ip              = "$context.identity.sourceIp"
+      requestTime     = "$context.requestTime"
+      httpMethod      = "$context.httpMethod"
+      routeKey        = "$context.routeKey"
+      path            = "$context.path"
+      status          = "$context.status"
+      protocol        = "$context.protocol"
+      responseLength  = "$context.responseLength"
+      integrationErr  = "$context.integrationErrorMessage"
+      integrationStat = "$context.integration.status"
+      latency         = "$context.responseLatency"
+    })
+  }
+
+  tags = { Name = "${local.name}-api" }
+}
+
+resource "aws_cloudwatch_log_group" "api" {
+  count = local.creates_api ? 1 : 0
+
+  name              = "/aws/apigateway/${local.name}-api"
+  retention_in_days = var.log_retention_days
+
+  tags = { Name = "${local.name}-api" }
+}
+
+# Lets THIS api, and only this api, invoke the function. `/*/*` is stage/route: one statement
+# covers every route on every stage of this api and nothing else.
+resource "aws_lambda_permission" "api_gateway" {
+  count = local.creates_api ? 1 : 0
+
+  statement_id  = "AllowInvokeFromApiGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.api.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.api[0].execution_arn}/*/*"
+}
+
+# ── custom domain ───────────────────────────────────────────────────────────────────────────
+#
+# A REGIONAL certificate, in this region. No us-east-1 provider alias, which is one of the
+# incidental simplifications of dropping CloudFront — that alias existed solely because
+# CloudFront accepts certificates from nowhere else.
+
 resource "aws_acm_certificate" "api" {
-  count    = local.creates_distribution && local.wants_domain ? 1 : 0
-  provider = aws.us_east_1
+  count = local.creates_api && local.wants_domain && var.certificate_arn == "" ? 1 : 0
 
   domain_name       = var.api_domain_name
   validation_method = "DNS"
 
   lifecycle {
+    # ACM cannot change a certificate's domain in place. Without this, editing `api_domain_name`
+    # destroys the certificate the live custom domain is using before its replacement exists.
     create_before_destroy = true
   }
 
   tags = { Name = var.api_domain_name }
 }
 
-resource "aws_cloudfront_origin_access_control" "api" {
-  count = local.creates_distribution ? 1 : 0
+resource "aws_apigatewayv2_domain_name" "api" {
+  count = local.attaches_domain ? 1 : 0
 
-  name                              = "${local.name}-api"
-  description                       = "SigV4-signs CloudFront's requests to the Lambda Function URL"
-  origin_access_control_origin_type = "lambda"
-  signing_behavior                  = "always"
-  signing_protocol                  = "sigv4"
+  domain_name = var.api_domain_name
+
+  domain_name_configuration {
+    certificate_arn = var.certificate_arn != "" ? var.certificate_arn : aws_acm_certificate.api[0].arn
+    endpoint_type   = "REGIONAL"
+    security_policy = "TLS_1_2"
+  }
+
+  tags = { Name = var.api_domain_name }
 }
 
-resource "aws_cloudfront_distribution" "api" {
-  count = local.creates_distribution ? 1 : 0
+resource "aws_apigatewayv2_api_mapping" "api" {
+  count = local.attaches_domain ? 1 : 0
 
-  enabled = true
-  comment = "${local.name} API"
-  # IPv6 costs nothing and a growing share of mobile networks are v6-only.
-  is_ipv6_enabled = true
-  # PriceClass_100 (North America + Europe) rather than All. The free 1 TB is global, but the
-  # per-GB rate past it is far higher in South America and Asia-Pacific, and every operator and
-  # every device this serves is in Europe.
-  price_class = "PriceClass_100"
-
-  aliases = local.attaches_certificate ? [var.api_domain_name] : []
-
-  origin {
-    # The Function URL, as a hostname. `regex` rather than `replace` on "https://" so a change
-    # in the attribute's shape fails loudly instead of silently producing a malformed origin.
-    domain_name              = regex("^https://([^/]+)/?$", aws_lambda_function_url.api.function_url)[0]
-    origin_id                = "lambda"
-    origin_access_control_id = aws_cloudfront_origin_access_control.api[0].id
-
-    custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "https-only"
-      origin_ssl_protocols   = ["TLSv1.2"]
-      # 30s, matching the function's own timeout. Longer and CloudFront waits on a function that
-      # has already given up; shorter and a slow-but-succeeding request is cut off at the edge
-      # while the function goes on billing.
-      origin_read_timeout = var.lambda_timeout_seconds
-    }
-  }
-
-  default_cache_behavior {
-    target_origin_id       = "lambda"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
-    cached_methods         = ["GET", "HEAD"]
-    compress               = true
-
-    # AWS-managed `CachingDisabled`. Every path is authenticated or a mutation; a cached
-    # response here would serve one operator's data to another.
-    cache_policy_id = "4135ea2d-6df8-44a3-9df3-4b5a84be39ad"
-
-    # AWS-managed `AllViewerExceptHostHeader`. Forwards every header, cookie and query string —
-    # which the API needs, because `Authorization`, `X-CSRF-Token` and `Origin` all carry
-    # meaning — while replacing `Host` with the origin's own.
-    #
-    # THE HOST HEADER IS NOT OPTIONAL. SigV4 signs it, so forwarding the viewer's `Host` makes
-    # every signature invalid and every request a 403. This exact policy exists because that is
-    # the mistake everyone makes with OAC in front of a Function URL.
-    origin_request_policy_id = "b689b0a8-53d0-40ab-baf2-68738e2966ac"
-  }
-
-  restrictions {
-    geo_restriction {
-      restriction_type = "none"
-    }
-  }
-
-  viewer_certificate {
-    # Falls back to the default `*.cloudfront.net` certificate during phase 1, so the stack is
-    # deployable and testable before DNS validation has completed.
-    cloudfront_default_certificate = local.attaches_certificate ? null : true
-    acm_certificate_arn            = local.attaches_certificate ? var.certificate_arn : null
-    ssl_support_method             = local.attaches_certificate ? "sni-only" : null
-    minimum_protocol_version       = local.attaches_certificate ? "TLSv1.2_2021" : null
-  }
-
-  tags = { Name = "${local.name}-api" }
+  api_id      = aws_apigatewayv2_api.api[0].id
+  domain_name = aws_apigatewayv2_domain_name.api[0].id
+  stage       = aws_apigatewayv2_stage.default[0].id
 }

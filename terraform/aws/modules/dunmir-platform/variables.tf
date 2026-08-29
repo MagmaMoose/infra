@@ -101,10 +101,16 @@ variable "database_url" {
   description = <<-EOT
     Postgres DSN, used verbatim when `db_mode = "external"` and ignored otherwise.
 
-    A SECRET, and it is treated as one: it is passed to the function through SSM rather than an
-    environment variable when `db_mode = "rds"` (the module composes it from a generated
-    password). In `external` mode it arrives as an input, so whatever supplies it owns keeping
-    it out of anywhere public — the LocalStack root passes a throwaway.
+    A SECRET. It reaches the function as an ENVIRONMENT VARIABLE, not through SSM Parameter
+    Store — see the note at the `DATABASE_URL` line in lambda.tf for why that is forced rather
+    than chosen: reading a parameter means calling `ssm.<region>.amazonaws.com`, and a function
+    with no NAT gateway cannot, since SSM has no gateway endpoint. Lambda encrypts environment
+    variables at rest and gates them behind `lambda:GetFunctionConfiguration`, which is the same
+    class of control an SSM SecureString gives.
+
+    In `rds` mode the module composes this from a generated password and this variable is
+    ignored. In `external` mode it arrives as an input, so whatever supplies it owns keeping it
+    out of anywhere public — the LocalStack root passes a throwaway.
   EOT
   type        = string
   default     = ""
@@ -159,6 +165,16 @@ variable "image_uri" {
   default     = ""
 }
 
+variable "ecr_repository_name" {
+  description = <<-EOT
+    The ECR repository this module creates and the function pulls from. It must match the
+    `ECR_REPOSITORY` repository variable on `MagmaMoose/dunmir`, which is what the publish
+    workflow pushes to.
+  EOT
+  type        = string
+  default     = "dunmir-backend"
+}
+
 variable "lambda_zip_path" {
   description = <<-EOT
     A built zip for the function, used **only** when `localstack = true`, where `image_uri` is
@@ -177,6 +193,21 @@ variable "lambda_zip_path" {
   EOT
   type        = string
   default     = ""
+}
+
+variable "cognito_require_verified_email" {
+  description = <<-EOT
+    Whether an ID token with NO `email_verified` claim may provision or re-key an
+    identity.
+
+    True (the default) refuses it, which is what a real Cognito deployment wants:
+    Cognito always sends the claim, so its absence means the token did not come
+    from the pool this deployment thinks it did. Only the local proving ground
+    turns it off — the moto stand-in omits the claim, and papering over that with
+    a fixture would hide a real difference between the two.
+  EOT
+  type        = bool
+  default     = true
 }
 
 variable "s3_endpoint_override" {
@@ -243,32 +274,75 @@ variable "lambda_timeout_seconds" {
 variable "api_domain_name" {
   description = <<-EOT
     Public hostname for the API, e.g. `api.dunmir.magmamoose.com`. Empty disables the custom
-    domain and leaves the CloudFront default `*.cloudfront.net` name as the entrypoint.
+    domain and leaves the gateway's own `*.execute-api.<region>.amazonaws.com` name as the
+    entrypoint.
 
-    TWO-PHASE, like the chargate broker: apply once with `certificate_arn = ""` to have the
-    module print the DNS validation record, create that record, wait for ACM to report ISSUED,
-    then set `certificate_arn` and apply again. A distribution cannot be created with a
-    certificate that is still PENDING_VALIDATION.
+    TWO-PHASE, like the chargate broker, because a single apply cannot create a certificate,
+    write its DNS validation record into a zone Terraform does not manage here, and then use
+    the certificate:
 
-    Note this hostname is TWO labels deep under `magmamoose.com`, which under Cloudflare's
-    Universal SSL would need its own certificate pack — see `k8s/base/ingress.yaml` in the
-    dunmir repo. It does not apply here: the certificate is ACM's and the Cloudflare record is
-    DNS-only (grey cloud), pointing straight at CloudFront, so Cloudflare terminates nothing.
+      1. set this, leave `enable_custom_domain` false -> the certificate is requested and
+         `certificate_validation_record` names the CNAME to create;
+      2. create that record, wait for ACM to report ISSUED, then set `enable_custom_domain`
+         true and apply again.
+
+    Getting the order wrong is not destructive, just stuck: the domain cannot be created against
+    a certificate in PENDING_VALIDATION, and the certificate never validates without the record.
+
+    This hostname is TWO labels deep under `magmamoose.com`, which under Cloudflare's Universal
+    SSL would need its own certificate pack — see `k8s/base/ingress.yaml` in the dunmir repo.
+    It does not apply here: the certificate is ACM's and the Cloudflare record is DNS-only
+    (grey cloud) pointing at API Gateway's regional target, so Cloudflare terminates nothing.
   EOT
   type        = string
   default     = ""
 }
 
+variable "enable_custom_domain" {
+  description = <<-EOT
+    Phase 2 of the two-phase flow above: create the custom domain and map the stage to it.
+
+    Turning this on also sets `disable_execute_api_endpoint`, which stops the gateway's own
+    hostname answering — so the custom domain becomes the only way in rather than merely the
+    pretty way in. Do not turn it on before the certificate is ISSUED; the apply will fail.
+  EOT
+  type        = bool
+  default     = false
+}
+
 variable "certificate_arn" {
   description = <<-EOT
-    ACM certificate ARN for `api_domain_name`. **Must be in us-east-1** — CloudFront accepts
-    certificates from nowhere else, whatever region the rest of the stack is in.
+    ACM certificate ARN for `api_domain_name`, in THIS region (API Gateway regional custom
+    domains do not accept a us-east-1 certificate, and vice versa).
 
-    Empty during phase 1 (see `api_domain_name`); the module then still requests the
-    certificate and outputs its validation record, but does not attach it.
+    Empty means "let the module request one", which is the normal path — this exists for a
+    certificate managed elsewhere, or one already validated.
   EOT
   type        = string
   default     = ""
+}
+
+variable "throttle_rate_limit" {
+  description = <<-EOT
+    Steady-state requests per second the gateway will pass to the function.
+
+    THIS IS THE ONLY THING BOUNDING CONCURRENCY, and it is protecting the DATABASE more than the
+    function. Lambda's account default is 1000 concurrent executions; each execution environment
+    holds an asyncpg pool, and a db.t4g.micro tops out near 112 connections — so unbounded
+    concurrency exhausts Postgres long before it exhausts Lambda, and the failure mode is 500s
+    for everyone rather than throttling for some.
+
+    50/s is far above this workload (the default heartbeat interval is one hour) and far below
+    what would trouble the database.
+  EOT
+  type        = number
+  default     = 50
+}
+
+variable "throttle_burst_limit" {
+  description = "Burst allowance above `throttle_rate_limit`. Absorbs a fleet whose heartbeats align."
+  type        = number
+  default     = 100
 }
 
 variable "frontend_origin" {

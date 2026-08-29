@@ -101,6 +101,24 @@ resource "aws_vpc_endpoint" "s3" {
   vpc_endpoint_type = "Gateway"
   route_table_ids   = [aws_route_table.private[0].id]
 
+  # THE ENDPOINT NEEDS ITS OWN POLICY, because the default is full access: `Principal: *`,
+  # `Action: *`, `Resource: *`. Without this, the one network destination the function has
+  # besides Postgres is *all of S3* — including buckets in other AWS accounts.
+  #
+  # The IAM role bounds what the ROLE may do; it does not bound where code running in this
+  # subnet may send bytes. iam.tf withholds `s3:ListBucket` specifically to limit a stolen
+  # credential, and leaving this wide open was the hole in that reasoning: exfiltration to an
+  # attacker's own bucket needs no permission of ours at all.
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = "*"
+      Action    = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+      Resource  = ["${aws_s3_bucket.backups.arn}/*"]
+    }]
+  })
+
   tags = { Name = "${local.name}-s3" }
 }
 

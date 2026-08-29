@@ -1,14 +1,16 @@
-# Dün Mir's backend on AWS: a Lambda behind CloudFront, an RDS Postgres it can reach and
-# nothing else can, a Cognito pool the BROWSER talks to, and an S3 bucket for encrypted device
-# backups.
+# Dün Mir's backend on AWS: a Lambda behind an API Gateway HTTP API, an RDS Postgres it can
+# reach and nothing else can, a Cognito pool the BROWSER talks to, and an S3 bucket for
+# encrypted device backups.
 #
 # The console stays on Cloudflare. Only the API is here.
 #
 # WHAT MAKES THIS FREE, AND THE ONE THING THAT DOES NOT
-#   Lambda, CloudFront, Cognito, EventBridge Scheduler and CloudWatch Logs are all on ALWAYS-free
-#   allowances this workload will not approach. RDS is free for twelve months and then is not —
-#   and per `../../../provider.hcl`, a member account inside the existing organisation has
-#   already spent those twelve months. Read that file before creating the account.
+#   Lambda, Cognito, EventBridge Scheduler and CloudWatch Logs are all on ALWAYS-free allowances
+#   this workload will not approach. API Gateway, ECR and S3 are twelve-month tiers whose
+#   post-expiry cost is cents at this scale. RDS is the one that matters: free for twelve months
+#   and about $15/month after — and per `../../../provider.hcl`, a member account inside the
+#   existing organisation has ALREADY spent those twelve months. Read that file before creating
+#   the account.
 #
 # THE SHAPE THAT MAKES IT WORK
 #   The function sits in a VPC with **no NAT gateway and no interface endpoints**, because both
@@ -31,24 +33,6 @@ generate "aws_provider" {
   contents  = <<TF
 provider "aws" {
   region              = "${local.region_vars.locals.region}"
-  allowed_account_ids = ${jsonencode(compact([local.provider_vars.locals.account_id]))}
-
-  default_tags {
-    tags = {
-      ManagedBy = "terragrunt"
-      Repo      = "magmamoose/infra"
-      Service   = "dunmir"
-      Component = "platform"
-    }
-  }
-}
-
-# CloudFront accepts an ACM certificate from us-east-1 and from nowhere else, whatever region the
-# rest of the stack is in. This alias exists for that one resource; getting it wrong fails at
-# APPLY time, after everything else is already built.
-provider "aws" {
-  alias               = "us_east_1"
-  region              = "us-east-1"
   allowed_account_ids = ${jsonencode(compact([local.provider_vars.locals.account_id]))}
 
   default_tags {
@@ -99,18 +83,21 @@ inputs = {
 
   # ── the public entrypoint ───────────────────────────────────────────────────────────────────
   #
-  # TWO-PHASE, like the chargate broker. Phase 1: apply with `certificate_arn = ""`; the module
+  # TWO-PHASE, like the chargate broker. Phase 1: leave `enable_custom_domain` false; the module
   # requests the certificate and outputs its DNS validation record. Create that record in
-  # Cloudflare (DNS-only), wait for ACM to report ISSUED, then fill in the ARN and apply again.
-  # A distribution cannot be created with a certificate still PENDING_VALIDATION.
+  # Cloudflare (DNS-only), wait for ACM to report ISSUED, then flip the flag and apply again.
+  # A custom domain cannot be created against a certificate still PENDING_VALIDATION.
   #
-  # The `api.` record itself is a CNAME to the distribution and must be **DNS-only (grey
-  # cloud)**: proxying it would put Cloudflare in front of CloudFront, terminating TLS for a
-  # certificate ACM issued. It also sidesteps the two-label-hostname trap entirely — Cloudflare's
+  # Phase 2 also closes the gateway's own `*.execute-api` hostname, so the custom domain becomes
+  # the only way in rather than merely the pretty way in.
+  #
+  # The `api.` record is a CNAME to `api_domain_target` and must be **DNS-only (grey cloud)**:
+  # proxying it would put Cloudflare in front of a hostname whose certificate ACM issued for
+  # that exact name. It also sidesteps the two-label-hostname trap entirely — Cloudflare's
   # Universal SSL covers one label, `api.dunmir.magmamoose.com` is two, and here Cloudflare
   # terminates nothing.
-  api_domain_name = "api.dunmir.magmamoose.com"
-  certificate_arn = ""
+  api_domain_name      = "api.dunmir.magmamoose.com"
+  enable_custom_domain = false
 
   # Credentialed CORS forbids a `*` origin, so a wrong value fails CLOSED — every call from the
   # console is blocked by the browser with nothing in the network tab looking wrong.

@@ -68,16 +68,38 @@ resource "aws_iam_role_policy" "lambda" {
   policy = data.aws_iam_policy_document.lambda.json
 }
 
-# The ONE managed policy, and it earns the exception: attaching an ENI to a VPC subnet needs
-# `ec2:CreateNetworkInterface` / `DescribeNetworkInterfaces` / `DeleteNetworkInterface` on `*`,
-# because the ENI does not exist yet when the permission is evaluated and therefore cannot be
-# named in a resource ARN. Writing it out by hand would produce the same three actions on the
-# same `*` with more lines and one more thing to keep in step with AWS.
-resource "aws_iam_role_policy_attachment" "vpc_access" {
+# The ENI permissions, written out rather than taken from AWSLambdaVPCAccessExecutionRole.
+#
+# The managed policy was here first, on the reasoning that it is the same actions with fewer
+# lines. It is not: it ALSO grants `logs:CreateLogGroup`, `logs:CreateLogStream` and
+# `logs:PutLogEvents` on `Resource: "*"`. Attaching it in the networked configuration —
+# i.e. in production — silently subsumed the carefully scoped logs statement above and made
+# this file's own opening claim ("writes to its own log group and nothing else") false exactly
+# where it mattered.
+#
+# The ENI actions genuinely do need `*`: the interface does not exist when the permission is
+# evaluated, so it cannot be named in a resource ARN. That is the whole exception, and it is
+# now visible rather than bundled with a logging grant nobody asked for.
+resource "aws_iam_role_policy" "vpc_access" {
   count = local.networked ? 1 : 0
 
-  role       = aws_iam_role.lambda.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+  name = "${local.name}-vpc-access"
+  role = aws_iam_role.lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "ec2:CreateNetworkInterface",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DeleteNetworkInterface",
+        "ec2:AssignPrivateIpAddresses",
+        "ec2:UnassignPrivateIpAddresses",
+      ]
+      Resource = "*"
+    }]
+  })
 }
 
 # ── the scheduler's role ────────────────────────────────────────────────────────────────────

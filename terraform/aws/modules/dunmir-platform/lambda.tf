@@ -35,6 +35,8 @@ locals {
       COGNITO_USER_POOL_ID  = local.cognito.user_pool_id
       COGNITO_APP_CLIENT_ID = local.cognito.client_id
       COGNITO_MFA_REQUIRED  = var.cognito_mfa == "ON" ? "true" : "false"
+      # An absent `email_verified` claim is refused by default. See the variable.
+      COGNITO_REQUIRE_VERIFIED_EMAIL = var.cognito_require_verified_email ? "true" : "false"
       # Read once at apply time — see the `http` data source in identity.tf for why this is not
       # a runtime fetch. RSA public keys: public by definition, safe in an environment variable.
       COGNITO_JWKS = local.cognito.jwks
@@ -49,17 +51,50 @@ locals {
       # STORAGE_BACKEND=s3 the core falls back to a local directory, which on Lambda is a
       # read-only filesystem — uploads would fail at the first backup rather than at boot.
       STORAGE_BACKEND = "s3"
-      S3_ENDPOINT_URL = var.s3_endpoint_override != "" ? var.s3_endpoint_override : "https://s3.${var.region}.amazonaws.com"
+      # THE BUCKET MUST BE IN THE ENDPOINT when path-style is off. With
+      # S3_FORCE_PATH_STYLE=false, app/storage.py builds both the URL and the SigV4 canonical
+      # URI WITHOUT the bucket, because it expects the bucket to be the first label of the
+      # host. Pairing that with the bare regional endpoint (https://s3.<region>.amazonaws.com)
+      # sends every request to https://s3.<region>.amazonaws.com/backups/<device>/<file> — where
+      # S3 reads `backups` as the BUCKET NAME. Every upload and download then 403s against
+      # somebody else's bucket, and no amount of IAM on our own bucket helps.
+      #
+      # So: the virtual-host endpoint. Path-style would also work, but AWS has been deprecating
+      # it for new buckets and this form is the one with a future.
+      S3_ENDPOINT_URL = var.s3_endpoint_override != "" ? var.s3_endpoint_override : "https://${aws_s3_bucket.backups.bucket}.s3.${var.region}.amazonaws.com"
       S3_BUCKET       = aws_s3_bucket.backups.bucket
       S3_REGION       = var.region
-      # Virtual-host addressing on AWS, path-style against the emulator. The two produce
-      # different canonical URIs, and SigV4 signs the URI — mismatching them yields a
-      # SignatureDoesNotMatch that says nothing about addressing.
+      # Path-style only against the emulator, which serves buckets at <host>:4566/<bucket>.
+      # The two produce different canonical URIs and SigV4 signs the URI, so mismatching them
+      # yields a SignatureDoesNotMatch that says nothing about addressing.
       S3_FORCE_PATH_STYLE = var.s3_endpoint_override != "" ? "true" : "false"
       # No S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY. The signer falls back to the AMBIENT
       # credentials Lambda injects from the execution role (app/storage.py `_credentials`),
       # which expire in hours and are scoped to this one function — the alternative is a
       # long-lived IAM user whose secret sits in this configuration forever.
+
+      # --- runtime limits the vendored core hard-codes (app/limits.py) ---------------------
+      #
+      # The core's 64 MiB backup ceiling is unreachable behind API Gateway, whose request
+      # payload caps at 10 MB — and a binary body is base64-encoded into the event JSON on the
+      # way, costing 4/3. Above ~7 MiB the request is rejected by the PLATFORM before the
+      # function is entered, so the agent gets an opaque 413 from something that is not us and
+      # nothing appears in our logs. 6 MiB leaves headroom for the event envelope and means the
+      # agent gets OUR error, naming the real limit.
+      MAX_BACKUP_BYTES = tostring(6 * 1024 * 1024)
+
+      # The pool is PER EXECUTION ENVIRONMENT, and Lambda creates as many as it likes. The
+      # core's default of 10 against a db.t4g.micro's ~112 connections means eleven warm
+      # containers exhaust the database and every request then 500s. Two per environment, with
+      # the gateway's throttle bounding how many environments there can be, keeps Lambda's
+      # elasticity and Postgres's ceiling in proportion.
+      DB_POOL_MIN_SIZE = "1"
+      DB_POOL_MAX_SIZE = "2"
+      # Lambda FREEZES an environment between invocations; a pooled TCP connection frozen for
+      # minutes may already have been dropped by the server. Retiring idle connections quickly
+      # means the next thaw gets a fresh one rather than a dead one, and stops abandoned
+      # environments holding backends open on the database for hours.
+      DB_POOL_IDLE_SECONDS = "60"
 
       # --- product ---------------------------------------------------------------------------
       MULTI_TENANT           = "true"
@@ -80,10 +115,33 @@ locals {
       # a decision recorded here and not a mystery discovered later.
       BILLING_ENABLED = "false"
 
-      # ONE hop in front: CloudFront. The per-IP half of the brute-force limiter keys on the
-      # address this resolves to, so a wrong count collapses every caller into one bucket —
-      # silently, since nothing errors.
-      TRUSTED_PROXY_COUNT = "1"
+      # The application's own INFO lines are DISCARDED without this. Both entrypoints call
+      # logging.basicConfig(level=INFO), and under awslambdaric that is a complete no-op: the
+      # runtime installs a root handler before the handler module is imported, and basicConfig
+      # returns early when the root logger already has one — including the level. So the root
+      # logger stays at WARNING and every log.info() in the app vanishes, which is how you end
+      # up unable to tell from the logs whether backups went to S3 or fell back to local disk.
+      AWS_LAMBDA_LOG_LEVEL = "INFO"
+
+      # ZERO trusted proxies, which on this topology is both correct and the STRONGER setting.
+      #
+      # `app.auth.client_ip` reads 0 as "trust no forwarding header; use the real transport
+      # peer". Under Mangum the peer is `requestContext.http.sourceIp`, which API Gateway sets
+      # from the TCP connection it terminated. With the `api.` record DNS-only in Cloudflare
+      # (grey cloud) and no CloudFront, the gateway IS the edge — so that address is the actual
+      # caller and a client cannot forge it, whereas anything read out of `x-forwarded-for`
+      # ultimately can be.
+      #
+      # It was 1, which would have been right for a single header-appending proxy. Two things
+      # killed that: the edge is no longer a Function URL (those truncate `x-forwarded-for` to
+      # its LEFTMOST entry, i.e. exactly the part a client types), and with the gateway as the
+      # only hop there is no chain worth parsing.
+      #
+      # This is load-bearing and silent in both directions — too low and every caller collapses
+      # into one rate-limit bucket, too high and the value becomes client-chosen — so it was
+      # checked by driving four header shapes through the real handler and reading back
+      # `audit_log.actor_ip`.
+      TRUSTED_PROXY_COUNT = "0"
     },
     var.admin_token == "" ? {} : { ADMIN_TOKEN = var.admin_token },
 
@@ -152,40 +210,39 @@ resource "aws_lambda_function" "api" {
   depends_on = [
     aws_cloudwatch_log_group.lambda,
     aws_iam_role_policy.lambda,
-    aws_iam_role_policy_attachment.vpc_access,
+    aws_iam_role_policy.vpc_access,
   ]
 
   tags = { Name = "${local.name}-api" }
 }
 
-# The HTTP entrypoint.
+# A Function URL, for the LOCAL PROVING GROUND ONLY.
 #
-# `AWS_IAM`, not `NONE`. The URL is public DNS either way, so the authorisation type is the only
-# thing standing between the internet and the origin: with `NONE` anyone who learns the
-# `*.lambda-url.*.on.aws` hostname bypasses CloudFront entirely — and with it the custom domain,
-# the caching and any edge control. With `AWS_IAM`, only a SigV4-signed request is accepted, and
-# CloudFront's Origin Access Control does that signing. A direct hit returns 403, which is the
-# check to run after the first real apply (see `function_url_for_verification` in outputs.tf).
-resource "aws_lambda_function_url" "api" {
+# On AWS the public entrypoint is an API Gateway HTTP API (edge.tf), which invokes this function
+# directly. This exists because LocalStack gates `apigatewayv2` behind its Pro licence
+# ("Sorry, the apigatewayv2 service is not included within your LocalStack license"), so the
+# local stack needs some entrypoint and a Function URL is the one the community image can
+# serve.
+#
+# THE COST OF THAT, STATED PLAINLY: the local run does not exercise the real edge. It never
+# did — the previous design put CloudFront there, which the community image also cannot
+# emulate. What changed is that the edge is now one whose behaviour is *derivable from
+# documentation* rather than one that had to be trusted: API Gateway forwards `Authorization`
+# untouched and does not sign anything, so the bearer-token contract holds by construction.
+#
+# `AuthType NONE` is safe here and only here: nothing outside this machine can reach a
+# LocalStack container. On AWS this resource does not exist, so there is no unauthenticated
+# hostname to leak.
+#
+# There is deliberately no `invoke_mode`. It was RESPONSE_STREAM, to escape the 6 MB buffered
+# response cap; that was wrong twice over. AWS supports response streaming on Node.js managed
+# runtimes only (Python needs a custom runtime), and function URLs do not stream inside a VPC
+# at all — so the cap always applied and the setting bought nothing. Payload limits are now
+# enforced by the application instead (MAX_REQUEST_BYTES), where the caller gets a 413 that
+# says what happened.
+resource "aws_lambda_function_url" "local" {
+  count = var.localstack ? 1 : 0
+
   function_name      = aws_lambda_function.api.function_name
-  authorization_type = var.localstack ? "NONE" : "AWS_IAM"
-
-  # RESPONSE_STREAM, not BUFFERED. Buffered responses are capped at 6 MB, and a device
-  # backup download is a single-shot GET of a body that can exceed it — which would fail as an
-  # opaque 502 on exactly the large backups that matter most.
-  invoke_mode = "RESPONSE_STREAM"
-}
-
-# Lets THIS distribution, and only this distribution, invoke the URL. Without it the OAC signs
-# requests correctly and Lambda rejects every one of them with a 403 that looks identical to a
-# misconfigured OAC.
-resource "aws_lambda_permission" "cloudfront" {
-  count = local.creates_distribution ? 1 : 0
-
-  statement_id           = "AllowCloudFrontServicePrincipal"
-  action                 = "lambda:InvokeFunctionUrl"
-  function_name          = aws_lambda_function.api.function_name
-  principal              = "cloudfront.amazonaws.com"
-  source_arn             = aws_cloudfront_distribution.api[0].arn
-  function_url_auth_type = "AWS_IAM"
+  authorization_type = "NONE"
 }

@@ -89,6 +89,23 @@ resource "aws_cognito_user_pool" "this" {
     }
   }
 
+  # AN ADDRESS CANNOT BE CHANGED WITHOUT RE-PROVING IT. Cognito's default lets a
+  # signed-in user rewrite their own `email` attribute, and the new value appears
+  # in the very next ID token with `email_verified: false`.
+  #
+  # That matters here more than it usually would, because the invitation flow
+  # treats "the token's address equals the invited mailbox" as proof of mailbox
+  # control (app/routers/session.py `_accept_invite_cognito`). Without this, an
+  # attacker who obtained an invite link — a forwarded mail, a pasted URL — could
+  # sign up as anyone, rewrite their address to the invited one, and redeem it.
+  #
+  # The backend refuses an unverified address as well (app/cognito.py). Belt and
+  # braces on purpose: this one is a policy somebody can relax in a console, that
+  # one is code.
+  user_attribute_update_settings {
+    attributes_require_verification_before_update = ["email"]
+  }
+
   account_recovery_setting {
     recovery_mechanism {
       name     = "verified_email"

@@ -1,9 +1,9 @@
 # Dün Mir on AWS
 
-Dün Mir's backend runs on AWS free-tier services: a Lambda behind CloudFront, a Cognito
-user pool the browser talks to directly, an RDS Postgres nothing outside the VPC can reach,
-and an S3 bucket for encrypted device backups. **The console stays on Cloudflare** — only the
-API is here.
+Dün Mir's backend runs on AWS free-tier services: a Lambda behind an API Gateway HTTP API, a
+Cognito user pool the browser talks to directly, an RDS Postgres nothing outside the VPC can
+reach, and an S3 bucket for encrypted device backups. **The console stays on Cloudflare** — only
+the API is here.
 
 - Module: `terraform/aws/modules/dunmir-platform`
 - Leaf: `terraform/aws/dunmir/prod/eu-west-1/platform`
@@ -26,14 +26,20 @@ Almost everything here is on an *always*-free allowance and does not care:
 | Service | Allowance | Expires? |
 | --- | --- | --- |
 | Lambda | 1M requests, 400,000 GB-seconds / month | never |
-| CloudFront | 1 TB out, 10M requests / month | never |
 | Cognito | 10,000 monthly active users | never |
 | EventBridge Scheduler | 14M invocations / month | never |
 | CloudWatch Logs | 5 GB ingest | never |
+| API Gateway HTTP API | 1M requests / month | **12 months**, then $1.00/M |
+| ECR | 500 MB | **12 months** |
 | S3 | 5 GB | **12 months** |
 | **RDS** | db.t4g.micro, 20 GB, 750 h/month | **12 months** |
 
-RDS is the one that matters. So:
+RDS is the one that matters — it is ~$15/month once the tier lapses. The other
+three are cents: the default heartbeat interval is **one hour**, so a thousand
+devices generate ~720k API requests a month (~$0.72), the ECR lifecycle policy
+keeps ten images, and the S3 lifecycle expires backup bodies after a year.
+
+So:
 
 - **A new standalone account**, outside the organisation, gets its own free plan and this
   stack costs nothing. This is the recommendation.
@@ -44,7 +50,7 @@ There is no third option that keeps Postgres. The application is 200-odd hand-wr
 statements across nineteen tables with joins and aggregations; "port it to DynamoDB and be
 always-free" is a rewrite of the persistence layer, not a setting.
 
-A $1 budget alarm and a Lambda error alarm are created either way. A dollar is not an
+A $1 budget alarm and three CloudWatch alarms are created either way. A dollar is not an
 operating budget — the premise is that this costs nothing, so any charge is news.
 
 ---
@@ -109,20 +115,26 @@ is why the `lambda` bake target is outside the `default` group that publishes th
 digest, not a tag: Lambda resolves a tag once at update time, so re-pushing the same tag does
 not redeploy.
 
-### 3. Apply, phase 1 — no certificate yet
+### 3. Apply, phase 1 — no custom domain yet
 
 ```bash
 cd terraform/aws/dunmir/prod/eu-west-1/platform && AWS_PROFILE=mm-dunmir terragrunt apply
 ```
 
-RDS takes about ten minutes. The distribution comes up on its own `*.cloudfront.net` name and
-is usable immediately.
+RDS takes about ten minutes. The API comes up on its own `*.execute-api` hostname and is usable
+immediately.
 
 Read the validation record and create it in Cloudflare, **DNS-only (grey cloud)**:
 
 ```bash
 terragrunt output -json certificate_validation_record
 ```
+
+The API is already usable on its `*.execute-api.<region>.amazonaws.com` hostname
+(`terragrunt output -raw execute_api_endpoint`). **That is for `curl` and for an
+agent smoke test, not for the console** — CI pins the SPA bundle to the custom
+domain and the CSP's `connect-src` allows only that, so a console built now would
+have every call blocked by the browser. Deploy the console after phase 2.
 
 ### 4. Apply the schema
 
@@ -136,29 +148,39 @@ aws lambda invoke --function-name "$(terragrunt output -raw lambda_function_name
 
 Expect `{"ok": true, "seeded": false}`. The schema is idempotent, so re-running is a no-op.
 
-### 5. Apply, phase 2 — attach the certificate
+### 5. Apply, phase 2 — attach the custom domain
 
-Once ACM reports `ISSUED`, set `certificate_arn` in the leaf and apply again. A distribution
-cannot be created with a certificate still `PENDING_VALIDATION`, which is why this is two
-phases.
+Once ACM reports `ISSUED`, set `enable_custom_domain = true` in the leaf and apply again. The
+domain cannot be created against a certificate still `PENDING_VALIDATION`, which is why this is
+two phases.
 
-Then point `api.dunmir.magmamoose.com` at the distribution in Cloudflare — a CNAME to
-`cloudfront_domain_name`, **DNS-only**. Proxying it would put Cloudflare in front of
-CloudFront, terminating TLS for a certificate ACM issued. It also sidesteps the two-label
+Then point `api.dunmir.magmamoose.com` at the gateway in Cloudflare — a CNAME to
+`api_domain_target`, **DNS-only (grey cloud)**. Proxying it would put Cloudflare in front of a
+hostname whose certificate ACM issued for that exact name. It also sidesteps the two-label
 hostname trap entirely: Cloudflare's Universal SSL covers one label and
 `api.dunmir.magmamoose.com` is two, but here Cloudflare terminates nothing.
 
-### 6. Verify the origin is private
+Phase 2 also sets `disable_execute_api_endpoint`, so the gateway's own hostname stops
+answering and the custom domain becomes the only way in.
 
-**This is the one check the local run cannot perform**, because LocalStack's community image
-has no CloudFront:
+### 6. Verify the custom domain is the only way in
+
+**This is the one check the local run cannot perform**, because LocalStack gates
+`apigatewayv2` behind its Pro licence:
 
 ```bash
-curl -si "$(terragrunt output -raw function_url_for_verification)" | head -1
+curl -si "$(terragrunt output -raw execute_api_endpoint)/v1/health" | head -1
 ```
 
-It **must** return `403`. A `200` means the Function URL is reachable without the edge, and
-every control in front of it is one DNS lookup away from being bypassed.
+After phase 2 it **must** return `403`. A `200` means the gateway's own hostname still answers,
+so the custom domain is decorative and anything attached to it can be bypassed with one DNS
+lookup.
+
+Then confirm the real path works end to end:
+
+```bash
+curl -s https://api.dunmir.magmamoose.com/api/session/config | jq .auth_mode   # -> "cognito"
+```
 
 ### 7. Point the console at it
 
@@ -197,10 +219,25 @@ install can always create its founding operator.
 
 **Deploying a change** is one line. Publish an image, bump `image_uri`, apply.
 
-**Logs**: `aws logs tail /aws/lambda/dunmir-prod-api --follow`. Retention is 14 days.
+**Logs**: `aws logs tail /aws/lambda/dunmir-prod-api --follow` for the application, and
+`/aws/apigateway/dunmir-prod-api` for the edge — the second is where a request that never
+reached the function (a throttle, an oversized payload, a bad path) leaves its only trace.
+Retention is 14 days on both.
+
+**Alarms**: three, and they watch different things on purpose. `API 5xx` is the one that sees an
+application error, because Mangum returns a 500 *payload* rather than failing the invocation —
+so Lambda's own `Errors` metric stays at zero while the API is broken. `Errors` is still there
+because it is the only thing that sees the **sweep** fail (the scheduler invokes the function
+directly and never touches the gateway). `CPUCreditBalance` is a cost alarm: RDS runs T4g in
+Unlimited mode, so sustained CPU is billed rather than throttled.
 
 **The database** has no public address by design. To reach it, invoke the function — add a
 task to `lambda_handler.py` rather than opening a hole in the security group.
+
+**Payload limits.** API Gateway caps a request at 10 MB and base64 inflates a binary body into
+the event, so the largest backup an agent can upload is about 7 MiB. The application's own
+ceiling is set to 6 MiB (`MAX_BACKUP_BYTES`) so the agent gets *our* 413, naming the real limit,
+rather than an opaque rejection from the gateway with nothing in our logs.
 
 **A lost authenticator** is an administrator action on this topology: Cognito has no
 self-service TOTP reset. In the AWS console, User pools → the user → *Reset MFA*. The console
@@ -236,7 +273,7 @@ shipped in exactly that state.
 
 | | Why |
 | --- | --- |
-| CloudFront + OAC | Pro-only. The Function URL is reachable directly locally, so the control that makes it private in production is untested. Step 6 above is the check. |
+| API Gateway | `apigatewayv2` is Pro-only in LocalStack, so the local root runs a Lambda Function URL instead. The edge itself is untested locally — but unlike the CloudFront+OAC design it replaced, its behaviour is derivable from documentation: API Gateway forwards `Authorization` untouched and signs nothing. Step 6 is the check. |
 | RDS | Not emulated. Locally it is a plain Postgres container — same engine, same schema, so the SQL is genuinely exercised, but nothing about subnet groups, backups or failover is. |
 | VPC attachment | The function runs unattached locally, so the security-group path between function and database is untested. |
 | Cognito MFA + email | `moto` mints real RS256 tokens against a real JWKS and honours the password policy, but does not model the MFA challenge sequence or deliver mail. |

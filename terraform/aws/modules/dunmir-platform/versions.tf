@@ -7,26 +7,29 @@
 # which providers it needs, and root.hcl's generated block declares a different set (oci), so
 # the two merge rather than collide.
 #
-# TWO aws provider CONFIGURATIONS are declared. `aws` is the stack's own region; `aws.us_east_1`
-# exists solely because **CloudFront only accepts an ACM certificate from us-east-1**, wherever
-# the rest of the stack lives. That is not a preference, it is a hard API constraint, and the
-# error when you get it wrong ("The specified SSL certificate doesn't exist, isn't in
-# us-east-1…") arrives at apply time after everything else has already been built.
+# ONE aws provider configuration, and that is a change worth noting: there used to be a
+# `us.east_1` alias, needed for nothing but CloudFront's rule that it accepts ACM certificates
+# from that region and no other. The edge is an API Gateway HTTP API now, whose custom domain
+# takes a REGIONAL certificate from this region — so the alias, and the class of apply-time
+# failure that comes from getting it wrong, are both gone.
 #
 # `http` is used once, at plan time, to read the Cognito pool's JWKS — see identity.tf for why
-# that has to happen here rather than at runtime.
+# that has to happen there rather than at runtime.
 terraform {
   required_version = ">= 1.9"
 
   required_providers {
     aws = {
-      source                = "hashicorp/aws"
-      version               = "~> 6.0"
-      configuration_aliases = [aws.us_east_1]
+      source  = "hashicorp/aws"
+      version = "~> 6.0"
     }
     http = {
       source  = "hashicorp/http"
       version = "~> 3.4"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
     }
   }
 }

@@ -6,36 +6,41 @@ output "api_url" {
     Falls back to the CloudFront default hostname while the custom domain is in phase 1, so the
     stack is usable before DNS validation completes.
   EOT
-  value = local.creates_distribution ? (
-    local.attaches_certificate
+  value = local.creates_api ? (
+    local.attaches_domain
     ? "https://${var.api_domain_name}"
-    : "https://${aws_cloudfront_distribution.api[0].domain_name}"
-  ) : trimsuffix(aws_lambda_function_url.api.function_url, "/")
+    : aws_apigatewayv2_api.api[0].api_endpoint
+  ) : trimsuffix(aws_lambda_function_url.local[0].function_url, "/")
 }
 
-output "function_url_for_verification" {
+output "execute_api_endpoint" {
   description = <<-EOT
-    The raw Function URL. **Not an entrypoint — a test target.**
+    The gateway's own `*.execute-api.<region>.amazonaws.com` hostname.
 
-    After the first real apply, curl it. It MUST return 403: the URL is `AWS_IAM`-authorised and
-    only CloudFront's Origin Access Control can sign for it, so a 200 here means the origin is
-    reachable without the edge and every control in front of it is one DNS lookup away from
-    being bypassed. This is the single check a LocalStack run cannot perform, because the
-    community image has no CloudFront.
+    Once `enable_custom_domain` is true the API sets `disable_execute_api_endpoint`, so this
+    hostname stops answering — that is the post-apply check that the custom domain is the only
+    way in:
 
-        curl -si "$(terragrunt output -raw function_url_for_verification)" | head -1
+        curl -si "$(terragrunt output -raw execute_api_endpoint)/v1/health" | head -1
+
+    It must return 403 in phase 2, and 200 in phase 1 (when it is the only entrypoint there is).
   EOT
-  value       = aws_lambda_function_url.api.function_url
+  value       = local.creates_api ? aws_apigatewayv2_api.api[0].api_endpoint : ""
 }
 
-output "cloudfront_domain_name" {
+output "api_domain_target" {
   description = <<-EOT
-    The distribution's own hostname. The `api.` record in Cloudflare is a CNAME to this, and it
-    must be **DNS-only (grey cloud)**: proxying it would put Cloudflare in front of CloudFront,
-    terminating TLS for a certificate ACM issued and breaking the two-label hostname that
-    Cloudflare's Universal SSL does not cover anyway.
+    What the `api.` record in Cloudflare must CNAME to — API Gateway's regional target domain
+    for the custom domain, not the gateway's own hostname.
+
+    It must be **DNS-only (grey cloud)**. Proxying it would put Cloudflare in front of a
+    hostname whose TLS certificate ACM issued for that exact name, and it is also what keeps
+    the two-label-hostname trap irrelevant: `api.dunmir.magmamoose.com` is two labels deep,
+    which Cloudflare's Universal SSL does not cover, but here Cloudflare terminates nothing.
+
+    Empty until `enable_custom_domain` is true (phase 2).
   EOT
-  value       = local.creates_distribution ? aws_cloudfront_distribution.api[0].domain_name : ""
+  value       = local.attaches_domain ? aws_apigatewayv2_domain_name.api[0].domain_name_configuration[0].target_domain_name : ""
 }
 
 output "certificate_validation_record" {
@@ -45,7 +50,7 @@ output "certificate_validation_record" {
     Create it in Cloudflare (DNS-only), wait for ACM to report ISSUED, then set
     `certificate_arn` in the leaf and apply again. Empty when no custom domain is configured.
   EOT
-  value = local.creates_distribution && local.wants_domain ? {
+  value = local.creates_api && local.wants_domain && var.certificate_arn == "" ? {
     name  = one(aws_acm_certificate.api[0].domain_validation_options).resource_record_name
     type  = one(aws_acm_certificate.api[0].domain_validation_options).resource_record_type
     value = one(aws_acm_certificate.api[0].domain_validation_options).resource_record_value
@@ -109,13 +114,18 @@ output "console_env" {
     The Cognito parameters are deliberately NOT here — the console fetches them at runtime from
     `GET /api/session/config`, so repointing it at another pool is a backend setting rather than
     a front-end release.
+
+    PHASE 1 IS NOT USABLE BY THE CONSOLE. Before the custom domain exists this resolves to the
+    `*.execute-api` hostname, which is neither what CI pins the bundle to nor what the CSP's
+    `connect-src` allows — so the browser would block every call. Phase 1 is for `curl` and for
+    an agent smoke test; deploy the console after phase 2.
   EOT
   value = {
-    VITE_API_BASE = local.creates_distribution ? (
-      local.attaches_certificate
+    VITE_API_BASE = local.creates_api ? (
+      local.attaches_domain
       ? "https://${var.api_domain_name}"
-      : "https://${aws_cloudfront_distribution.api[0].domain_name}"
-    ) : trimsuffix(aws_lambda_function_url.api.function_url, "/")
+      : aws_apigatewayv2_api.api[0].api_endpoint
+    ) : trimsuffix(aws_lambda_function_url.local[0].function_url, "/")
     csp_connect_src = local.cognito.endpoint
   }
 }

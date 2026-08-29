@@ -93,10 +93,16 @@ module "platform" {
   # network (LAMBDA_DOCKER_NETWORK), which is what makes both this and `postgres` resolve.
   s3_endpoint_override = "http://dunmir-localstack:4566" # DevSkim: ignore DS162092
 
-  lambda_zip_path     = var.lambda_zip_path
-  cognito_override    = var.cognito
-  frontend_origin     = "http://localhost:5173"
-  enable_budget_alarm = false
+  lambda_zip_path  = var.lambda_zip_path
+  cognito_override = var.cognito
+  # The moto stand-in omits `email_verified` from its tokens entirely. Real
+  # Cognito always sends it, so the backend refuses a token without it by default
+  # — which is the right default and the wrong one here. Turning it off is the
+  # honest way to say "this provider is a fixture"; the alternative would be a
+  # test double that pretends to be more than it is.
+  cognito_require_verified_email = false
+  frontend_origin                = "http://localhost:5173"
+  enable_budget_alarm            = false
 }
 
 output "api_url" { value = module.platform.api_url }

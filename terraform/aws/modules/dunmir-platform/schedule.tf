@@ -10,7 +10,7 @@
 #
 # The payload invokes the function DIRECTLY with `{"task": "sweep"}` rather than making an HTTP
 # request to `POST /internal/sweep`. That means no shared admin token to hold, no round trip
-# through CloudFront, and no way to reach the sweep from outside the account at all.
+# through the gateway, and no way to reach the sweep from outside the account at all.
 
 resource "aws_scheduler_schedule" "sweep" {
   count = local.creates_schedule ? 1 : 0
@@ -79,18 +79,48 @@ resource "aws_budgets_budget" "guardrail" {
   }
 }
 
-# ── the alarm that matters operationally ────────────────────────────────────────────────────
+# ── alarms that can actually see a failure ──────────────────────────────────────────────────
 #
-# Function errors, not latency and not throttles. An error here means either the API is
-# 500-ing or the sweep is not running, and both are invisible from outside: the console shows
-# stale data and the fleet shows no alerts, which is indistinguishable from a quiet week.
+# The Lambda `Errors` metric was the ONLY monitoring here, and it cannot see the failure it was
+# written for. Mangum catches every unhandled exception inside the ASGI app and RETURNS a 500
+# response payload, so the invocation succeeds from Lambda's point of view and `Errors` stays at
+# zero. An API 500-ing on every request would have left that alarm green.
 #
-# CloudWatch's free tier includes 10 alarms.
+# So there are three now, each watching a different thing that actually moves. CloudWatch's free
+# tier allows ten alarms; this uses three.
+
+# 1. The gateway's own view of 5xx — the one that sees an application error. HTTP APIs publish
+#    `5xx` under AWS/ApiGateway, and it counts what the CLIENT experienced, whether the fault
+#    was the function's, the integration's or the gateway's.
+resource "aws_cloudwatch_metric_alarm" "api_5xx" {
+  count = local.creates_api && var.ops_email != "" ? 1 : 0
+
+  alarm_name        = "${local.name}-api-5xx"
+  alarm_description = "Dun Mir API is returning 5xx — the console, the agents or both are affected."
+
+  namespace   = "AWS/ApiGateway"
+  metric_name = "5xx"
+  dimensions  = { ApiId = aws_apigatewayv2_api.api[0].id }
+
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 2
+  threshold           = 5
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts[0].arn]
+  ok_actions    = [aws_sns_topic.alerts[0].arn]
+}
+
+# 2. Lambda invocation errors. Still worth having, because it is the ONLY thing that sees the
+#    SWEEP fail: the scheduler invokes the function directly, so a sweep that raises never
+#    touches the gateway and never appears in the metric above.
 resource "aws_cloudwatch_metric_alarm" "function_errors" {
   count = !var.localstack && var.ops_email != "" ? 1 : 0
 
   alarm_name        = "${local.name}-api-errors"
-  alarm_description = "Dun Mir API function is erroring — the console, the agents or the sweep are affected."
+  alarm_description = "Dun Mir function invocations are failing — most likely the scheduled sweep, which no HTTP metric can see."
 
   namespace   = "AWS/Lambda"
   metric_name = "Errors"
@@ -101,12 +131,36 @@ resource "aws_cloudwatch_metric_alarm" "function_errors" {
   evaluation_periods  = 2
   threshold           = 5
   comparison_operator = "GreaterThanThreshold"
-  # Missing data is GOOD here: Lambda publishes no Errors datapoint when there are no errors, so
-  # `missing` would otherwise flap the alarm into INSUFFICIENT_DATA every quiet five minutes.
+  # Missing data is GOOD here: Lambda publishes no Errors datapoint when there are none, so
+  # `missing` would flap the alarm into INSUFFICIENT_DATA every quiet five minutes.
   treat_missing_data = "notBreaching"
 
   alarm_actions = [aws_sns_topic.alerts[0].arn]
   ok_actions    = [aws_sns_topic.alerts[0].arn]
+}
+
+# 3. CPU credits. RDS runs T4g instances in **Unlimited** mode by default, which means sustained
+#    CPU above the baseline is billed per vCPU-hour rather than throttled — an unbounded charge
+#    on a stack whose whole premise is a zero bill. A draining credit balance is the early
+#    warning, and it arrives days before the invoice does.
+resource "aws_cloudwatch_metric_alarm" "database_cpu_credits" {
+  count = local.creates_database && var.ops_email != "" ? 1 : 0
+
+  alarm_name        = "${local.name}-db-cpu-credits"
+  alarm_description = "Dun Mir database is burning CPU credits — T4g runs in Unlimited mode, so this becomes a bill."
+
+  namespace   = "AWS/RDS"
+  metric_name = "CPUCreditBalance"
+  dimensions  = { DBInstanceIdentifier = aws_db_instance.this[0].identifier }
+
+  statistic           = "Average"
+  period              = 300
+  evaluation_periods  = 3
+  threshold           = 30
+  comparison_operator = "LessThanThreshold"
+  treat_missing_data  = "notBreaching"
+
+  alarm_actions = [aws_sns_topic.alerts[0].arn]
 }
 
 resource "aws_sns_topic" "alerts" {
