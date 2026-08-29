@@ -19,6 +19,9 @@ data:
   #     LiteLLM master key, supplied via the OPENAI_API_KEY env. `default` must
   #     match a LiteLLM model_name (per-token API billing inside LiteLLM); switch
   #     models at runtime with `hermes model`.
+  #   - mcp_servers.nievah: the GitHub agent's own MCP server (PRs, issues, and
+  #     HolmesGPT cluster investigations by proxy). See the entry for why Holmes is
+  #     reached through her rather than directly.
   #   - mcp_servers.home-assistant: HA's MCP server (read + control Assist-exposed
   #     entities); bearer substituted from the HA_MCP_TOKEN env at load.
   #   - memory: markdown-file memory (MEMORY.md / USER.md under /opt/data) — no
@@ -65,6 +68,35 @@ data:
         transport: streamable-http
         headers:
           Authorization: "Bearer ${N8N_MCP_AUTH_TOKEN}"
+      # Nievah — the GitHub agent (nievah namespace, cloud tier). Gives Hermes her verbs
+      # so the operator can drive her from Slack: review a pull request, plan and approve
+      # an issue, ask why a repo is not being picked up, and ask HolmesGPT about the live
+      # cluster.
+      #
+      # DO NOT "SIMPLIFY" THIS BY ADDING HOLMES AS ITS OWN mcp_servers ENTRY. Two reasons,
+      # and the second is a hard stop:
+      #   1. Holmes serves a plain HTTP /api/chat and no MCP server, so there is nothing to
+      #      register. Going via Nievah also means the question carries her system prompt —
+      #      the one telling Holmes to say when it cannot determine something rather than
+      #      offer a likely explanation — and lands in her audit log.
+      #   2. THE NETWORK FORBIDS IT. holmesgpt/networkpolicy.yaml is a default-deny plus an
+      #      allowlist of exactly two namespaces, `nievah` and `observability`, because the
+      #      Holmes API takes no credential of its own and reaching it IS the authorisation.
+      #      `automation` is not on that list, on purpose. Verified from this pod on
+      #      2026-08-29: a connect to the Holmes pod is REFUSED from ff-vm1/automation and
+      #      succeeds from the nievah namespace. Adding an entry here would produce a
+      #      connection error that reads like a broken URL, and the fix someone would reach
+      #      for is widening the policy — which is the control, not an obstacle.
+      #
+      # Reached east-west on the ClusterIP. The public route (nievah.magmamoose.com) is
+      # the GitHub webhook front door and must not be used from in-cluster. Bearer = the
+      # OCI Vault entry nievah-mcp-token, which Nievah reads as MCP_AUTH_TOKEN;
+      # substituted from the NIEVAH_MCP_TOKEN env at load.
+      nievah:
+        url: http://nievah.nievah.svc.cluster.local:8000/mcp
+        transport: streamable-http
+        headers:
+          Authorization: "Bearer ${NIEVAH_MCP_TOKEN}"
 
     dashboard:
       host: 0.0.0.0
