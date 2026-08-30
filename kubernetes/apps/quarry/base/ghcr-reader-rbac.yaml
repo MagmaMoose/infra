@@ -11,9 +11,8 @@
 # kics-scan disable=b7bca5c4-1dab-4c2c-8cbe-3050b9d59b14,056ac60e-fe07-4acc-9b34-8e1d51716ab9
 #
 # KSV-0113 is a TRIVY check, not a KICS one, so the UUID disable above never
-# reached it. Trivy takes its own inline ignore:
-# trivy:ignore:AVD-KSV-0113
-# trivy:ignore:KSV0113
+# reached it — and an inline `# trivy:ignore:` would not help either, because
+# Trivy emits no SARIF `suppressions` array. It is in .trivyignore instead.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
