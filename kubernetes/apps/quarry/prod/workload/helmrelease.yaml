@@ -57,7 +57,7 @@ spec:
       # v0.0.1 is a placeholder until the repo publishes its first release tag --
       # until then the pod ImagePullBackOffs, which is the visible, correct state
       # for "the image does not exist yet".
-      tag: v0.0.1 # {"$imagepolicy": "flux-system:quarry:tag"}
+      tag: v0.0.7 # {"$imagepolicy": "flux-system:quarry:tag"}
       pullPolicy: IfNotPresent
       pullSecrets:
         - name: ghcr-pull-secret
@@ -107,7 +107,7 @@ spec:
     # unset the summariser is off and labels come from the deterministic rules.
     # Either way it cannot move a single minute.
     ai:
-      litellmBaseUrl: "http://litellm.automation.svc.cluster.local:8080"  # DevSkim: ignore DS137138 — ClusterIP east-west, not externally reachable
+      litellmBaseUrl: "http://litellm.automation.svc.cluster.local:8080" # DevSkim: ignore DS137138 — ClusterIP east-west, not externally reachable
       # deepseek-v4-flash to match github-contributions, which switched off
       # claude-sonnet-4-6 while Anthropic credits were low. Sonnet is still the
       # PREFERRED model -- switch back once credits are topped up.
