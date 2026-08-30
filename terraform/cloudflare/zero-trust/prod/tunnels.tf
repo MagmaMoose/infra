@@ -260,17 +260,12 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "firefly" {
       service  = "http://dependency-track-api-server.security.svc.cluster.local:8080"
       origin_request {}
     }
-    # Legacy aliases kept during the hostname move to magmamoose.com.
-    ingress_rule {
-      hostname = "dependency-track.sargeant.co"
-      service  = "http://dependency-track-frontend.security.svc.cluster.local:8080"
-      origin_request {}
-    }
-    ingress_rule {
-      hostname = "dependency-track-api.sargeant.co"
-      service  = "http://dependency-track-api-server.security.svc.cluster.local:8080"
-      origin_request {}
-    }
+    # The legacy dependency-track{,-api}.sargeant.co aliases were REMOVED here.
+    # They pointed at the same two Services as the magmamoose.com hostnames, so
+    # they silently bypassed any Cloudflare Access app scoped to the
+    # magmamoose.com name — a duplicate hostname on the same tunnel is an
+    # unauthenticated side door. Paired with the CNAME removal in
+    # terraform/cloudflare/dns/prod/terragrunt.hcl. The hostname move is long done.
 
     # git-pull-request-dashboard — static SPA, fronted by oauth2-proxy
     # (Google SSO, @magmamoose.com). The GitHub PAT is still entered client-side.
