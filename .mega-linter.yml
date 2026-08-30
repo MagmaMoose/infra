@@ -1,12 +1,11 @@
 ---
 # Additive to the env Chargate injects (MagmaMoose/chargate, docs/setup.md).
 
-# kingfisher's "Postgres URL with hardcoded password" matches
-# `postgresql://user:<anything>@host` and cannot tell a resolved credential from a
-# template placeholder. Every ExternalSecret in this repo builds DATABASE_URL as
-# `postgresql://neondb_owner:{{ .dbPassword }}@postgres-rw...`, where `{{ .dbPassword }}`
-# is substituted by external-secrets from OCI Vault at apply time. Nothing secret is
-# committed; the literal in source is the template.
+# kingfisher's "Postgres URL with hardcoded password" matches any postgresql connection
+# string URL and cannot tell a resolved credential from a template placeholder. Every
+# ExternalSecret in this repo builds DATABASE_URL with `{{ .dbPassword }}` in the
+# password position, substituted by external-secrets from OCI Vault at apply time.
+# Nothing secret is committed; the literal in source is the template.
 #
 # Scoped to kingfisher and to ExternalSecret manifests. Every other secret scanner
 # (betterleaks, secretlint) still reads these files, and kingfisher still reads
