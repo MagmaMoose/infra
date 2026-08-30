@@ -106,6 +106,16 @@ def request(
         return status, payload.decode(errors="replace")
 
 
+def request_raw(method: str, url: str) -> tuple[int, dict, bytes]:
+    """A plain fetch with no credential — for a URL that carries its own."""
+    req = urllib.request.Request(url, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=60) as response:  # noqa: S310 - local only
+            return response.status, dict(response.headers), response.read()
+    except urllib.error.HTTPError as exc:
+        return exc.code, dict(exc.headers), exc.read()
+
+
 def cognito(endpoint: str, operation: str, body: dict) -> tuple[int, Any]:
     """One Cognito API call, exactly as the browser makes it."""
     return request(
@@ -300,6 +310,8 @@ def main(outputs_path: str) -> int:
         headers={**agent_auth, "Content-Type": "application/octet-stream"},
     )
     check("PUT /v1/ingest/backups/{device}/{filename}", status == 200, stored)
+    backup_id = stored.get("id")
+    check("the upload returns a catalogue id", bool(backup_id), stored)
 
     # The sha256 the agent claims is verified server-side, so a corrupted upload
     # is refused rather than catalogued as a backup that will not restore.
@@ -315,6 +327,27 @@ def main(outputs_path: str) -> int:
         "--bucket", bucket, "--query", "length(Contents || `[]`)", "--output", "text",
     ).stdout.strip()
     check("the object really is in the bucket", objects.isdigit() and int(objects) >= 1, objects)
+
+    print("\n\033[1mthe backup is downloadable without going through the API\033[0m")
+    # Proxying a body through the function is capped at ~4.4 MiB on Lambda (the
+    # response payload limit, plus base64 for an octet-stream), which failed as an
+    # opaque 502. The console asks for a presigned URL instead — signed locally,
+    # so it costs no egress — and fetches the object directly.
+    status, presigned = request(
+        "GET", f"{api}/api/backups/{backup_id}/download-url", headers=auth
+    )
+    check("GET /api/backups/{id}/download-url", status == 200, presigned)
+    check(
+        "it is a signed URL, not the API's own",
+        isinstance(presigned.get("url"), str) and "X-Amz-Signature=" in presigned["url"],
+        presigned,
+    )
+    fetched_status, _, fetched = request_raw("GET", presigned["url"])
+    check("the browser can fetch the object with it", fetched_status == 200, fetched_status)
+    check("and the bytes are the ones that were uploaded", fetched == blob, len(fetched))
+
+    status, denied = request("GET", f"{api}/api/backups/{backup_id}/download-url")
+    check("an anonymous caller gets no URL", denied is not None and status == 401, status)
 
     print("\n\033[1mthe scheduled sweep runs\033[0m")
     result = invoke(function, {"task": "sweep"})

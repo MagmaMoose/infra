@@ -88,7 +88,14 @@ output "lambda_function_name" {
     does not perform for you:
 
         aws lambda invoke --function-name "$(terragrunt output -raw lambda_function_name)" \
-          --cli-binary-format raw-in-base64-out --payload '{"task":"migrate"}' /dev/stdout
+          --cli-binary-format raw-in-base64-out --payload '{"task":"migrate"}' \
+          /dev/stdout | jq -e '.ok == true'
+
+    **The `jq -e` is not decoration.** `aws lambda invoke` exits 0 whenever the API CALL
+    succeeded — a handler that raised is still a successful invocation, reported only in
+    `FunctionError` with the traceback in the payload. Without an assertion on the result, a
+    migration that died (an unreachable DSN, a SQL error, a timeout) looks exactly like one that
+    worked, and the next step proceeds against an empty database.
 
     It has to run from in here because the database has no public address; this function is the
     only thing inside the VPC that can reach it. The schema is idempotent, so re-running is a

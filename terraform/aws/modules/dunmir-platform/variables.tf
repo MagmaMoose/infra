@@ -132,6 +132,20 @@ variable "db_allocated_storage" {
   default     = 20
 }
 
+variable "db_ssl_root_cert_path" {
+  description = <<-EOT
+    Where the RDS global CA bundle sits inside the function image, for
+    `sslmode=verify-full`.
+
+    Must match the path `backend/Dockerfile.lambda` downloads it to. Both halves are
+    required and they fail together: `verify-full` with no root certificate cannot
+    connect at all, which is a loud failure rather than a silent downgrade — the right
+    way round.
+  EOT
+  type        = string
+  default     = "/opt/rds-global-bundle.pem"
+}
+
 variable "db_backup_retention_days" {
   description = <<-EOT
     Automated-backup retention. 7 days of backup storage up to the size of the database is
@@ -190,6 +204,20 @@ variable "lambda_zip_path" {
     covered separately and better, by running the real image under AWS's own Runtime Interface
     Emulator (`make -C aws dunmir-image-test`), which is the same runtime contract Lambda uses.
     The two together cover what one alone would not.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "s3_public_endpoint_override" {
+  description = <<-EOT
+    Where the BROWSER fetches a presigned backup body from, when that differs from the
+    endpoint the function itself uses. Empty means "the same one".
+
+    On AWS they are the same public host, so this stays empty. The LocalStack root needs it:
+    the function reaches the emulator by container name on a compose network the host cannot
+    resolve, and the endpoint is part of the SIGNATURE — so it must be chosen before signing
+    rather than substituted into the URL afterwards.
   EOT
   type        = string
   default     = ""

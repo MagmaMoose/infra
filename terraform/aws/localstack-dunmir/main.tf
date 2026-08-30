@@ -92,6 +92,11 @@ module "platform" {
   # network, where `localhost` is itself. LocalStack is told to attach Lambda containers to this
   # network (LAMBDA_DOCKER_NETWORK), which is what makes both this and `postgres` resolve.
   s3_endpoint_override = "http://dunmir-localstack:4566" # DevSkim: ignore DS162092
+  # ...but a PRESIGNED url is handed to the browser, which is on the host and cannot resolve a
+  # compose container name. The endpoint is part of the signature, so the two have to be
+  # separate settings rather than a substitution after the fact. On AWS both are the same
+  # public host and this stays empty.
+  s3_public_endpoint_override = "http://localhost:4566" # DevSkim: ignore DS162092
 
   lambda_zip_path  = var.lambda_zip_path
   cognito_override = var.cognito

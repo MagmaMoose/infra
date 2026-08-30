@@ -68,6 +68,9 @@ locals {
       # The two produce different canonical URIs and SigV4 signs the URI, so mismatching them
       # yields a SignatureDoesNotMatch that says nothing about addressing.
       S3_FORCE_PATH_STYLE = var.s3_endpoint_override != "" ? "true" : "false"
+      # Only set where the browser reaches S3 at a different address than the function does
+      # — see the variable. Empty on AWS, where both are the same public host.
+      S3_PUBLIC_ENDPOINT_URL = var.s3_public_endpoint_override
       # No S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY. The signer falls back to the AMBIENT
       # credentials Lambda injects from the execution role (app/storage.py `_credentials`),
       # which expire in hours and are scoped to this one function — the alternative is a
@@ -114,6 +117,18 @@ locals {
       # topology. Off explicitly rather than left to a default, so that "billing is disabled" is
       # a decision recorded here and not a mystery discovered later.
       BILLING_ENABLED = "false"
+
+      # Outbound alert webhooks are the third thing that needs egress, and the one that fails
+      # WORST. The control plane POSTs to operator-configured webhook/Discord URLs inline, from
+      # inside the sweep and from agent ingest. A security group DROPS rather than rejects, so
+      # each unreachable route costs the full connect timeout with nothing to show for it — a
+      # tenant with three routes turns every 60-second sweep into a 30-second stall, billed,
+      # forever. Alerts are still recorded and still visible in the console; only the fan-out to
+      # third parties is suppressed. See app/limits.py.
+      ALERT_WEBHOOKS_ENABLED = "false"
+      # Belt and braces for anything else that dials out: the core's timeout applies to the
+      # connect phase too, and 10s of it is a long time to spend discovering a blackhole.
+      OUTBOUND_CONNECT_TIMEOUT_SECONDS = "2"
 
       # The application's own INFO lines are DISCARDED without this. Both entrypoints call
       # logging.basicConfig(level=INFO), and under awslambdaric that is a complete no-op: the

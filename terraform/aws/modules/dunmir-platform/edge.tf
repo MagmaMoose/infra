@@ -187,6 +187,13 @@ resource "aws_acm_certificate" "api" {
 resource "aws_apigatewayv2_domain_name" "api" {
   count = local.attaches_domain ? 1 : 0
 
+  # An EXPLICIT edge to the certificate, because the graph has none otherwise: the
+  # ARN reaches this resource through `var.certificate_arn`, a string a human
+  # pastes into the leaf, so Terraform cannot see that one depends on the other.
+  # Destroys run leaf-first and in parallel, which means DeleteCertificate would
+  # be issued while the domain still references it.
+  depends_on = [aws_acm_certificate.api]
+
   domain_name = var.api_domain_name
 
   domain_name_configuration {

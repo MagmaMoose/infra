@@ -143,8 +143,14 @@ address, and this function is the only thing inside the VPC that can reach it:
 
 ```bash
 aws lambda invoke --function-name "$(terragrunt output -raw lambda_function_name)" \
-  --cli-binary-format raw-in-base64-out --payload '{"task":"migrate"}' /dev/stdout
+  --cli-binary-format raw-in-base64-out --payload '{"task":"migrate"}' \
+  /dev/stdout | jq -e '.ok == true'
 ```
+
+**The `jq -e` matters.** `aws lambda invoke` exits 0 whenever the API call succeeded — a handler
+that raised is still a successful *invocation*, reported only in `FunctionError`. Without the
+assertion a failed migration is indistinguishable from a successful one, and you proceed against
+an empty database.
 
 Expect `{"ok": true, "seeded": false}`. The schema is idempotent, so re-running is a no-op.
 
@@ -219,6 +225,12 @@ install can always create its founding operator.
 
 **Deploying a change** is one line. Publish an image, bump `image_uri`, apply.
 
+**Backup downloads do not go through the API.** `GET /api/backups/{id}/download-url` returns a
+five-minute presigned S3 URL after the same tenant-scoped check the proxy route performs, and the
+browser fetches the object directly. Proxying was capped at ~4.4 MiB by Lambda's response payload
+limit (Mangum base64-encodes an octet-stream into it), which failed as an opaque 502. Signing is
+a local computation, so it needs no egress.
+
 **Logs**: `aws logs tail /aws/lambda/dunmir-prod-api --follow` for the application, and
 `/aws/apigateway/dunmir-prod-api` for the edge — the second is where a request that never
 reached the function (a throttle, an oversized payload, a bad path) leaves its only trace.
@@ -233,6 +245,12 @@ Unlimited mode, so sustained CPU is billed rather than throttled.
 
 **The database** has no public address by design. To reach it, invoke the function — add a
 task to `lambda_handler.py` rather than opening a hole in the security group.
+
+**Alert webhooks are off** (`ALERT_WEBHOOKS_ENABLED=false`). The control plane's
+operator-configured webhook/Discord fan-out needs egress the function does not have, and a
+security group *drops* rather than rejects — so each unreachable route would cost a full connect
+timeout, inline, inside every sweep. Alerts are still recorded and still shown in the console;
+only third-party delivery is suppressed. Slack via `SLACK_BOT_TOKEN` is off for the same reason.
 
 **Payload limits.** API Gateway caps a request at 10 MB and base64 inflates a binary body into
 the event, so the largest backup an agent can upload is about 7 MiB. The application's own

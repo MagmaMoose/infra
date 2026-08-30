@@ -34,16 +34,26 @@ locals {
   creates_database = var.db_mode == "rds" && !var.localstack
 
   # The DSN the application reads. Composed here in `rds` mode from the generated password, or
-  # taken verbatim in `external` mode. `sslmode=require` is not decoration: RDS accepts
-  # unencrypted connections unless the parameter group forbids it, and asyncpg will happily
-  # negotiate one.
+  # taken verbatim in `external` mode.
+  #
+  # `sslmode=verify-full`, NOT `require`. asyncpg does honour `sslmode` from the DSN, but it
+  # implements libpq's semantics exactly — and `require` means "encrypt, verify nothing": no
+  # certificate chain check, no hostname check. That is encryption against a passive observer
+  # and nothing at all against an active one, which is a strange thing to buy for a connection
+  # whose password is in the same string. An earlier comment here claimed a guarantee `require`
+  # does not give.
+  #
+  # `verify-full` needs a CA to verify against, which is why Dockerfile.lambda bakes the RDS
+  # global bundle into the image at /opt/rds-global-bundle.pem. Both halves are required: the
+  # sslmode without the root certificate fails to connect at all.
   database_url = local.creates_database ? format(
-    "postgresql://%s:%s@%s:%d/%s?sslmode=require",
+    "postgresql://%s:%s@%s:%d/%s?sslmode=verify-full&sslrootcert=%s",
     aws_db_instance.this[0].username,
     urlencode(random_password.database[0].result),
     aws_db_instance.this[0].address,
     aws_db_instance.this[0].port,
     aws_db_instance.this[0].db_name,
+    var.db_ssl_root_cert_path,
   ) : var.database_url
 }
 
@@ -106,6 +116,42 @@ resource "aws_db_parameter_group" "this" {
     # Static: this one needs a reboot to take effect, which RDS handles on the next maintenance
     # window unless `apply_immediately` says otherwise.
     apply_method = "pending-reboot"
+  }
+
+  # THE SERVER HAS TO REAP THEM, BECAUSE THE CLIENT CANNOT. Lambda gives an
+  # execution environment no shutdown signal, so `PostgresDatabase.aclose()` is
+  # never called — the FastAPI lifespan that would call it is off (`lifespan="off"`
+  # in lambda_handler.py, for good reasons of its own). Every environment Lambda
+  # reclaims therefore leaves its pooled backends established on a database whose
+  # ceiling is about 112, and they linger until TCP keepalives eventually notice,
+  # which is hours.
+  #
+  # Ten minutes is comfortably longer than asyncpg's own 300s idle lifetime
+  # (DB_POOL_IDLE_SECONDS), so this only ever kills connections no live pool is
+  # still tracking. Dynamic — no reboot, and it applies to sessions already open.
+  parameter {
+    name         = "idle_session_timeout"
+    value        = "600000" # milliseconds
+    apply_method = "immediate"
+  }
+
+  # A dead peer is detected in minutes rather than after the kernel's default two
+  # hours, which matters for the same reason: a frozen-then-reclaimed Lambda goes
+  # away without closing anything.
+  parameter {
+    name         = "tcp_keepalives_idle"
+    value        = "300"
+    apply_method = "immediate"
+  }
+  parameter {
+    name         = "tcp_keepalives_interval"
+    value        = "30"
+    apply_method = "immediate"
+  }
+  parameter {
+    name         = "tcp_keepalives_count"
+    value        = "4"
+    apply_method = "immediate"
   }
 
   lifecycle {
