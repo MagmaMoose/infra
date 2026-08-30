@@ -29,6 +29,11 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DUNMIR="${DUNMIR:-$HERE/../../../../dunmir}"
+# Captured BEFORE the default is applied, or it is always set and the rebuild below never runs.
+# That is not hypothetical: it let this check validate a stale artefact from the previous
+# builder — aarch64 wheels, no pydantic_core binary at all — and the only reason it was caught
+# is that the check itself then failed.
+ZIP_GIVEN="${ZIP+set}"
 ZIP="${ZIP:-$HERE/dunmir-lambda.zip}"
 NAME="dunmir-zip-test"
 PORT="${PORT:-9021}"
@@ -49,8 +54,13 @@ cleanup() {
 trap cleanup EXIT
 cleanup
 
-if [ ! -f "$ZIP" ]; then
+# ALWAYS REBUILD unless the caller named a specific artefact. Reusing whatever zip happened to
+# be lying here is how this check first ran green against a stale one built by the PREVIOUS
+# builder — 1258 members and no bytecode, where the current one produces 1775. A test that
+# silently validates last week's artefact is worse than no test.
+if [ -z "${ZIP_GIVEN:-}" ]; then
   echo "building the deployment zip ..."
+  rm -f "$ZIP"
   "$HERE/build_zip.sh"
 fi
 
@@ -71,10 +81,11 @@ JWKS='{"keys":[{"kty":"RSA","alg":"RS256","use":"sig","kid":"zip-test","e":"AQAB
 # A zip member without world-read is imported perfectly by a root RIE and raises PermissionError
 # in production — a difference that only ever appears after deploy.
 #
-# `--network none`: the AUTH_MODE=cognito topology is built on the function making no outbound
-# calls at all. If that ever stops being true, this is where it shows up.
+# NOT `--network none` here, however much it belongs: the Runtime Interface Emulator is driven
+# over a published port, and a container with no network stack cannot publish one. The
+# no-egress property is asserted separately below, on a container that needs no port.
 docker run -d --name "$NAME" -p "$PORT:8080" \
-  --platform "$PLATFORM" --network none -u 993:990 \
+  --platform "$PLATFORM" -u 993:990 \
   -v "$ROOT:/var/task:ro" \
   -e AUTH_MODE=cognito \
   -e COGNITO_REGION=eu-west-1 \
@@ -164,10 +175,39 @@ assert "an HTTP request still works after a task ran on the same container" \
 # The boot check itself. A Cognito deployment with no signing keys can never authenticate
 # anybody, and every symptom of that is identical at runtime — "nobody can sign in", with a
 # health check answering 200 the whole time. So it must refuse to START.
+# THE NO-EGRESS ASSERTION, on its own container because this one needs no port and can
+# therefore actually have its network removed.
+#
+# `AUTH_MODE=cognito` is built on the backend making no outbound calls at all — on AWS it runs
+# with no NAT gateway and no interface endpoints, because both bill by the hour. If something
+# ever adds an outbound call at import or on the health path, it will hang here rather than in
+# production, where the symptom is a 30-second timeout on a route that used to work.
+echo
+echo "the application starts and serves with no network at all:"
+if docker run --rm --platform "$PLATFORM" --network none -u 993:990 \
+  -v "$ROOT:/var/task:ro" -e PYTHONPATH=/var/task \
+  -e AUTH_MODE=cognito -e COGNITO_REGION=eu-west-1 \
+  -e COGNITO_USER_POOL_ID=eu-west-1_ZIPTEST -e COGNITO_APP_CLIENT_ID=zip-test-client \
+  -e COGNITO_JWKS="$JWKS" -e MULTI_TENANT=true -e EMAIL_PROVIDER=none \
+  --entrypoint /var/lang/bin/python "$BASE" -P -c '
+import json, sys, lambda_handler
+ev = {"version": "2.0", "rawPath": "/v1/health", "isBase64Encoded": False,
+      "headers": {"host": "api.example.com"},
+      "requestContext": {"http": {"method": "GET", "path": "/v1/health", "sourceIp": "127.0.0.1"}}}
+assert lambda_handler.handler(ev, None)["statusCode"] == 200
+import ssl
+assert len(ssl.create_default_context(cafile="/var/task/rds-global-bundle.pem").get_ca_certs()) > 50
+' >/dev/null 2>&1; then
+  printf '  \033[32m✓\033[0m no outbound call is needed to import the app or serve a request\n'
+else
+  printf '  \033[31m✗\033[0m something reached for the network — on AWS that is a 30s timeout\n'
+  fail=1
+fi
+
 echo
 echo "a Cognito deployment with no signing keys refuses to start:"
 docker run -d --name "$NAME-nokeys" -p "$((PORT + 1)):8080" \
-  --platform "$PLATFORM" --network none -u 993:990 \
+  --platform "$PLATFORM" -u 993:990 \
   -v "$ROOT:/var/task:ro" \
   -e AUTH_MODE=cognito \
   -e COGNITO_REGION=eu-west-1 \
