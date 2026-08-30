@@ -95,19 +95,20 @@ validate:
 #   make dunmir-apply       build the stack inside LocalStack (the same module the leaf uses)
 #   make dunmir-migrate     apply schema/postgres.sql, the way production does
 #   make dunmir-smoke       drive it end to end and assert the invariants
-#   make dunmir-image-test  run the REAL container image under AWS's Runtime Interface Emulator
+#   make dunmir-zip-test    run the REAL deployment zip under AWS's Runtime Interface Emulator
 #   make dunmir-down        stop everything
 #
-# TWO PROOFS, AND BOTH ARE NEEDED. `dunmir-smoke` exercises the WIRING but runs a zip, because
-# container-image Lambdas are a LocalStack Pro feature. `dunmir-image-test` exercises the
-# ARTEFACT production actually deploys. Neither one catches what the other does.
+# TWO PROOFS, AND BOTH ARE NEEDED. `dunmir-smoke` exercises the WIRING — IAM, S3, the API, the
+# schedule, the schema, the Cognito flow — but executes the code under LocalStack's own Python.
+# `dunmir-zip-test` executes the exact bytes production deploys, on the real Lambda base image,
+# as an unprivileged uid with no network. Neither one catches what the other does.
 
 DUNMIR ?= $(HERE)../../../dunmir
 DM     := $(HERE)localstack-dunmir
 DM_ZIP ?= $(DM)/dunmir-lambda.zip
 
 .PHONY: dunmir-dev dunmir-up dunmir-down dunmir-seed dunmir-zip dunmir-apply dunmir-migrate \
-        dunmir-smoke dunmir-image-test dunmir-destroy dunmir-logs dunmir-validate
+        dunmir-smoke dunmir-zip-test dunmir-destroy dunmir-logs dunmir-validate
 
 dunmir-dev: dunmir-up dunmir-seed dunmir-zip dunmir-apply dunmir-migrate dunmir-smoke
 
@@ -153,8 +154,8 @@ dunmir-smoke:
 	cd $(DM) && $(TFBIN) output -json > $(DM)/.outputs.json
 	python3 $(DM)/smoke.py $(DM)/.outputs.json
 
-dunmir-image-test:
-	DUNMIR=$(DUNMIR) $(DM)/image_test.sh
+dunmir-zip-test:
+	DUNMIR=$(DUNMIR) $(DM)/zip_test.sh
 
 dunmir-logs:
 	aws --endpoint-url=$(AWS_ENDPOINT_URL) logs tail /aws/lambda/dunmir-local-api --follow

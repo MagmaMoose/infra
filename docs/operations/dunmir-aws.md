@@ -30,14 +30,25 @@ Almost everything here is on an *always*-free allowance and does not care:
 | EventBridge Scheduler | 14M invocations / month | never |
 | CloudWatch Logs | 5 GB ingest | never |
 | API Gateway HTTP API | 1M requests / month | **12 months**, then $1.00/M |
-| ECR | 500 MB | **12 months** |
+| CloudWatch alarms | 10 alarms — **pooled across the organisation** | never |
 | S3 | 5 GB | **12 months** |
+| Lambda code storage | 300 GB — a quota, not a meter; it never bills | n/a |
 | **RDS** | db.t4g.micro, 20 GB, 750 h/month | **12 months** |
 
-RDS is the one that matters — it is ~$15/month once the tier lapses. The other
-three are cents: the default heartbeat interval is **one hour**, so a thousand
-devices generate ~720k API requests a month (~$0.72), the ECR lifecycle policy
-keeps ten images, and the S3 lifecycle expires backup bodies after a year.
+RDS is the one that matters — it is ~$15/month once the tier lapses. Which is why the
+production leaf runs `db_mode = "external"` and creates no database and no VPC.
+
+The rest is cents. The default heartbeat interval is **one hour**, so a thousand devices
+generate ~720k API requests a month (~$0.72), and the S3 lifecycle expires backup bodies after
+a year. The deployment artefact is a ~23 MB zip in the artefact bucket, about $0.0005/month;
+it was a ~210 MB container image in ECR until 2026-08-30, which at $0.10/GB-month and ten
+retained tags was ~$0.21/month — small, but the only meter in the stack that grew with release
+cadence, and it bought nothing the zip does not do.
+
+**Two things are easy to overstate as free.** CloudWatch's 10-alarm allowance is pooled across
+the whole organisation, not per account; this stack uses two, and if the siblings have already
+spent the ten, they bill at $0.10/alarm-month. And the backups bucket is free only while it is
+empty.
 
 So:
 
@@ -86,34 +97,56 @@ IPv6-only egress fails silently against any IPv4-only endpoint.
 
 ## First deploy
 
-### 1. The account and the role
+### 1. The artefact bucket and the publish role
 
-Create the AWS account (see above), then create an ECR repository and a GitHub OIDC role for
-the product repository. The role's trust policy must name `repo:MagmaMoose/dunmir:*`; its
-permissions need only ECR push.
+Fill in `account_id` in `terraform/aws/dunmir/provider.hcl` first. It is empty until then,
+which disables the account guard — nobody should be able to apply this into the wrong account
+by accident.
 
-Set three **variables** (none are secret) on `MagmaMoose/dunmir`:
+Then apply the `artifacts` leaf, which creates the bucket dunmir publishes zips to and the
+GitHub OIDC role it publishes with. It is the same shared module nievah, chargate, brimyr,
+caldrith and diatreme use, and it creates **no long-lived credential**: the release workflow
+assumes a role bound to one repository and to `main` plus tags.
 
 ```bash
-gh variable set AWS_REGION --repo MagmaMoose/dunmir --body eu-west-1
-gh variable set ECR_REPOSITORY --repo MagmaMoose/dunmir --body dunmir-backend
-gh variable set AWS_ROLE_TO_ASSUME --repo MagmaMoose/dunmir --body arn:aws:iam::<account>:role/dunmir-github-actions
+cd terraform/aws/dunmir/prod/eu-west-1/artifacts && terragrunt apply
 ```
 
-Fill in `account_id` in `terraform/aws/dunmir/provider.hcl`. It is empty until then, which
-disables the account guard — nobody should be able to apply this into the wrong account by
-accident.
+Then set two **variables** (neither is secret) on `MagmaMoose/dunmir`, from its outputs:
 
-### 2. Publish an image
+```bash
+gh variable set BACKEND_ARTIFACT_BUCKET --repo MagmaMoose/dunmir \
+  --body "$(terragrunt output -raw artifact_bucket)"
+```
 
-Run **Publish backend image (AWS ECR)** in the product repository. It builds
-`docker-bake.hcl`'s `lambda` target for arm64, pushes it, and prints the exact `image_uri`
-line for the leaf. Paste it in.
+```bash
+gh variable set BACKEND_PUBLISH_ROLE_ARN --repo MagmaMoose/dunmir \
+  --body "$(terragrunt output -raw publish_role_arn)"
+```
 
-The image must be in ECR **in this account and region** — Lambda cannot pull from GHCR, which
-is why the `lambda` bake target is outside the `default` group that publishes there. Pin a
-digest, not a tag: Lambda resolves a tag once at update time, so re-pushing the same tag does
-not redeploy.
+Unset, diatreme skips the publish step and nothing else changes.
+
+### 2. Publish a zip
+
+Cut a release on `MagmaMoose/dunmir`. Its release workflow builds
+`backend/scripts/build_lambda_zip.py` and publishes the result to
+`s3://<bucket>/backend/<version>.zip`.
+
+There is a **chicken and egg on the very first run**: the function points at a key that does
+not exist until a release publishes, and there is nothing to release against yet. Break it by
+uploading one by hand, which is what the artifacts module's own header describes:
+
+```bash
+cd ../../../../../../dunmir/backend && uv run --no-project --python 3.12 --with pip python scripts/build_lambda_zip.py
+```
+
+```bash
+aws s3 cp backend/dist/dunmir-backend.zip "s3://<bucket>/backend/<version>.zip"
+```
+
+**Keys are immutable.** diatreme refuses to overwrite one that exists, and so should you: infra
+pins that key, so replacing its bytes swaps the running code under a version somebody already
+reviewed. To ship a change, publish a new version.
 
 ### 3. Apply, phase 1 — no custom domain yet
 
@@ -223,7 +256,7 @@ install can always create its founding operator.
 
 ## Operating it
 
-**Deploying a change** is one line. Publish an image, bump `image_uri`, apply.
+**Deploying a change** is one line. Cut a release, bump `artifact_version`, apply.
 
 **Backup downloads do not go through the API.** `GET /api/backups/{id}/download-url` returns a
 five-minute presigned S3 URL after the same tenant-scoped check the proxy route performs, and the
@@ -272,7 +305,7 @@ the issuer, so the two cannot drift.
 
 ```bash
 make -C terraform/aws dunmir-dev          # up, seed, zip, apply, migrate, smoke
-make -C terraform/aws dunmir-image-test   # the REAL container image, under AWS's own RIE
+make -C terraform/aws dunmir-zip-test      # the REAL deployment zip, under AWS's own RIE
 ```
 
 `dunmir-dev` runs LocalStack + Postgres + `moto` (for Cognito) and drives 39 assertions
@@ -280,12 +313,21 @@ through the whole stack: sign-up, sign-in against real RS256 tokens, offline ver
 forged-token rejection, agent heartbeat, a backup body through the SigV4 signer to S3, the
 sweep, and an invitation redeemed into the inviter's workspace.
 
-**Two proofs, and both are needed.** `dunmir-dev` exercises the *wiring* but runs a zip,
-because container-image Lambdas are a LocalStack Pro feature. `dunmir-image-test` exercises
-the *artefact* production actually deploys — it is the only check that catches a package the
-application imports that was never `COPY`'d into the image, which produces an image that
-builds, pushes and deploys cleanly and then dies at startup. Six releases of this product
-shipped in exactly that state.
+**Two proofs, and both are needed.** `dunmir-dev` exercises the *wiring*, but executes the
+code under LocalStack's own Python. `dunmir-zip-test` executes the exact bytes production
+deploys, unpacked into `/var/task` inside the real Lambda base image, as an unprivileged uid
+with no network.
+
+Only the second catches a package the application imports that the build script was never told
+to include — which produces an artefact that builds, uploads and deploys cleanly and then dies
+at startup. Six releases of this product shipped in exactly that state.
+
+It also catches the failure unique to a zip. Lambda reads a container image's architecture from
+its manifest and rejects a mismatch at deploy time; it cannot do that for a zip, so a package
+of wrong-architecture wheels deploys perfectly and fails at the first invocation with a
+`ModuleNotFoundError` naming the *module* rather than the architecture — indistinguishable from
+the missing-source bug above. The build script asserts every `.so` with `file` before it writes
+the archive, and this runs the result.
 
 ### What a local run does not prove
 
@@ -304,6 +346,6 @@ shipped in exactly that state.
 Atlantis holds one AWS credential and it is nievah's. Dün Mir is expected to live in a
 standalone account **outside the organisation**, so this is not a credential that could be
 granted — it is one that cannot exist in the current design. The leaf is applied by hand with
-`AWS_PROFILE=mm-dunmir`; the deployment it exists to serve is a one-line bump of `image_uri`.
+`AWS_PROFILE=mm-dunmir`; the deployment it exists to serve is a one-line bump of `artifact_version`.
 
 Effusion's per-run OIDC role is the real answer, and this is another argument for it.
