@@ -161,6 +161,39 @@ dunmir-logs:
 
 # Validates the MODULE, which is what Atlantis will run. The localstack root is validated
 # implicitly by `dunmir-apply`.
+# A tripwire for the class of bug that made `make dev` dangerous.
+#
+# Both obvious names for a LocalStack provider file are matched by .gitignore —
+# `*_override.tf` (the stock HashiCorp rule) and `provider.tf` (Terragrunt generates one into
+# every leaf). A provider file under either name is silently untracked, and a fresh clone then
+# gets a local root with NO provider at all: Terraform falls back to the ambient credentials and
+# builds the stack in whatever REAL account the operator is logged into. That is what happened to
+# terraform/aws/localstack/, and nobody noticed because the failure only appears on a clone.
+#
+# So: every .tf in a localstack root must be tracked by git. Cheap, and it fails loudly.
+.PHONY: localstack-tracked
+localstack-tracked:
+	@fail=0; \
+	for root in $(HERE)localstack $(HERE)localstack-dunmir; do \
+	  [ -d "$$root" ] || continue; \
+	  for f in "$$root"/*.tf; do \
+	    [ -e "$$f" ] || continue; \
+	    if git -C $(HERE).. check-ignore -q "$$f" 2>/dev/null; then \
+	      echo "IGNORED (would vanish on a fresh clone): $$f"; fail=1; \
+	    elif ! git -C $(HERE).. ls-files --error-unmatch "$$f" >/dev/null 2>&1; then \
+	      echo "UNTRACKED: $$f"; fail=1; \
+	    fi; \
+	  done; \
+	done; \
+	if [ $$fail -ne 0 ]; then \
+	  echo; \
+	  echo "A LocalStack root with no committed provider falls back to REAL AWS credentials."; \
+	  echo "Rename the file to something no .gitignore rule matches (see"; \
+	  echo "localstack-dunmir/localstack_provider.tf) and commit it."; \
+	  exit 1; \
+	fi; \
+	echo "every .tf in a localstack root is tracked"
+
 dunmir-validate:
 	@printf "%-18s " dunmir-platform; \
 	( cd $(HERE)modules/dunmir-platform \
