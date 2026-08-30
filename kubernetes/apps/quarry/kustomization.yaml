@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Intentionally only references env overlays (prod). ./base is the app's
+# control-plane library (chart GitRepository, ghcr RBAC, namespace) -- applied by
+# the per-env Flux Kustomization (see prod/flux-kustomization.yaml), not
+# aggregated directly.
+resources:
+  - ./prod

@@ -1,0 +1,32 @@
+# kics-scan disable=KSV-0040
+# DNS-only Ingress: external-dns reads the host + target annotations and
+# publishes a proxied CNAME (quarry.magmamoose.com -> the firefly cloudflared
+# tunnel, the same tunnel id github-contributions and github-timesheet use). The
+# tunnel itself routes the hostname to the in-cluster Service, so there is no
+# backend rule here -- mirroring github-contributions / nievah / diatreme-pro.
+#
+# THE AUTH GATE IS NOT IN THIS FILE. Quarry has no built-in authentication: the
+# only thing standing between the open internet and this hostname is a
+# Cloudflare Access self_hosted app in
+# terraform/cloudflare/zero-trust/prod/access_apps.tf, alongside the tunnel
+# ingress_rule in tunnels.tf. Shipping this Ingress before that policy exists
+# publishes an UNAUTHENTICATED console.
+#
+# That matters more here than for the sibling dashboards. github-contributions
+# leaks commit analytics; quarry renders Caleb's PinkRoccade employment record
+# (Report 1, submitted as a real timesheet) and the Tengen per-client billing
+# that becomes real invoices -- client names, rates and amounts. Apply the
+# terraform first, or leave this file out of the workload kustomization until it
+# is applied.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: quarry
+  namespace: quarry
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: "quarry.magmamoose.com"
+    external-dns.alpha.kubernetes.io/target: "7694eb38-c35e-4905-bd2b-16ab7053080a.cfargotunnel.com"
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "true"
+spec:
+  rules:
+    - host: quarry.magmamoose.com

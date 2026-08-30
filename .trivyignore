@@ -108,3 +108,20 @@ AVD-KSV-0125
 # each affected Dockerfile via `# kics-scan disable=`.
 DS-0026
 AVD-DS-0026
+
+# KSV-0113 — "role should not have access to manage secrets".
+#
+# Suppressed because the rule scores the verb, not the scope. The Role it fires on
+# (kubernetes/apps/*/base/ghcr-reader-rbac.yaml) grants `get` on ONE secret named
+# by `resourceNames: ["ghcr-pull-secret"]`, to one ServiceAccount, so the app can
+# pull its own image. It cannot list, watch, create or read anything else, and
+# "manage" overstates a single-object read by some distance.
+#
+# The pattern is repo-wide, not one app's: caldrith, nievah, github-contributions,
+# github-timesheet and quarry all carry the identical Role, because ghcr-pull-secret
+# is SOPS-only in flux-system and has to be mirrored per namespace. A per-file
+# suppression would therefore fix only the PR in front of you and fail the next one
+# — the same reasoning as KSV-0040 above.
+KSV-0113
+KSV0113
+AVD-KSV-0113
