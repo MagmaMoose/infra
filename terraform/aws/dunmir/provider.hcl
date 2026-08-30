@@ -14,19 +14,24 @@
 # organisation therefore inherits an already-expired 12-month allowance and is billed from its
 # first hour.
 #
-# Almost everything in the `dunmir-platform` module is on an *always*-free allowance and does not
-# care: Lambda (1M requests, 400k GB-seconds), CloudFront (1 TB, 10M requests), Cognito (10,000
-# monthly active users), EventBridge Scheduler, CloudWatch Logs. **RDS is the exception**, and
-# it is the only one. `db.t4g.micro` + 20 GB is free for twelve months and about $15/month after.
+# Most of the `dunmir-platform` module is on an *always*-free allowance and does not care:
+# Lambda (1M requests, 400k GB-seconds), Cognito (10,000 monthly active users), EventBridge
+# Scheduler, CloudWatch Logs. API Gateway, ECR and S3 are twelve-month tiers costing cents at
+# this scale. **RDS is the one that matters**: `db.t4g.micro` + 20 GB is about $15/month once
+# the allowance is gone.
 #
-# So:
+# WHAT WAS ACTUALLY DECIDED, on 2026-08-30. 757868239591 is a MEMBER account of
+# o-zipq67xej5 (management account 857256953358), so per the rule above its 12-month
+# allowances are already spent — `aws freetier get-free-tier-usage` returns an empty list.
+# RDS would therefore bill from its first hour.
 #
-#   * A **new standalone account**, outside the organisation, gets its own free plan and this
-#     stack costs nothing. That is the recommendation, and it is why `account_id` below is
-#     empty — nobody should be able to apply this into the wrong account by accident.
-#   * A **member account** inside the organisation is fine too, as long as ~$15/month for the
-#     database is a decision somebody made rather than a surprise. `enable_budget_alarm` fires
-#     at the first dollar either way.
+# So this deployment runs `db_mode = "external"` and creates NO RDS instance and NO VPC. What
+# is left is either permanently free (Lambda, Cognito, EventBridge Scheduler, CloudWatch Logs)
+# or costs cents at this scale (API Gateway at $1/M requests against an hourly heartbeat; ECR
+# at $0.10/GB-month for one ~250 MB image). Measured at rest: about three cents a month.
+#
+# The database is therefore NOT on AWS. Changing `db_mode` back to "rds" is a deliberate
+# ~$15/month decision, not a configuration tweak — do not make it casually.
 #
 # There is no third option that keeps Postgres. The application is 200-odd hand-written SQL
 # statements across nineteen tables with joins and aggregations; "port it to DynamoDB and be
@@ -42,10 +47,7 @@ locals {
   # `allowed_account_ids` so a stale or mis-set credential fails the PLAN with a clear error
   # rather than quietly building Dün Mir's stack inside another product's account.
   #
-  # DELIBERATELY EMPTY until the account exists. An empty list disables the check, which is the
-  # honest state before there is an account id to check against — fill it in with the same
-  # commit that first applies this.
-  account_id = ""
+  account_id = "757868239591"
 }
 
 inputs = {

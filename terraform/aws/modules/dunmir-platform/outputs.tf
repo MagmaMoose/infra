@@ -133,6 +133,16 @@ output "console_env" {
       ? "https://${var.api_domain_name}"
       : aws_apigatewayv2_api.api[0].api_endpoint
     ) : trimsuffix(aws_lambda_function_url.local[0].function_url, "/")
-    csp_connect_src = local.cognito.endpoint
+    # EVERY third-party origin the console must reach, space-separated, ready to drop into
+    # `connect-src`. It is a LIST because listing only Cognito is what let the object store go
+    # missing from the policy: presigning was added, the round trip was proved with a Python
+    # HTTP client that enforces no CSP, and the browser refused the fetch in production.
+    #
+    # The bucket origin appears only when presigned downloads are actually on. Naming an origin
+    # the console never calls is not free — it is a host the page is permitted to talk to.
+    csp_connect_src = join(" ", compact([
+      local.cognito.endpoint,
+      local.presigned_downloads ? local.s3_public_origin : "",
+    ]))
   }
 }

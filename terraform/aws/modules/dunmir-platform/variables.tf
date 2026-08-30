@@ -159,51 +159,66 @@ variable "db_backup_retention_days" {
   default     = 7
 }
 
-# ── application image ───────────────────────────────────────────────────────────────────────
-variable "image_uri" {
+# ── application artefact ────────────────────────────────────────────────────────────────────
+#
+# The function runs a ZIP published by MagmaMoose/dunmir's release workflow into the artefact
+# bucket from the sibling `artifacts` leaf, keyed by version. Same shape as nievah, chargate,
+# brimyr, caldrith and diatreme; see `modules/artifacts`.
+variable "artifact_bucket" {
   description = <<-EOT
-    The ECR image the function runs, INCLUDING the tag or digest, e.g.
-    `<account>.dkr.ecr.eu-west-1.amazonaws.com/dunmir-backend:0.1.7`.
+    The S3 bucket holding published deployment zips. `terragrunt output -raw artifact_bucket`
+    from the sibling `artifacts` leaf.
 
-    THIS LINE IS THE DEPLOYMENT. Changing it here is what moves the backend; nothing else does.
-
-    It must be an ECR repository in **this account and this region** — Lambda cannot pull from
-    GHCR or any other third-party registry, which is why `docker-bake.hcl`'s `lambda` target is
-    deliberately outside the `default` group that publishes to GHCR.
-
-    Prefer a digest (`@sha256:…`) for a production pin: Lambda resolves a tag once, at update
-    time, so re-pushing the same tag does NOT redeploy and the function silently keeps running
-    the image it resolved months ago.
+    Read with the CALLER'S credentials at apply time, not the function's role — Lambda's
+    UpdateFunctionCode fetches the object as whoever is running `terragrunt apply`. A principal
+    that can create the function but cannot read the bucket fails at apply with an S3 error that
+    does not obviously implicate the bucket.
   EOT
   type        = string
   default     = ""
 }
 
-variable "ecr_repository_name" {
+variable "artifact_prefix" {
   description = <<-EOT
-    The ECR repository this module creates and the function pulls from. It must match the
-    `ECR_REPOSITORY` repository variable on `MagmaMoose/dunmir`, which is what the publish
-    workflow pushes to.
+    The key prefix inside `artifact_bucket`. Must match `artifact_prefix` in the `artifacts`
+    leaf, which is what the publish role's IAM policy is scoped to — a mismatch fails the
+    PUBLISH with AccessDenied rather than failing here.
   EOT
   type        = string
-  default     = "dunmir-backend"
+  default     = "backend"
+}
+
+variable "artifact_version" {
+  description = <<-EOT
+    The published version to run, e.g. `0.1.7`. Resolves to `<artifact_prefix>/<version>.zip`.
+
+    THIS LINE IS THE DEPLOYMENT. Changing it here is what moves the backend; nothing else does.
+
+    Objects at these keys are immutable — diatreme refuses to overwrite one that exists — so the
+    key change IS the deploy signal and there is no `source_code_hash` anywhere in this module
+    for the AWS path. That also means a rollback is a one-line revert to a key that still holds
+    exactly the bytes it held when it was reviewed.
+  EOT
+  type        = string
+  default     = ""
 }
 
 variable "lambda_zip_path" {
   description = <<-EOT
-    A built zip for the function, used **only** when `localstack = true`, where `image_uri` is
-    ignored.
+    A LOCAL path to the built zip, used **only** when `localstack = true`. On AWS the same
+    artefact arrives as an S3 object instead — see `artifact_version`.
 
-    WHY THE LOCAL RUN CANNOT USE THE IMAGE. Container-image Lambdas are a LocalStack **Pro**
-    feature; the community image answers `NotImplementedError: Container images are a Pro
-    feature` at the first invocation. So the local stack runs the same application code, through
-    the same Mangum adapter, packaged as a zip.
+    THE ZIP IS THE SAME ONE EITHER WAY, and that is the point. It is built by
+    `backend/scripts/build_lambda_zip.py` in MagmaMoose/dunmir for both, so the local run
+    exercises the artefact production deploys rather than a lookalike assembled by a second,
+    subtly different script. The predecessor of this arrangement had exactly that problem: the
+    harness resolved its own dependency set with one manylinux tag where the production build
+    used two, so it silently ran asyncpg 0.30.0 against a production image holding 0.31.0.
 
-    That leaves exactly one thing unproven here — the IMAGE itself: its base, its layer
-    contents, and whether every package the app imports was actually COPY'd into it. That gap is
-    covered separately and better, by running the real image under AWS's own Runtime Interface
-    Emulator (`make -C aws dunmir-image-test`), which is the same runtime contract Lambda uses.
-    The two together cover what one alone would not.
+    What this does NOT prove is the artefact running on the real Lambda runtime — LocalStack
+    executes it under its own Python. That gap is covered by `make -C aws dunmir-zip-test`,
+    which unzips it into `/var/task` inside `public.ecr.aws/lambda/python:3.12` and drives it
+    through AWS's Runtime Interface Emulator as an unprivileged uid with no network.
   EOT
   type        = string
   default     = ""
@@ -431,6 +446,22 @@ variable "signup_allowed_domains" {
 }
 
 # ── operations ──────────────────────────────────────────────────────────────────────────────
+variable "sweep_enabled" {
+  description = <<-EOT
+    Whether the dead-man sweep schedule is armed.
+
+    Off is the correct state for a stack whose database is not wired up yet: the sweep fires
+    once a minute, every firing fails, and the function-error alarm then emails on a five-minute
+    cycle forever — which is how an operator learns to ignore the one alarm that can see the
+    sweep fail at all.
+
+    `lambda_handler._sweep` already tolerates a database with no SCHEMA (the window between
+    apply and migrate). It cannot tolerate no database AT ALL, and should not pretend to.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "sweep_schedule_expression" {
   description = <<-EOT
     How often the dead-man heartbeat sweep runs. Once a minute matches the Cloudflare cron and

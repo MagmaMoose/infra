@@ -53,6 +53,18 @@ locals {
   provider_vars    = read_terragrunt_config(find_in_parent_folders("provider.hcl"))
 }
 
+# The apply ordering, expressed in the graph rather than in a runbook. The mock lets
+# `validate`/`plan`/`init` run before ../artifacts exists; an apply cannot proceed on a mock.
+dependency "artifacts" {
+  config_path = "../artifacts"
+
+  mock_outputs = {
+    artifact_bucket = "mock-artifact-bucket"
+  }
+  mock_outputs_allowed_terraform_commands = ["validate", "plan", "init"]
+  mock_outputs_merge_strategy_with_state  = "shallow"
+}
+
 inputs = {
   region      = local.region_vars.locals.region
   environment = local.environment_vars.locals.environment
@@ -60,26 +72,51 @@ inputs = {
   # ───────────────────────────────────────────────────────────────────────────────────────────
   # THIS LINE IS THE DEPLOYMENT.
   #
-  # Dün Mir's AWS deploy workflow builds `docker-bake.hcl`'s `lambda` target, pushes it to ECR in
-  # THIS account, and prints the exact line to paste here. Changing it is what moves the backend;
-  # nothing else does.
+  # MagmaMoose/dunmir's release workflow builds the zip with
+  # `backend/scripts/build_lambda_zip.py` and publishes it to
+  # `s3://<artifact_bucket>/backend/<version>.zip` using the OIDC role from the sibling
+  # `artifacts` leaf. Setting this to that version is what moves the backend; nothing else does.
   #
-  # It must be an ECR repository in this account and region — Lambda cannot pull from GHCR, which
-  # is why the `lambda` bake target is deliberately outside the `default` group that publishes
-  # there.
+  # The object at a given key is IMMUTABLE — diatreme refuses to overwrite one that exists — so
+  # the key change is the deploy signal and no `source_code_hash` is needed. It also means a
+  # rollback is a one-line revert to a key still holding exactly the bytes that were reviewed.
   #
-  # Prefer a digest over a tag for production: Lambda resolves a tag once, at update time, so
-  # re-pushing the same tag does NOT redeploy and the function silently keeps running whatever it
-  # resolved months ago.
-  #
-  # COLD START: this must name an image that ALREADY EXISTS. Run the deploy workflow once, then
-  # set this to what it produced.
+  # COLD START: this must name a version that ALREADY EXISTS. ../artifacts was applied first and
+  # `backend/0.0.25.zip` was published by hand into it (the module's own header documents that
+  # bootstrap, because the front door cannot come up before something is there to run). From the
+  # next release onward this is bumped by a reviewed PR and nothing else changes.
   # ───────────────────────────────────────────────────────────────────────────────────────────
-  image_uri = ""
+  artifact_version = "0.0.25"
+
+  # Wired from the sibling leaf rather than hardcoded, so a bucket rename cannot leave this
+  # pointing at a bucket that no longer exists while still planning cleanly.
+  artifact_bucket = dependency.artifacts.outputs.artifact_bucket
+
+  # Must agree with `artifact_prefix` in ../artifacts, which is what the publish role's IAM
+  # policy is scoped to.
+  artifact_prefix = "backend"
 
   # ── the database ────────────────────────────────────────────────────────────────────────────
-  # "rds" creates a db.t4g.micro. See ../../../provider.hcl for what that costs and when.
-  db_mode = "rds"
+  #
+  # "external", NOT "rds", and this is the single most important line in the file.
+  #
+  # This is a MEMBER account of o-zipq67xej5, so its 12-month free-tier allowances were spent
+  # before the account existed (see ../../../provider.hcl). A db.t4g.micro would bill from its
+  # first hour at roughly $15/month, with no devices and no users — the definition of a surprise
+  # bill. "external" makes `local.creates_database` false, which also makes `local.networked`
+  # false, so this apply creates no RDS instance, no VPC, no subnets, no NAT-adjacent anything.
+  #
+  # The consequence is that the function has INTERNET ACCESS (nothing attaches it to a VPC), so
+  # the no-egress constraint the module is built around does not bind on this deployment. That
+  # is a relaxation, not a problem: everything still works, and outbound features could be
+  # switched on later if wanted.
+  #
+  # `database_url` is empty for now, which is a deliberate half-step rather than an oversight:
+  # every route that needs no database (`/v1/health`, `/api/session/config`) answers, so the
+  # whole edge/identity/packaging chain is provably live in real AWS, and supplying a DSN is the
+  # only thing between that and a working console.
+  db_mode      = "external"
+  database_url = ""
 
   # ── the public entrypoint ───────────────────────────────────────────────────────────────────
   #
@@ -124,4 +161,10 @@ inputs = {
   # "created" either way.
   ops_email           = "caleb@magmamoose.com"
   enable_budget_alarm = true
+
+  # PARKED until `database_url` is set. The sweep fires once a minute and every firing would
+  # fail against a database that does not exist, so the function-error alarm would email on a
+  # five-minute cycle forever — which is exactly how somebody learns to ignore the one alarm
+  # that can see the sweep fail. Turn it on in the same change that supplies the DSN.
+  sweep_enabled = false
 }

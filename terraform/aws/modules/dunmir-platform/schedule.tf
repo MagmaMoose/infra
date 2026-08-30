@@ -23,6 +23,7 @@ resource "aws_scheduler_schedule" "sweep" {
     mode = "OFF"
   }
 
+  state               = var.sweep_enabled ? "ENABLED" : "DISABLED"
   schedule_expression = var.sweep_schedule_expression
   # Explicit rather than the account default. A `cron()` expression written for a European
   # operator and silently interpreted as UTC is the kind of off-by-an-hour that only shows up

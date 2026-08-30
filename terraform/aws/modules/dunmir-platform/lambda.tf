@@ -71,6 +71,25 @@ locals {
       # Only set where the browser reaches S3 at a different address than the function does
       # — see the variable. Empty on AWS, where both are the same public host.
       S3_PUBLIC_ENDPOINT_URL = var.s3_public_endpoint_override
+
+      # PRESIGNED DOWNLOADS ARE OPT-IN, AND THIS IS THE ONLY DEPLOYMENT THAT OPTS IN.
+      #
+      # `app/storage.py:presigning_available()` used to infer this from STORAGE_BACKEND=s3 plus
+      # credentials, which is equally true of the Kubernetes/R2 deployment. The console then took
+      # the presigned path there too, the browser refused the cross-origin fetch because the
+      # console's CSP names no object store, and backup downloads broke in the shipping product
+      # after working for months.
+      #
+      # The ceiling that makes presigning necessary is specific to HERE: Mangum caps a Lambda
+      # response payload at 6 MB and base64-encodes an octet-stream into it, so a backup over
+      # ~4.4 MiB fails as an opaque 502. On Kubernetes the proxy streams with no ceiling, so
+      # presigning buys nothing and costs a CSP origin, a bucket CORS policy, and a second way
+      # for a download to fail.
+      #
+      # Turning this on has two hard requirements, and both are in this module so they cannot
+      # drift apart from it: `aws_s3_bucket_cors_configuration.backups` in storage.tf, and the
+      # bucket origin in the console's `connect-src` (see the `console_env` output).
+      PRESIGNED_DOWNLOADS = "true"
       # No S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY. The signer falls back to the AMBIENT
       # credentials Lambda injects from the execution role (app/storage.py `_credentials`),
       # which expire in hours and are scoped to this one function — the alternative is a
@@ -187,23 +206,56 @@ resource "aws_cloudwatch_log_group" "lambda" {
   tags = { Name = "${local.name}-api" }
 }
 
+locals {
+  # Must match what MagmaMoose/dunmir's release workflow publishes to, and the prefix the
+  # publish role in the `artifacts` leaf is scoped to. The leaf wires all three from one value.
+  artifact_key = "${var.artifact_prefix}/${var.artifact_version}.zip"
+}
+
 resource "aws_lambda_function" "api" {
   function_name = "${local.name}-api"
   role          = aws_iam_role.lambda.arn
 
-  # Image on AWS; zip locally, because container-image Lambdas are a LocalStack Pro feature.
-  # See `lambda_zip_path` for what that costs the local run and how the gap is covered.
-  package_type = var.localstack ? "Zip" : "Image"
-  image_uri    = var.localstack ? null : var.image_uri
-  filename     = var.localstack ? var.lambda_zip_path : null
-  handler      = var.localstack ? "lambda_handler.handler" : null
-  runtime      = var.localstack ? "python3.12" : null
-  # The zip's hash, so re-running `make dev` after a code change actually redeploys. Without it
-  # Terraform sees no change to any attribute and leaves the old code running, which presents as
-  # "my fix did nothing".
+  # A ZIP, ON BOTH TOPOLOGIES, which is the same artefact rather than two that
+  # resemble each other. It comes from `backend/scripts/build_lambda_zip.py` in
+  # MagmaMoose/dunmir either way; only the delivery differs — a local path for the
+  # emulator, an S3 object for AWS.
+  #
+  # This used to be a container image on AWS, and the change was worth making for
+  # more than the $0.10/GB-month ECR bill it removes. Lambda cannot pull an image
+  # from GHCR, so the image route needed a registry in this account that nothing
+  # else wanted, while the organisation already had a delivery path for exactly
+  # this: `modules/artifacts` publishes a version-keyed, immutable zip and the
+  # consumer pins the key. nievah, chargate, brimyr, caldrith and diatreme all use
+  # it. There was no argument for this service being the exception.
+  package_type = "Zip"
+  handler      = "lambda_handler.handler"
+  runtime      = "python3.12"
+
+  # LOCAL FILE FOR THE EMULATOR, S3 OBJECT FOR AWS.
+  filename  = var.localstack ? var.lambda_zip_path : null
+  s3_bucket = var.localstack ? null : var.artifact_bucket
+  s3_key    = var.localstack ? null : local.artifact_key
+
+  # ONLY LOCALLY, and its absence on AWS is deliberate rather than an omission.
+  #
+  # Locally the zip is rebuilt in place, so without the hash Terraform sees no
+  # attribute change and leaves the old code running — which presents as "my fix
+  # did nothing". On AWS the key is version-scoped and its object immutable, so the
+  # KEY CHANGE is the deploy signal; a hash there would mean reading an 23 MB
+  # object from S3 on every plan to compute something the key already tells us.
   source_code_hash = var.localstack && var.lambda_zip_path != "" ? filebase64sha256(var.lambda_zip_path) : null
 
-  architectures = ["arm64"]
+  # x86_64, NOT arm64, and this is the one place the module deliberately gives up
+  # a discount. A zip's architecture is NOT validated at deploy time the way a
+  # container image manifest's is, so the only thing standing between a
+  # wrong-architecture package and a production `ModuleNotFoundError` is a check in
+  # CI — and that check can only RUN the artefact if CI's machine matches it.
+  # GitHub's runners are x86_64, so this is the architecture that keeps the package
+  # test executable rather than skippable. arm64's ~20% GB-second discount is worth
+  # exactly nothing inside the always-free 400,000 GB-second allowance, which this
+  # workload does not approach. `modules/chargate-broker` made the same call.
+  architectures = ["x86_64"]
 
   memory_size = var.lambda_memory_mb
   timeout     = var.lambda_timeout_seconds
