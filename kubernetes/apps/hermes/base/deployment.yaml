@@ -16,7 +16,7 @@ spec:
       annotations:
         # Rolls the pod (→ re-seed) whenever the git-managed config.yaml changes.
         # sha256 of kubernetes/apps/hermes/base/hermes/configmap.yaml.
-        checksum/config: 4a8298f611c606322c7454df3d8492234cdab554b60dcbe8f562f2dba19de2c6
+        checksum/config: 6f1980601205f4261b57c86afb2c9341c708601b5e9ca04226684be73eff7cd2
       labels:
         app: hermes
     spec:
@@ -145,6 +145,12 @@ spec:
                 secretKeyRef:
                   name: hermes
                   key: n8n-mcp-auth-token
+            # --- Nievah MCP bearer (substituted into ${NIEVAH_MCP_TOKEN}). ---
+            - name: NIEVAH_MCP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hermes
+                  key: nievah-mcp-token
           resources:
             # Python agent — heavier than the old Node assistant. No CPU limit
             # (CFS-throttle false alarms). CPU REQUEST dropped 200m -> 50m: ff-vm1
