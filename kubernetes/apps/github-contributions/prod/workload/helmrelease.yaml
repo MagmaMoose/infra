@@ -48,7 +48,7 @@ spec:
       # live in base/github-contributions/image-automation.yaml; the shared `media`
       # ImageUpdateAutomation scans ./kubernetes/apps and pushes the bump to main.
       # v0.0.1 is a placeholder until Diatreme publishes the first real release tag.
-      tag: v0.0.8 # {"$imagepolicy": "flux-system:github-contributions:tag"}
+      tag: v0.0.9 # {"$imagepolicy": "flux-system:github-contributions:tag"}
       pullPolicy: IfNotPresent
       pullSecrets:
         - name: ghcr-pull-secret
