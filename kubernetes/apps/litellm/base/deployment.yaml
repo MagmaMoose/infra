@@ -85,6 +85,12 @@ spec:
                 secretKeyRef:
                   name: litellm
                   key: ollama-lan-api-key
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
           volumeMounts:
             - name: config
               mountPath: /etc/litellm

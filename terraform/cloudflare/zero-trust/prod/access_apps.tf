@@ -828,7 +828,6 @@ resource "cloudflare_zero_trust_access_application" "dependency_track_api_path" 
   domain               = "dependencytrack.magmamoose.com/api"
   tags                 = ["Magma Moose"]
   app_launcher_visible = false
-  session_duration     = "0s"
 }
 
 resource "cloudflare_zero_trust_access_policy" "dependency_track_api_path_bypass" {
