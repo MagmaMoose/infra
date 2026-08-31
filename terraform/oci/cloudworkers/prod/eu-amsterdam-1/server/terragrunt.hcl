@@ -103,17 +103,18 @@ inputs = {
   # Consequence worth knowing: rotating the k3s node-token now means updating
   # TWO vaults.
   #
-  # Sourced from the environment because the secret does not exist yet — the
-  # empty vault-cloudworkers is already provisioned in this tenancy, but has no
-  # key and no secret (operator bootstrap; see the ADR). The regex asserts at
-  # parse time, which matters more here than anywhere else in this stack:
-  # modules/server only anchors the OCID PREFIX, so a plausible-looking
-  # placeholder passes validation AND passes the agent-mode precondition, and
-  # you get two VMs that boot, fail, and exit 1 — then get REPLACED when the
-  # real OCID lands, because this value is inside the user_data replace hash.
+  # Created 2026-08-31 in vault-cloudworkers (the vault was already provisioned
+  # in this tenancy but held no key and no secret) under a SOFTWARE-protected
+  # AES key, key-cloudworkers. Software protection rather than firefly's HSM
+  # because software keys carry no per-key charge.
   #
-  # Replace with the literal OCID once created, matching the rest of the repo.
-  # The vault must be in eu-amsterdam-1: modules/server passes --region to the
+  # The vault must stay in eu-amsterdam-1: modules/server passes --region to the
   # in-VM fetch from var.region.
-  k3s_token_secret_ocid = regex("^ocid1\\.vaultsecret\\..+$", get_env("OCI_CW_K3S_TOKEN_SECRET_OCID", ""))
+  #
+  # Do NOT swap this for a placeholder if it ever needs re-pointing.
+  # modules/server anchors only the OCID PREFIX, so a plausible-looking
+  # placeholder passes validation AND passes the agent-mode precondition, and
+  # you get two VMs that boot, retry five times and exit 1. Worse, the value is
+  # inside the user_data replace hash, so correcting it later REPLACES both VMs.
+  k3s_token_secret_ocid = "ocid1.vaultsecret.oc1.eu-amsterdam-1.amaaaaaao6ivuuqa635dkzooqb5vwq25sjlo7jhwdvpmzjpy7lp6ulyk6uxa"
 }
