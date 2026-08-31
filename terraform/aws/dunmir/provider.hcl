@@ -25,17 +25,20 @@
 # allowances are already spent — `aws freetier get-free-tier-usage` returns an empty list.
 # RDS would therefore bill from its first hour.
 #
-# So this deployment runs `db_mode = "external"` and creates NO RDS instance and NO VPC. What
-# is left is either permanently free (Lambda, Cognito, EventBridge Scheduler, CloudWatch Logs)
-# or costs cents at this scale (API Gateway at $1/M requests against an hourly heartbeat; ECR
-# at $0.10/GB-month for one ~250 MB image). Measured at rest: about three cents a month.
+# So this deployment runs `db_mode = "dynamodb"` and creates NO RDS instance. DynamoDB is the
+# only AWS database with an always-free allowance (25 GB + 25 RCU + 25 WCU, provisioned,
+# forever), and its VPC gateway endpoint is also free — so it is the one store that fits
+# the no-NAT constraint this topology is built around. The stack DOES create a VPC; the
+# function runs inside it with S3 and DynamoDB gateway endpoints and no NAT gateway.
 #
-# The database is therefore NOT on AWS. Changing `db_mode` back to "rds" is a deliberate
-# ~$15/month decision, not a configuration tweak — do not make it casually.
+# Changing `db_mode` back to "rds" is a deliberate ~$15/month decision, not a config
+# tweak — do not make it casually. Changing to "external" would leave the function with
+# no database at all.
 #
-# There is no third option that keeps Postgres. The application is 200-odd hand-written SQL
-# statements across nineteen tables with joins and aggregations; "port it to DynamoDB and be
-# always-free" is a rewrite of the persistence layer, not a setting.
+# There is no third option that keeps Postgres without a bill. The application has a
+# store abstraction layer (dunmir_control_plane/store/) that lets the Kubernetes topology
+# keep Postgres while this topology uses DynamoDB; porting the SQL path to DynamoDB
+# would be a rewrite of the persistence layer, not a setting.
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 #
 # `provider = "aws"` is required by root.hcl, which reads it to suppress the OCI

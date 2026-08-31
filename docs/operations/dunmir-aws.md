@@ -1,8 +1,8 @@
 # Dün Mir on AWS
 
 Dün Mir's backend runs on AWS free-tier services: a Lambda behind an API Gateway HTTP API, a
-Cognito user pool the browser talks to directly, an RDS Postgres nothing outside the VPC can
-reach, and an S3 bucket for encrypted device backups. **The console stays on Cloudflare** — only
+Cognito user pool the browser talks to directly, a DynamoDB table for the control-plane store,
+and an S3 bucket for encrypted device backups. **The console stays on Cloudflare** — only
 the API is here.
 
 - Module: `terraform/aws/modules/dunmir-platform`
@@ -45,10 +45,13 @@ length; it is written there because two modules' comments had confidently counte
 allowances that never existed.
 
 So the honest position: **RDS is the one that would matter** at ~$15/month, which is why the
-production leaf runs `db_mode = "external"` and creates no database and no VPC. Everything
-else bills now, and bills a trivial amount. The default heartbeat interval is **one hour**, so
-a thousand devices generate ~720k API requests a month, about **$0.72** at $1.00/million. The
-deployment artefact is a ~23 MB zip, about $0.0005/month.
+production leaf runs `db_mode = "dynamodb"`. DynamoDB's always-free allowance (25 GB + 25 RCU
++ 25 WCU, provisioned) survives the free-tier change, and its VPC gateway endpoint is free —
+making it the one store that fits the no-NAT constraint. The stack does create a VPC; the
+function runs inside it with S3 and DynamoDB gateway endpoints. Everything else bills now, and
+bills a trivial amount. The default heartbeat interval is **one hour**, so a thousand devices
+generate ~720k API requests a month, about **$0.72** at $1.00/million. The deployment artefact
+is a ~23 MB zip, about $0.0005/month.
 
 **DynamoDB's allowance is PROVISIONED capacity and it is pooled ORGANISATION-wide**, which is
 the constraint that shapes the table design rather than a footnote to it. 25 RCU + 25 WCU is
@@ -166,7 +169,8 @@ cd terraform/aws/dunmir/prod/eu-west-1/platform && AWS_PROFILE=mm-dunmir terragr
 
 The API comes up on its own `*.execute-api` hostname and is usable immediately. (Where
 `db_mode = "rds"` this is also where the ten-minute database creation happens; the production
-leaf runs `db_mode = "external"` and creates none.)
+leaf runs `db_mode = "dynamodb"` and creates a DynamoDB table instead — typically under a
+minute.)
 
 Read the validation record and create it in Cloudflare, **DNS-only (grey cloud)**:
 
@@ -182,9 +186,17 @@ have every call blocked by the browser. Deploy the console after phase 2.
 
 ### 4. Apply the schema
 
-Terraform does not do this. Where the database is an RDS instance, nothing outside the VPC can
-either — it has no public address and the function is the only thing that can reach it — so the
-migration runs as a task on the function itself:
+**For `db_mode = "dynamodb"` (the production leaf): skip this step.** Terraform owns the table
+shape entirely — `database_dynamo.tf` declares every attribute, GSI, and capacity setting.
+There is no SQL schema to migrate; the table is ready as soon as `terragrunt apply` completes.
+
+The step below applies only when `db_mode = "rds"`. It is kept here because the module still
+supports RDS for other topologies, and because the invoke mechanics are non-obvious enough to
+document once and reference everywhere.
+
+Where the database is an RDS instance, nothing outside the VPC can reach it — it has no public
+address and the function is the only thing that can — so the migration runs as a task on the
+function itself:
 
 ```bash
 aws lambda invoke --function-name "$(terragrunt output -raw lambda_function_name)" --cli-binary-format raw-in-base64-out --payload '{"task":"migrate"}' /tmp/migrate.json > /tmp/migrate-meta.json

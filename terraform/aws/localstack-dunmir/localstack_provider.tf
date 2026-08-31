@@ -23,8 +23,8 @@ provider "aws" {
   region = "eu-west-1"
 
   # LocalStack accepts anything; these exist because the SDK refuses to sign without them.
-  access_key = "test"
-  secret_key = "test"
+  access_key = "test" # checkov:skip=CKV_SECRET_6:LocalStack placeholder, not a real credential
+  secret_key = "test" # checkov:skip=CKV_SECRET_6:LocalStack placeholder, not a real credential
 
   # Without these the provider would try to reach the real AWS: verify an account id it cannot
   # see, validate credentials that are not real, and resolve a partition that does not apply.

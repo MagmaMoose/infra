@@ -12,6 +12,7 @@
 # request to `POST /internal/sweep`. That means no shared admin token to hold, no round trip
 # through the gateway, and no way to reach the sweep from outside the account at all.
 
+  # checkov:skip=CKV_AWS_297:No CMK for EventBridge Scheduler. A CMK bills per key per month; the schedule payload is just {"task":"sweep"} with no secrets.
 resource "aws_scheduler_schedule" "sweep" {
   count = local.creates_schedule ? 1 : 0
 
@@ -164,6 +165,7 @@ resource "aws_cloudwatch_metric_alarm" "database_cpu_credits" {
   alarm_actions = [aws_sns_topic.alerts[0].arn]
 }
 
+  # checkov:skip=CKV_AWS_26:SNS topic not KMS-encrypted. The topic carries email alarm notifications only — no secrets — and a CMK adds a per-key monthly charge this home-lab deployment avoids.
 resource "aws_sns_topic" "alerts" {
   count = !var.localstack && var.ops_email != "" ? 1 : 0
 

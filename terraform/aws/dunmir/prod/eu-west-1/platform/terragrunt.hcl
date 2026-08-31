@@ -175,9 +175,9 @@ inputs = {
   ops_email           = "caleb@magmamoose.com"
   enable_budget_alarm = true
 
-  # PARKED until `database_url` is set. The sweep fires once a minute and every firing would
-  # fail against a database that does not exist, so the function-error alarm would email on a
-  # five-minute cycle forever — which is exactly how somebody learns to ignore the one alarm
-  # that can see the sweep fail. Turn it on in the same change that supplies the DSN.
-  sweep_enabled = false
+  # The DynamoDB table is provisioned by Terraform (database_dynamo.tf) and needs no DSN — the
+  # function finds it by name from the environment variables Terraform sets. The sweep is ready
+  # to run: it fires once a minute and walks each tenant's DEVSTAT# prefix looking for stale
+  # heartbeats. It is the core of the product's alerting and invisible when disabled.
+  sweep_enabled = true
 }

@@ -49,14 +49,14 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import subprocess
+import subprocess  # nosec B404 - test harness only, not shipped
 import sys
 import time
 import urllib.error
 import urllib.request
 from typing import Any
 
-PASSWORD = "an-adequately-long-passphrase"
+PASSWORD = "an-adequately-long-passphrase"  # nosec B105 - test passphrase, LocalStack only
 
 
 # --------------------------------------------------------------------------- #
@@ -93,7 +93,7 @@ def request(
         hdrs.setdefault("Content-Type", "application/json")
     req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=60) as response:  # noqa: S310 - local only
+        with urllib.request.urlopen(req, timeout=60) as response:  # noqa: S310 # nosec B310 # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected - local only
             payload = response.read()
     except urllib.error.HTTPError as exc:
         payload = exc.read()
@@ -110,7 +110,7 @@ def request_raw(method: str, url: str) -> tuple[int, dict, bytes]:
     """A plain fetch with no credential — for a URL that carries its own."""
     req = urllib.request.Request(url, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=60) as response:  # noqa: S310 - local only
+        with urllib.request.urlopen(req, timeout=60) as response:  # noqa: S310 # nosec B310 # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected - local only
             return response.status, dict(response.headers), response.read()
     except urllib.error.HTTPError as exc:
         return exc.code, dict(exc.headers), exc.read()
@@ -143,15 +143,15 @@ def aws_cli(*args: str) -> subprocess.CompletedProcess[str]:
     different account's store and reports the pool as not existing, which is a
     confusing way to be told "you did not sign this".
     """
-    return subprocess.run(  # noqa: S603
+    return subprocess.run(  # noqa: S603 # nosec B603,B607 - test harness only, fixed command list
         ["aws", *args],
         capture_output=True,
         text=True,
         check=False,
         env={
             "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
-            "AWS_ACCESS_KEY_ID": "test",
-            "AWS_SECRET_ACCESS_KEY": "test",
+            "AWS_ACCESS_KEY_ID": "test",  # nosec B105 - LocalStack test credential
+            "AWS_SECRET_ACCESS_KEY": "test",  # nosec B105 - LocalStack test credential
             "AWS_DEFAULT_REGION": "eu-west-1",
         },
     )

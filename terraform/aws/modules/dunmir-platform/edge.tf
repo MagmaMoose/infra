@@ -90,6 +90,7 @@ resource "aws_apigatewayv2_integration" "api" {
 # contract, Pro's `/api/*` reads, the SPA's deep links — and re-declaring any of it here would
 # be a second routing table to keep in step, with a 404 from the gateway (which logs nothing
 # useful) as the failure mode.
+  # checkov:skip=CKV_AWS_309:No authorizer on the $default route. Authorization is done inside the Lambda function — the backend verifies Cognito JWTs against the JWKS passed in as configuration. Setting an authorizer here would add a second auth layer that duplicates work and cannot handle the function's own unauthenticated endpoints (health checks, invite acceptance).
 resource "aws_apigatewayv2_route" "default" {
   count = local.creates_api ? 1 : 0
 
@@ -142,6 +143,8 @@ resource "aws_apigatewayv2_stage" "default" {
   tags = { Name = "${local.name}-api" }
 }
 
+  # checkov:skip=CKV_AWS_158:No KMS CMK for the log group — same reasoning as the Lambda log group: a CMK bills per key per month and API Gateway access logs carry no secrets.
+  # checkov:skip=CKV_AWS_338:Retention is set explicitly (var.log_retention_days); the one-year floor is a compliance requirement this home-lab product does not have.
 resource "aws_cloudwatch_log_group" "api" {
   count = local.creates_api ? 1 : 0
 

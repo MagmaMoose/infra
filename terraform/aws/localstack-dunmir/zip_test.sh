@@ -107,6 +107,7 @@ docker run -d --name "$NAME" -p "$PORT:8080" \
   "$BASE" lambda_handler.handler >/dev/null
 
 for _ in $(seq 1 30); do
+  # DevSkim: ignore DS162092 - test harness, localhost only
   curl -sf -o /dev/null -XPOST "http://localhost:$PORT/2015-03-31/functions/function/invocations" \
     -d '{"version":"2.0","rawPath":"/v1/health","requestContext":{"http":{"method":"GET","path":"/v1/health","sourceIp":"127.0.0.1"}},"headers":{"host":"x"},"isBase64Encoded":false}' \
     && break
@@ -125,11 +126,12 @@ assert() {
 }
 
 invoke() {
+  # DevSkim: ignore DS162092 - test harness, localhost only
   curl -s -XPOST "http://localhost:$PORT/2015-03-31/functions/function/invocations" -d "$1"
 }
 
 http_event() {
-  printf '{"version":"2.0","rawPath":"%s","requestContext":{"http":{"method":"GET","path":"%s","sourceIp":"127.0.0.1"}},"headers":{"host":"api.example.com"},"isBase64Encoded":false}' "$1" "$1"
+  printf '{"version":"2.0","rawPath":"%s","requestContext":{"http":{"method":"GET","path":"%s","sourceIp":"127.0.0.1"}},"headers":{"host":"api.example.com"},"isBase64Encoded":false}' "$1" "$1" # DevSkim: ignore DS162092
 }
 
 echo
@@ -203,7 +205,7 @@ if docker run --rm --platform "$PLATFORM" --network none -u 993:990 \
 import json, sys, lambda_handler
 ev = {"version": "2.0", "rawPath": "/v1/health", "isBase64Encoded": False,
       "headers": {"host": "api.example.com"},
-      "requestContext": {"http": {"method": "GET", "path": "/v1/health", "sourceIp": "127.0.0.1"}}}
+      "requestContext": {"http": {"method": "GET", "path": "/v1/health", "sourceIp": "127.0.0.1"}}}  # DevSkim: ignore DS162092
 assert lambda_handler.handler(ev, None)["statusCode"] == 200
 import ssl
 assert len(ssl.create_default_context(cafile="/var/task/rds-global-bundle.pem").get_ca_certs()) > 50
@@ -232,6 +234,7 @@ docker run -d --name "$NAME-nokeys" -p "$((PORT + 1)):8080" \
 # grep succeeded — so the check reported "no match" every time it actually matched.
 found=0
 for _ in $(seq 1 20); do
+  # DevSkim: ignore DS162092 - test harness, localhost only
   curl -s -o /dev/null --max-time 3 -XPOST \
     "http://localhost:$((PORT + 1))/2015-03-31/functions/function/invocations" \
     -d "$(http_event /v1/health)" 2>/dev/null || true

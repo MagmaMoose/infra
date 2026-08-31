@@ -69,6 +69,8 @@ resource "random_id" "snapshot" {
 # service-created log group retains FOREVER, and by the time anyone notices the bill, changing
 # the retention does not reclaim what is already stored. lambda.tf goes to some trouble over
 # exactly this and then this group was left unmanaged.
+  # checkov:skip=CKV_AWS_158:No KMS CMK for the log group — same reasoning as the Lambda log group: a CMK bills per key per month and the RDS logs carry no secrets beyond what the DB engine emits.
+  # checkov:skip=CKV_AWS_338:Retention is set explicitly (var.log_retention_days); the one-year floor is a compliance requirement this home-lab product does not have.
 resource "aws_cloudwatch_log_group" "database" {
   count = local.creates_database ? 1 : 0
 
@@ -159,6 +161,10 @@ resource "aws_db_parameter_group" "this" {
   }
 }
 
+  # checkov:skip=CKV_AWS_353:RDS performance insights not enabled — home-lab, cost not justified.
+  # checkov:skip=CKV_AWS_157:RDS Multi-AZ not enabled — home-lab single-AZ deployment; HA is not a requirement here.
+  # checkov:skip=CKV_AWS_161:RDS IAM authentication not enabled — the application uses a password DSN; IAM auth would require code changes in the backend.
+  # checkov:skip=CKV_AWS_118:Enhanced monitoring not enabled — the default 60-second CloudWatch metrics are sufficient for this scale.
 resource "aws_db_instance" "this" {
   count = local.creates_database ? 1 : 0
 

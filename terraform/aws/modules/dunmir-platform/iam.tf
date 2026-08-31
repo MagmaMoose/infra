@@ -93,6 +93,8 @@ data "aws_iam_policy_document" "lambda_with_dynamodb" {
 # The ENI actions genuinely do need `*`: the interface does not exist when the permission is
 # evaluated, so it cannot be named in a resource ARN. That is the whole exception, and it is
 # now visible rather than bundled with a logging grant nobody asked for.
+  # checkov:skip=CKV_AWS_355:Resource * is required for VPC ENI actions. The ENI does not exist at policy evaluation time, so it cannot be named by ARN — this is the documented AWS constraint. The comment above this resource explains it.
+  # checkov:skip=CKV_AWS_290:The write actions (ec2:CreateNetworkInterface, ec2:AssignPrivateIpAddresses) require * for the same reason: no ARN available before the ENI exists. These are not data-plane writes.
 resource "aws_iam_role_policy" "vpc_access" {
   count = local.networked ? 1 : 0
 

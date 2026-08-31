@@ -91,7 +91,7 @@ module "platform" {
   # network. `postgres` resolves inside the Lambda container because LocalStack is told to
   # attach Lambda containers to this network — see LAMBDA_DOCKER_NETWORK in docker-compose.yml.
   db_mode      = "external"
-  database_url = "postgresql://dunmir:dunmir@postgres:5432/dunmir"
+  database_url = "postgresql://dunmir:dunmir@postgres:5432/dunmir" # checkov:skip=CKV_SECRET_6:Local Postgres test credential — LocalStack only, not a real password
 
   # By CONTAINER NAME, not localhost: the function runs in its own container on this compose
   # network, where `localhost` is itself. LocalStack is told to attach Lambda containers to this
