@@ -101,22 +101,23 @@ inputs = {
   # attaches its IPSec connections to.
   enable_vpn = true
 
-  # EMPTY ON THE FIRST APPLY, AND THAT IS DELIBERATE.
+  # ff-chr3, the app/data subnets' 0.0.0.0/0 next-hop. It masquerades their
+  # traffic out to its own public IP.
   #
-  # modules/network/main.tf resolves this address to a private-IP OCID via a
-  # data source whose postcondition fails when no such IP exists — and the IP
-  # belongs to ff-chr3, which lives in the edge subnet THIS module creates.
-  # Applying with the address set on a greenfield tenancy is an unbreakable
-  # cycle: network needs the CHR, the CHR needs the subnet.
+  # This was EMPTY for the first apply and that was deliberate, because
+  # modules/network resolves the address to a private-IP OCID through a data
+  # source whose postcondition fails when no such IP exists yet, and the IP
+  # belongs to a CHR that lives in the edge subnet THIS module creates. On a
+  # greenfield tenancy that is an unbreakable cycle: network needs the CHR, the
+  # CHR needs the subnet. The bootstrap was:
+  #   1. apply this leaf with "" (VCN + subnets, app/data with no default route)
+  #   2. apply ../edge (ff-chr3 .11 and ff-chr4 .12 come up)
+  #   3. set this and re-apply
+  # Done 2026-08-31. Restore the empty string only if rebuilding from scratch.
   #
-  # Two-pass bootstrap:
-  #   1. apply this leaf with "" -> VCN + subnets exist, app/data have no
-  #      default route (they have no internet egress yet, which is fine)
-  #   2. apply ../edge -> ff-chr3/ff-chr4 come up on .11/.12
-  #   3. set this to "192.168.240.11" and re-apply -> app/data get their
-  #      0.0.0.0/0 next-hop
-  # Step 3 is a one-line follow-up commit, not a manual console change.
-  internet_gateway_ip = ""
+  # Single-CHR, matching firefly. Losing ff-chr3 strands app/data egress;
+  # ff-chr4 is a warm spare, not an automatic failover.
+  internet_gateway_ip = "192.168.240.11"
 
   # Operator IPs allowed to talk to the MikroTik plaintext binary API on the
   # public IPs in the edge subnet (the routeros terraform provider needs this).

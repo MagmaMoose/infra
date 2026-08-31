@@ -53,17 +53,17 @@ inputs = {
   # traceysargeant has zero custom images of its own. Custom images do not cross
   # a tenancy boundary.
   #
-  # Sourced from the environment rather than hardcoded because the OCID does not
-  # exist yet — the import is an operator bootstrap step (upload MikroTik's
-  # official chr-7.x.vmdk to an Object Storage bucket in this tenancy, then
-  # `oci compute image import from-object-uri --source-image-type VMDK
-  # --launch-mode PARAVIRTUALIZED`). The regex asserts at parse time so this
-  # leaf cannot be planned against a placeholder and cannot silently pick up an
-  # image from the wrong tenancy.
+  # Imported into THIS tenancy 2026-08-31 from MikroTik's official
+  # chr-7.18.2.vmdk (sha256 5b2f6063505bb84a34a4795ade97469169d75f89e8630a6813d
+  # 7419a64445c87), staged via the `image-import` Object Storage bucket and
+  # `oci compute image import from-object --source-image-type VMDK
+  # --launch-mode PARAVIRTUALIZED`. Version pinned to 7.18.2 to match firefly's
+  # ff-chr1/ff-chr2, so config copied between the two CHR pairs behaves the same.
+  # Resolves to the same 47694 MB PARAVIRTUALIZED image firefly runs.
   #
-  # Replace with the literal OCID once imported, matching how every other leaf
-  # in this repo pins its image. See the ADR for the full bootstrap sequence.
-  image_ocid = regex("^ocid1\\.image\\..+$", get_env("OCI_CW_CHR_IMAGE_OCID", ""))
+  # A CHR version bump here is a separate, deliberate re-import: it replaces the
+  # instances, and drifting apart from firefly's pair is the thing to avoid.
+  image_ocid = "ocid1.image.oc1.eu-amsterdam-1.aaaaaaaaplthqutg4gab6kxf7ikdy2i7ftsib2d6cnnfrfpof7wct3ufyxma"
 
   # Reserved (not ephemeral) public IPs from the very first apply. Firefly's
   # pair started ephemeral and is now stuck: flipping the flag releases the IP
