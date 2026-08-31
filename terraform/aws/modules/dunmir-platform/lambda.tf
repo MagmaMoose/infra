@@ -95,6 +95,34 @@ locals {
       # which expire in hours and are scoped to this one function — the alternative is a
       # long-lived IAM user whose secret sits in this configuration forever.
 
+      # --- the heartbeat floor ----------------------------------------------------------
+      #
+      # THE ONE FIELD THAT CAN WALK THIS DEPLOYMENT OUT OF THE FREE TIER.
+      # `devices.heartbeat_interval_seconds` is nullable, per-device, has no database
+      # default, and the router accepts anything from 30s upward. The 3600 in
+      # `config.DEFAULT_HEARTBEAT_INTERVAL_SECONDS` is only the SWEEP's fallback for reading a
+      # NULL — it does not constrain what an operator may store.
+      #
+      # That is harmless on Postgres and expensive here. This topology's control-plane store is
+      # provisioned at a handful of DynamoDB capacity units, bought to sit inside AWS's
+      # always-free allowance, with autoscaling deliberately off — so the write rate is a fixed
+      # budget rather than a performance characteristic. One busy site set to 30s spends it,
+      # silently, and the first signal is a bill.
+      #
+      # Both values are inert unless set (see `capacity.py`), so no other topology is affected.
+      #
+      # 4 BEATS PER SECOND is derived, not chosen: a heartbeat costs ~3 write units — one for
+      # the device's status item, two more for the liveness index, which is keyed on
+      # `last_seen_at` and so rewrites its entry rather than updating in place. Against the
+      # write capacity this deployment holds that is ~4/s fleet-wide. **Re-derive it whenever
+      # the table's provisioned WCU changes**; the two are one number expressed twice, and
+      # nothing but this comment couples them.
+      #
+      # The effective floor is max(300, devices / 4), so 1000 devices land at 300s with room
+      # and a fleet past 1200 is held progressively slower.
+      MIN_HEARTBEAT_INTERVAL_SECONDS = "300"
+      MAX_HEARTBEATS_PER_SECOND      = "4"
+
       # --- runtime limits the vendored core hard-codes (app/limits.py) ---------------------
       #
       # The core's 64 MiB backup ceiling is unreachable behind API Gateway, whose request
