@@ -199,7 +199,7 @@ projects:
       enabled: true
     apply_requirements: [mergeable]
 
-  # ─── OCI prod / eu-amsterdam-1 (8 leaves) ────────────────────────────────
+  # ─── OCI prod / eu-amsterdam-1 (10 leaves) ───────────────────────────────
   - name: oci-prod-eu-amsterdam-1-network
     dir: terraform/oci/prod/eu-amsterdam-1/network
     workspace: default
@@ -301,6 +301,81 @@ projects:
     autoplan:
       when_modified: ["**/*.tf", "**/*.tfvars", "**/*.hcl"]
       enabled: true
+    apply_requirements: [mergeable]
+
+  # ─── OCI cloudworkers prod / eu-amsterdam-1 (4 leaves) ───────────────────
+  # Second OCI tenancy (traceysargeant), its own Always Free allowance: two more
+  # native-cloud k3s workers (ff-oci3/ff-oci4) and two CHR edge routers
+  # (ff-chr3/ff-chr4). Credentials come from OCI_CW_* via
+  # terraform/oci/cloudworkers/provider.hcl (`env_prefix = "OCI_CW"`).
+  #
+  # autoplan disabled on all four, deliberately. Atlantis injects firefly's OCI
+  # credentials only, and it has no OCI_CW_* at all. Every leaf here asserts its
+  # tenancy and compartment OCIDs with HCL `regex()` at PARSE time, so an
+  # autoplan would hard-fail on the empty asserts. (That is the assert doing its
+  # job: without it the empty values would fall through to firefly's ambient
+  # ~/.oci/config and plan against the wrong tenancy, which is the failure this
+  # design exists to make impossible.) A red check nobody can fix is a red check
+  # everyone learns to ignore (same reasoning as the AWS notes above).
+  #
+  # `network` and `vpn` additionally resolve inputs through parse-time
+  # `run_cmd "oci"` vault fetches, which need a working ~/.oci/config on
+  # whatever runs terragrunt. `edge` and `server` have no run_cmd.
+  #
+  # To flip these to `enabled: true`: give the Atlantis deployment per-tenancy
+  # OCI credentials (OCI_CW_TENANCY_OCID, OCI_CW_USER_OCID, OCI_CW_FINGERPRINT,
+  # OCI_CW_COMPARTMENT_OCID, and OCI_CW_PRIVATE_KEY_PATH pointing at a key file
+  # on the pod - root.hcl reads the PATH, not the key body) plus the two literal
+  # OCIDs the leaves still take from env (OCI_CW_CHR_IMAGE_OCID, which needs a
+  # CHR image imported into traceysargeant first, and
+  # OCI_CW_K3S_TOKEN_SECRET_OCID).
+  #
+  # COLD-START APPLY ORDER (run by hand, `atlantis plan -p <project>` if wired):
+  #   1. network, with internet_gateway_ip = "" (no CHR exists yet)
+  #   2. edge      (creates ff-chr3 .11 and ff-chr4 .12)
+  #   3. network again, with internet_gateway_ip = "192.168.240.11"
+  #   4. vpn       (this tenancy's own DRG + IPSec to FG1/FG2)
+  #   5. server    (ff-oci3 .71, ff-oci4 .72; joins k3s over the tunnel)
+  # No `mikrotik` config leaf here on purpose: CHR masquerade is set up
+  # out-of-band, see the edge leaf's own notes.
+  - name: oci-cloudworkers-prod-eu-amsterdam-1-network
+    dir: terraform/oci/cloudworkers/prod/eu-amsterdam-1/network
+    workspace: default
+    terraform_version: v1.11.3
+    workflow: terragrunt
+    autoplan:
+      when_modified: ["**/*.tf", "**/*.tfvars", "**/*.hcl"]
+      enabled: false
+    apply_requirements: [mergeable]
+
+  - name: oci-cloudworkers-prod-eu-amsterdam-1-edge
+    dir: terraform/oci/cloudworkers/prod/eu-amsterdam-1/edge
+    workspace: default
+    terraform_version: v1.11.3
+    workflow: terragrunt
+    autoplan:
+      when_modified: ["**/*.tf", "**/*.tfvars", "**/*.hcl"]
+      enabled: false
+    apply_requirements: [mergeable]
+
+  - name: oci-cloudworkers-prod-eu-amsterdam-1-vpn
+    dir: terraform/oci/cloudworkers/prod/eu-amsterdam-1/vpn
+    workspace: default
+    terraform_version: v1.11.3
+    workflow: terragrunt
+    autoplan:
+      when_modified: ["**/*.tf", "**/*.tfvars", "**/*.hcl"]
+      enabled: false
+    apply_requirements: [mergeable]
+
+  - name: oci-cloudworkers-prod-eu-amsterdam-1-server
+    dir: terraform/oci/cloudworkers/prod/eu-amsterdam-1/server
+    workspace: default
+    terraform_version: v1.11.3
+    workflow: terragrunt
+    autoplan:
+      when_modified: ["**/*.tf", "**/*.tfvars", "**/*.hcl"]
+      enabled: false
     apply_requirements: [mergeable]
 
 workflows:

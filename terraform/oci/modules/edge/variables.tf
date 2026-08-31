@@ -51,6 +51,15 @@ variable "fault_domains" {
   type = map(object({
     fault_domain = number
     private_ip   = optional(string)
+    # OCI display_name for the instance (e.g. "ff-chr3"), so the console matches
+    # the ff-<type><n> naming used everywhere else. Empty (the default) keeps the
+    # historical "<environment>-mikrotik-chr-<key>" name, which is what the
+    # firefly edge leaf relies on. Mirrors `node_name` in modules/server.
+    #
+    # Not wired to create_vnic_details.hostname_label on purpose: that attribute
+    # is absent today, so setting it would be a live UpdateVnic on the existing
+    # CHRs, and RouterOS ignores OCI-provided DNS anyway.
+    node_name = optional(string, "")
   }))
   default = {
     "fd1" = { fault_domain = 0 }

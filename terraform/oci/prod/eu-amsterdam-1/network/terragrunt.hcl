@@ -108,6 +108,15 @@ inputs = {
       cidr        = "192.168.72.0/24"
       description = "FranklinHouse OCI Johannesburg (DRG peering)"
     }
+    # The second OCI tenancy (traceysargeant) holding ff-oci3/ff-oci4. They are
+    # agents of THIS cluster, so this VCN must route and admit their traffic —
+    # without this entry the flannel mesh between the two OCI pairs is one-way.
+    # Traffic hairpins through FG1; there is no direct tenancy-to-tenancy link.
+    # Mirrored by `firefly_vcn` in terraform/oci/cloudworkers/.../network.
+    cloudworkers_vcn = {
+      cidr        = "192.168.240.0/24"
+      description = "Cloudworkers OCI VCN (tracey tenancy) — ff-oci3/ff-oci4"
+    }
     # AWS network - uncomment when AWS VPN is configured
     # aws_af_south_1 = {
     #   cidr        = "10.0.0.0/16"  # Update with actual AWS VPC CIDR

@@ -6,7 +6,7 @@ This guide provides essential architectural knowledge for AI agents working in t
 
 This monolithic repository manages a **distributed home lab** across multiple cloud providers and a local Kubernetes cluster:
 
-- **Kubernetes Core**: 4-node k3s cluster "firefly" — Raspberry Pi 5 control plane, one on-prem amd64 worker, and two arm64 OCI free-tier VMs (the native-cloud tier)
+- **Kubernetes Core**: 4-node k3s cluster "firefly" — Raspberry Pi 5 control plane, one on-prem amd64 worker, and two arm64 OCI free-tier VMs (the native-cloud tier). Two more native-cloud VMs (`ff-oci3`/`ff-oci4`) are declared in Terraform in a **second OCI tenancy** but not yet applied
 - **Cloud Infrastructure**: Multi-provider Terraform via Terragrunt (GCP, OCI, Cloudflare, AWS/Azure future)
 - **Configuration Management**: Ansible for system setup, bootstrapping, and complex provisioning
 - **GitOps Pipeline**: FluxCD v2 watches this repo and auto-deploys Kubernetes manifests
@@ -29,12 +29,19 @@ terraform/
   cloudflare/dns/                # Cloudflare DNS records
   cloudflare/zero-trust/         # Cloudflare ZTNA
   gcp/prod/                      # GCP environments (uses root.hcl)
-  oci/modules/                   # Reusable OCI modules (network, server, edge, mikrotik, …)
-  oci/prod/                      # OCI environments (uses root.hcl)
+  oci/provider.hcl               # Default OCI tenancy (caleb): env_prefix = "OCI", so credentials are OCI_*
+  oci/modules/                   # Reusable OCI modules (network, server, edge, mikrotik, vpn, …)
+  oci/prod/                      # OCI environments, caleb tenancy (uses root.hcl)
   oci/iam-policy/                # Tenancy-root OCI IAM policies
+  oci/cloudworkers/provider.hcl  # SECOND tenancy (traceysargeant): env_prefix = "OCI_CW"
+  oci/cloudworkers/prod/eu-amsterdam-1/
+                                 # network, edge, vpn, server. Same modules as oci/prod,
+                                 # different tenancy. Builds ff-chr3/ff-chr4 + ff-oci3/ff-oci4
 ```
 
 **Key Pattern**: Each provider directory structure mirrors cloud regions/environments. Terragrunt auto-generates `backend.tf` and `provider.tf` - **don't manually edit these files** (they're marked `if_exists = "overwrite"`).
+
+**Second key pattern: a subtree can shadow the tenancy.** `terraform/root.hcl` resolves credentials through `find_in_parent_folders("provider.hcl")`, which finds the **nearest** one, and reads an optional `env_prefix` local from it (`try(..., "OCI")`). `oci/cloudworkers/provider.hcl` sets `env_prefix = "OCI_CW"`, so every leaf beneath it authenticates from `OCI_CW_*` instead of `OCI_*`. Everything else is unaffected and renders byte-identically. Region always comes from the leaf's `region.hcl`, never from an env var, so a second tenancy cannot pick up the wrong region from the ambient environment.
 
 ### 2. Kustomize Hierarchical Overlays (kubernetes/)
 
@@ -152,8 +159,9 @@ flux reconcile kustomization core -n flux-system    # or: misc, automation, medi
 ### Pre-Commit Hooks
 
 ```bash
-# Custom hook system at: https://github.com/calebsargeant/pre-commit-hooks
-pre-commit run --all-files  # Must pass before committing
+# Hooks are workstation-global: core.hooksPath=~/.git-hooks, config ~/.pre-commit-config.yaml.
+# This repo carries no .pre-commit-config.yaml, so `pre-commit install` here is a no-op.
+pre-commit run --config ~/.pre-commit-config.yaml --all-files  # Must pass before committing
 ```
 
 ## Project-Specific Conventions
@@ -223,10 +231,36 @@ LiteLLM (`kubernetes/apps/litellm`) intentionally separates Claude Code OAuth pa
 | Service | Purpose | Config Location |
 |---------|---------|-----------------|
 | Google Cloud | Terraform state backend (GCS bucket `${company}-${environment}-terraform-state`, per `terraform/root.hcl`) | `terraform/root.hcl` remote_state |
-| OCI (Oracle) | Cloud infrastructure provisioning | `terraform/oci/` + env vars: OCI_TENANCY_OCID, OCI_USER_OCID, etc. |
+| OCI (Oracle), caleb tenancy | Cloud infrastructure provisioning | `terraform/oci/` + env vars: OCI_TENANCY_OCID, OCI_USER_OCID, etc. |
+| OCI (Oracle), traceysargeant tenancy | The cloudworkers stack (ff-oci3/ff-oci4, ff-chr3/ff-chr4) | `terraform/oci/cloudworkers/` + env vars: OCI_CW_* (see below) |
 | Cloudflare | DNS automation, edge (external-dns plugin) | `terraform/cloudflare/` |
 | 1Password Connect | Secret injection into Kubernetes | `kubernetes/infrastructure/controllers/stack/1password-connect/` |
 | Flux GitRepository | Git polling for deployments | `kubernetes/clusters/firefly/flux-system/` defines git URLs |
+
+### OCI Environment Variables (per tenancy)
+
+`terraform/root.hcl` builds the generated `provider.tf` from four env vars whose **prefix is chosen by the nearest `provider.hcl`**:
+
+```hcl
+oci_env_prefix = try(local.provider_vars.locals.env_prefix, "OCI")
+```
+
+So there is one variable set per tenancy, and a leaf gets the right one purely from where it sits in the tree:
+
+| Tenancy | provider.hcl | Credential vars |
+|---|---|---|
+| caleb (default) | `terraform/oci/provider.hcl` (`env_prefix = "OCI"`, the historical set, stated explicitly) | `OCI_TENANCY_OCID`, `OCI_USER_OCID`, `OCI_FINGERPRINT`, `OCI_PRIVATE_KEY_PATH` |
+| traceysargeant | `terraform/oci/cloudworkers/provider.hcl` (`env_prefix = "OCI_CW"`) | `OCI_CW_TENANCY_OCID`, `OCI_CW_USER_OCID`, `OCI_CW_FINGERPRINT`, `OCI_CW_PRIVATE_KEY_PATH` |
+
+The cloudworkers leaves read three more from the environment:
+
+- `OCI_CW_COMPARTMENT_OCID`: traceysargeant has no child compartments, so this is the tenancy OCID itself.
+- `OCI_CW_CHR_IMAGE_OCID`: the MikroTik CHR image for `ff-chr3`/`ff-chr4`. **Does not exist yet.** Custom images are tenancy-private, so firefly's CHR image OCID is unusable here (it 404s); an operator must import a CHR `.vmdk` into traceysargeant first.
+- `OCI_CW_K3S_TOKEN_SECRET_OCID`: a **copy** of firefly's k3s node-token, in a vault in this tenancy. Cross-tenancy instance-principal reads are impossible (OCI Endorse/Admit accept `group`, never `dynamic-group`), so rotating the node-token means updating **two** vaults.
+
+**Why these are wrapped in `regex()` rather than plain `get_env`**: `get_env(x, "")` returns an empty string when unset, and an empty `tenancy_ocid` makes the OCI provider fall through to `~/.oci/config`'s DEFAULT profile, which is firefly's. A forgotten variable would then plan against the **wrong tenancy** and look fine. The `regex()` asserts fail at parse time instead. Keep the groups non-capturing (`(?:...)`): HCL's `regex()` returns capture groups instead of the match when a group is present.
+
+**Atlantis has none of the `OCI_CW_*` variables**, which is why all four `oci-cloudworkers-*` projects have `autoplan: enabled: false` in `atlantis.yaml`. Plan them from a workstation that has the variables.
 
 ### Cross-Component Communication
 
@@ -350,24 +384,49 @@ or the kubelet OOM-kills it before Valkey applies its own policy.
 
 ## Native-cloud (OCI) worker tier
 
-`ff-oci1` / `ff-oci2` are OCI free-tier **arm64** VMs that join firefly as k3s
-agents and form the **native-cloud** tier — a more reliable home for
-always-online, public-facing workloads (GitHub-App backends) and the
-`postgres-oci` DB. Full detail: `docs/reference/cluster-topology.md`. Gotchas:
+`ff-oci1` / `ff-oci2` (live) and `ff-oci3` / `ff-oci4` (declared, not yet applied)
+are OCI free-tier **arm64** VMs that join firefly as k3s agents and form the
+**native-cloud** tier — a more reliable home for always-online, public-facing
+workloads (GitHub-App backends) and the `postgres-oci` DB. Full detail:
+`docs/reference/cluster-topology.md`. Gotchas:
 
-- **Provisioned in Terraform, not Ansible.** `terraform/oci/modules/server` +
-  the `server` leaf define the VMs and their cloud-init k3s agent join. The
-  leaf's `servers` map sets `node_name` (registers as `ff-ociN`) and
-  `node_labels` (the tier label). Editing the **module** means Atlantis won't
-  autoplan — run `atlantis plan -p oci-prod-eu-amsterdam-1-server`. Changing
-  `node_name`/`node_labels` **replaces** the VM (cloud-init hash changes).
+- **Two tenancies, one tier.** ff-oci1/ff-oci2 are in the **caleb** tenancy,
+  ff-oci3/ff-oci4 in **traceysargeant**. One Oracle account gets one Always Free
+  ARM allowance (4 OCPU / 24 GB) and the first pair already spends firefly's, so
+  the second pair only exists to draw on a second account's allowance. "One per
+  fault domain" now means one per fault domain **per tenancy**.
+- **They do not share a network path.** ff-oci1/ff-oci2 use firefly's own DRG and
+  its IPSec to FG1/FG2. ff-oci3/ff-oci4 cannot: that tunnel terminates in the
+  other tenancy. They have their **own** DRG and their own IPSec to the same two
+  FortiGates, so ff-oci3-to-ff-oci1 traffic (flannel VXLAN included) hairpins
+  through FG1. Both OCI DRGs are Oracle **AS 31898**, so FG1 must originate both
+  `192.168.223.0/24` and `192.168.240.0/24` as redistributed statics (or run
+  `as-override`), otherwise AS_PATH loop rejection drops the prefixes silently
+  while the tunnels still report green.
+- **Provisioned in Terraform, not Ansible.** `terraform/oci/modules/server` is
+  shared by **two** leaves: `terraform/oci/prod/eu-amsterdam-1/server`
+  (`oci-prod-eu-amsterdam-1-server`) and
+  `terraform/oci/cloudworkers/prod/eu-amsterdam-1/server`
+  (`oci-cloudworkers-prod-eu-amsterdam-1-server`). Each leaf's `servers` map sets
+  `node_name` (registers as `ff-ociN`) and `node_labels` (the tier label).
+  Editing the **module** touches both and Atlantis won't autoplan, so run
+  `atlantis plan -p oci-prod-eu-amsterdam-1-server`; the cloudworkers projects
+  have autoplan disabled entirely and must be planned locally with `OCI_CW_*` set.
+  Changing `node_name`/`node_labels` **replaces** the VM (cloud-init hash changes).
+- **The k3s node-token is duplicated.** A dynamic-group policy in one tenancy
+  cannot authorise an instance-principal read against a vault in another, so the
+  cloudworkers pair reads a **copy** from its own tenancy's vault. Rotating the
+  node-token means updating **both** vaults.
 - **Tier label:** `topology.sargeant.co/tier=native-cloud`, set at join. The
   `node-role.kubernetes.io/worker` label is applied post-join with `kubectl`
   (the kubelet may **not** self-register `kubernetes.io`-namespaced labels —
   NodeRestriction), so don't put it in `node_labels`.
-- **Pin apps** with `components: [ ../../../../components/node-selectors/native-cloud ]`
-  (or inline `nodeSelector` for non-app-template HelmReleases). **Verify the
-  image is arm64/multi-arch first** — several custom images are amd64-only.
+- **Pin apps** with the `placement.sargeant.co/tier: cloud` label, which Kyverno
+  turns into a `nodeSelector` at admission (or inline `nodeSelector` for
+  non-app-template HelmReleases). The old
+  `components/node-selectors/native-cloud` component has been **deleted**; don't
+  reference it. **Verify the image is arm64/multi-arch first** — several custom
+  images are amd64-only.
 - **Label-only, no taint** (no toleration churn across DaemonSets).
 
 ## When Making Changes
@@ -415,7 +474,7 @@ This is **not** generic Kubernetes:
 
 | File | Purpose |
 |------|---------|
-| `.pre-commit-config.yaml` | Custom hook system |
+| (none) | Hooks are workstation-global, not repo-local: `~/.git-hooks` + `~/.pre-commit-config.yaml` |
 | `.sops.yaml` | SOPS encryption key configuration |
 | `atlantis.yaml` | Terraform PR automation config |
 | `ATLANTIS_SETUP.md` | Deployment and secret setup guide |
@@ -469,7 +528,7 @@ This applies to all work: new Kubernetes apps, Terraform modules, Ansible roles,
 1. Read `README.md` for high-level overview
 2. Explore `terraform/root.hcl` to understand version pinning + state management
 3. Inspect `kubernetes/clusters/firefly/kustomization.yaml` and one infrastructure component (e.g., `kubernetes/infrastructure/services/stack/cloudflared/`)
-4. Check `.pre-commit-config.yaml` to understand validation before commits
+4. Check `~/.pre-commit-config.yaml` (workstation-global) to understand validation before commits
 5. Reference `.github/copilot-instructions.md` for detailed style/standards
 
 ## GitHub Copilot PR Reviews
