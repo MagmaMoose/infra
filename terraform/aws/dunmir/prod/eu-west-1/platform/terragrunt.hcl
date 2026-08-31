@@ -131,6 +131,22 @@ inputs = {
   # Universal SSL covers one label, `api.dunmir.magmamoose.com` is two, and here Cloudflare
   # terminates nothing.
   api_domain_name      = "api.dunmir.magmamoose.com"
+  # FALSE, AND NOT BECAUSE PHASE 2 FAILED — it worked. Reverted because
+  # `api.dunmir.magmamoose.com` IS THE LIVE KUBERNETES PRODUCT'S API, served
+  # through the Cloudflare tunnel in `cloudflare/zero-trust/prod/tunnels.tf` to
+  # `dunmir-backend.dunmir-pro.svc.cluster.local:8000`. Attaching it here and
+  # pointing DNS at API Gateway is not a deployment step, it is a CUTOVER: it
+  # moves every existing operator and every deployed agent onto a database that
+  # currently holds one item.
+  #
+  # Phase 2 also sets `disable_execute_api_endpoint`, so turning it on without the
+  # DNS record leaves the AWS deployment reachable at NO hostname at all — which is
+  # exactly what happened, briefly, before this was reverted.
+  #
+  # The cutover needs three things this leaf cannot decide: a data migration from
+  # the Kubernetes Postgres, a maintenance window, and somebody's explicit call on
+  # when. Until then AWS runs on its `*.execute-api` hostname, which is what
+  # `execute_api_endpoint` outputs and what an agent smoke test should use.
   enable_custom_domain = false
 
   # Credentialed CORS forbids a `*` origin, so a wrong value fails CLOSED — every call from the
