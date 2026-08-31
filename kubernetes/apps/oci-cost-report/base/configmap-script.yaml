@@ -99,7 +99,7 @@ data:
 
     HTTP_TIMEOUT = int(os.environ.get("HTTP_TIMEOUT", "60"))
 
-    _SHA256_DIGEST_INFO = bytes.fromhex("3031300d060960864801650304020105000420")
+    _SHA256_DIGEST_INFO = bytes.fromhex("3031300d060960864801650304020105000420")  # pragma: allowlist secret
 
 
     # ---------------------------------------------------------------- formatting

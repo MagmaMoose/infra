@@ -125,3 +125,37 @@ AVD-DS-0026
 KSV-0113
 KSV0113
 AVD-KSV-0113
+
+# KSV-0109 — "ConfigMap stores secrets in key(s) or value(s)".
+#
+# Suppressed on oci-cost-report-script because the rule is matching Python
+# function parameter names (`token`, `def post_to_slack(token`) in the embedded
+# script, not actual credential material. The real Slack token lives in the
+# `oci-cost-report` Secret and is injected via secretKeyRef; the ConfigMap
+# contains only code.
+KSV-0109
+KSV0109
+AVD-KSV-0109
+
+# KSV-01010 — "ConfigMap stores sensitive contents in key(s) or value(s)".
+#
+# Same root cause as KSV-0109: the rule matches Python identifier patterns
+# (`key=lambda`, `get = lambda key`, `key=lambda kv`) inside the oci-cost-report
+# script ConfigMap. These are sorting lambda expressions and parameter names,
+# not credential material. The ConfigMap stores a Python script, not a secret.
+KSV-01010
+KSV01010
+AVD-KSV-01010
+
+# DS173237 — "Do not store tokens or keys in source code" at
+# kubernetes/apps/oci-cost-report/base/configmap-script.yaml:112.
+#
+# Suppressed because the matched content is not a credential. Line 112 is
+# `_SHA256_DIGEST_INFO = bytes.fromhex("3031300d060960864801650304020105000420")`,
+# a standard DER-encoded SHA-256 DigestInfo header used for hand-rolled PKCS#1
+# RSA signing (see the module docstring). It is a public cryptographic constant,
+# not a key. The constant is also annotated inline with `# pragma: allowlist
+# secret` as a belt-and-suspenders suppression for scanners that read that hint.
+DS173237
+DS-173237
+AVD-DS-173237

@@ -17,6 +17,11 @@ metadata:
   # convention, same as security-integrations).
   # kics-scan ignore-line
   namespace: observability
+  annotations:
+    checkov.io/skip1: CKV_K8S_15=IfNotPresent is the house convention; image is tagged and pulled only when absent, not on every CronJob run
+    checkov.io/skip2: CKV_K8S_11=CPU limits are unset estate-wide by design; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited.
+    checkov.io/skip3: CKV_K8S_35=SLACK_BOT_TOKEN is the only secret env-var; OCI credentials are already volume-mounted. Single opaque value, no sub-keys — secretKeyRef is the right shape here.
+    checkov.io/skip4: CKV_K8S_43=Pinned tag with IfNotPresent is the house convention; Renovate keeps the tag current
 spec:
   # 07:30 UTC. OCI writes usage rows with a lag, so an 00:30 run would routinely find
   # yesterday missing and print an unknown as a zero. The script says so out loud when it
