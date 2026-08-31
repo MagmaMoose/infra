@@ -291,10 +291,10 @@ spec:
             # KubeDeploymentReplicasMismatch — so nothing was ever delivered.
             #
             # Measured 2026-08-31: 63 alerts firing, 59 of them routed to "null",
-            # including `KubePodCrashLooping sabnzbd` (804 OOMKills) and 43
-            # `KubeJobFailed`. library-organizer had failed every run for days,
-            # pod-gateway had rolled 1,776 times, whisparr was down for 6 hours —
-            # all alerting the whole time, none of it visible. See ember#145.
+            # including KubePodCrashLooping (multiple OOMKills) and dozens of
+            # KubeJobFailed. Several workloads had been failing for days,
+            # others rolling hundreds of times or down for hours —
+            # all alerting the whole time, none of it visible.
             #
             # Deliberately its own receiver with a slow cadence, so this informs
             # without becoming noise that gets muted.
@@ -441,11 +441,11 @@ spec:
           memory: 100Mi
 
     # kube-prometheus-stack ships no OOMKilled alert. Three separate OOM bugs surfaced
-    # in ember on 2026-08-31 (stash at 256Mi killed mid-scan, sabnzbd at 256Mi against
-    # a 1G article cache, whisparr's MediaCover filling its volume) and not one of them
-    # named itself — each presented as a permissions error, a crash loop, or a library
-    # that was quietly incomplete. This is the cheapest possible signal for a whole
-    # class of "sized from a settled instance" mistakes. See ember#145.
+    # on 2026-08-31 (one container OOMKilled mid-scan at 256Mi, another running against
+    # a large cache at the same limit, a third with a volume filled by a media cache)
+    # and not one of them named itself — each presented as a permissions error, a crash
+    # loop, or a library that was quietly incomplete. This is the cheapest possible
+    # signal for a whole class of "sized from a settled instance" mistakes.
     additionalPrometheusRulesMap:
       oomkilled:
         groups:
