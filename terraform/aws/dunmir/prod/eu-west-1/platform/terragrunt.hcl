@@ -86,7 +86,7 @@ inputs = {
   # bootstrap, because the front door cannot come up before something is there to run). From the
   # next release onward this is bumped by a reviewed PR and nothing else changes.
   # ───────────────────────────────────────────────────────────────────────────────────────────
-  artifact_version = "0.0.26"
+  artifact_version = "0.0.27"
 
   # Wired from the sibling leaf rather than hardcoded, so a bucket rename cannot leave this
   # pointing at a bucket that no longer exists while still planning cleanly.
