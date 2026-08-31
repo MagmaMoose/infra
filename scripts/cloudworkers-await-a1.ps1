@@ -24,14 +24,16 @@
     the current user and deleted on exit. Nothing is written to the repo.
 
 .PARAMETER IntervalSeconds
-    Seconds between attempts. Default 300.
+    Seconds between attempts. Default 60. A minute is about as tight as this is worth
+    running: each attempt is a real signed API call and a terragrunt plan+apply cycle,
+    and OCI capacity does not free up faster than that.
 
 .PARAMETER MaxAttempts
     Give up after this many attempts. 0 (the default) means keep going forever.
 
 .EXAMPLE
     .\scripts\cloudworkers-await-a1.ps1
-    Retry every 5 minutes until both nodes are up.
+    Retry every minute until both nodes are up.
 
 .EXAMPLE
     .\scripts\cloudworkers-await-a1.ps1 -IntervalSeconds 120 -MaxAttempts 50
@@ -42,7 +44,7 @@
 #>
 [CmdletBinding()]
 param(
-    [int]$IntervalSeconds = 300,
+    [int]$IntervalSeconds = 60,
     [int]$MaxAttempts = 0
 )
 
@@ -162,8 +164,18 @@ key_file=$($KeyFile -replace '\\', '/')
         exit 0
     }
 
-    Write-Host "waiting for A1 capacity in $AvailDomain. Interval ${IntervalSeconds}s. Ctrl-C to stop."
+    Write-Host ''
+    Write-Host '=== cloudworkers A1 wait ===' -ForegroundColor Cyan
+    Write-Host "  target      : ff-oci3 + ff-oci4 (VM.Standard.A1.Flex, 2 OCPU / 12 GB each)"
+    Write-Host "  placement   : $AvailDomain, one per fault domain"
+    Write-Host "  leaf        : $Leaf"
+    Write-Host "  interval    : ${IntervalSeconds}s$(if ($MaxAttempts -gt 0) { ", max $MaxAttempts attempts" } else { ', no limit' })"
+    Write-Host "  started     : $((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))"
+    Write-Host '  Ctrl-C to stop. The key is wiped on exit.'
+    Write-Host ''
+
     $attempt = 0
+    $started = Get-Date
     $logFile = Join-Path $Work 'apply.log'
 
     while ($true) {
@@ -181,8 +193,17 @@ key_file=$($KeyFile -replace '\\', '/')
         $log = if (Test-Path $logFile) { Get-Content $logFile -Raw } else { '' }
         $stamp = (Get-Date).ToString('HH:mm:ss')
 
+        # How long this has been going, so the terminal answers "should I give up on OCI
+        # and pick another region" without anyone doing arithmetic. Computed BEFORE the
+        # success check because the success message uses it too, and under StrictMode an
+        # undefined $forStr would throw at the exact moment the VMs finally came up.
+        $elapsed = (Get-Date) - $started
+        $forStr = if ($elapsed.TotalHours -ge 1) { '{0:0}h{1:00}m' -f [int]$elapsed.TotalHours, $elapsed.Minutes }
+                  else { '{0:0}m{1:00}s' -f [int]$elapsed.TotalMinutes, $elapsed.Seconds }
+        $nextAt = (Get-Date).AddSeconds($IntervalSeconds).ToString('HH:mm:ss')
+
         if ($rc -eq 0 -and (Test-BothRunning)) {
-            Write-Host "attempt ${attempt}: SUCCESS. ff-oci3 and ff-oci4 are RUNNING." -ForegroundColor Green
+            Write-Host ("$stamp attempt {0}: SUCCESS after {1}. ff-oci3 and ff-oci4 are RUNNING." -f $attempt, $forStr) -ForegroundColor Green
             Write-Host ''
             Write-Host 'Next, on the cluster (the kubelet may not self-set kubernetes.io labels,'
             Write-Host 'so the worker role label has to be applied by hand):'
@@ -195,13 +216,29 @@ key_file=$($KeyFile -replace '\\', '/')
         }
 
         if ($log -match 'Out of host capacity') {
-            Write-Host "$stamp attempt ${attempt}: no capacity, retrying in ${IntervalSeconds}s"
+            Write-Host ("$stamp attempt {0,-4} no A1 capacity  |  waiting {1}  |  next {2}" -f $attempt, $forStr, $nextAt)
+            # Every tenth attempt, confirm the quota is still the thing that is NOT the
+            # problem. If this ever drops it stops being a capacity wait and becomes a
+            # limit problem, which needs a service request rather than patience.
+            if ($attempt % 10 -eq 0) {
+                $prev = $env:OCI_CLI_CONFIG_FILE
+                $env:OCI_CLI_CONFIG_FILE = $CliConfig
+                try {
+                    $q = & oci limits resource-availability get --compartment-id $Tenancy `
+                            --service-name compute --limit-name standard-a1-core-count `
+                            --availability-domain $AvailDomain 2>$null | ConvertFrom-Json
+                    Write-Host ("           quota check: {0} A1 cores available, {1} used (quota is not the blocker; host capacity is)" -f `
+                        $q.data.available, $q.data.used) -ForegroundColor DarkGray
+                } catch {
+                    Write-Host '           quota check: could not read the limits API this round' -ForegroundColor DarkGray
+                } finally { $env:OCI_CLI_CONFIG_FILE = $prev }
+            }
         } elseif ($log -match 'Plugin did not respond|plugin process exited') {
             # Seen intermittently on Windows under memory pressure: the 250 MB oracle/oci
             # provider fails to load its schema. Transient and unrelated to capacity.
-            Write-Host "$stamp attempt ${attempt}: provider plugin crashed (transient), retrying in ${IntervalSeconds}s" -ForegroundColor DarkYellow
+            Write-Host ("$stamp attempt {0,-4} provider plugin crashed (transient, not capacity)  |  waiting {1}  |  next {2}" -f $attempt, $forStr, $nextAt) -ForegroundColor DarkYellow
         } elseif ($rc -eq 0) {
-            Write-Host "$stamp attempt ${attempt}: apply succeeded but both nodes are not RUNNING yet; rechecking in ${IntervalSeconds}s"
+            Write-Host ("$stamp attempt {0,-4} apply OK but both nodes not RUNNING yet  |  waiting {1}  |  next {2}" -f $attempt, $forStr, $nextAt) -ForegroundColor DarkYellow
         } else {
             # Anything else is a real problem and repeating it will not help.
             Write-Host "attempt ${attempt}: FAILED for a reason that is not capacity. Stopping." -ForegroundColor Red

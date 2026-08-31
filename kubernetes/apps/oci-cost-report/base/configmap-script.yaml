@@ -42,18 +42,13 @@ data:
     and about forty lines of DER parsing, which makes `python:3.12-slim` (multi-arch, no
     install step) a complete runtime. Same reasoning as streaming-sync's "stdlib only".
 
-    WHY THERE IS NO ALWAYS-FREE ALLOWANCE SECTION. The AWS report has one because
-    GetFreeTierUsage publishes AWS's own limits and forecasts. OCI publishes no equivalent:
-    `oci usage-api` has no free-tier or allowance resource (checked against CLI 3.88.0 --
-    the command list is queries, schedules, custom tables and carbon emissions, nothing
-    else), and the `overage`/`overagesFlag` fields on a usage item stay null on both of
-    these tenancies because they describe Universal Credits commitments, not the Always Free
-    allowance. `oci limits` reports service LIMITS, which is a different number, and after
-    the cloudworkers tenancy was converted to Pay As You Go its limits no longer track the
-    free allowance at all. What IS available, and is the next best thing, is the USAGE query:
-    a service consuming quantity at zero cost is by definition sitting inside an allowance,
-    and the run in which its amount stops being zero is the run that says so. That is the
-    `running free` line under each tenancy.
+    WHY THERE IS NO FREE-TIER SECTION. An earlier draft carried one, inferring allowance
+    headroom from usage that moved at zero cost. It was cut deliberately. This report exists
+    to answer ONE question -- "am I being billed, and how much" -- because the person reading
+    it cannot absorb a surprise OCI invoice. Free-tier headroom is a different and much less
+    urgent question, and mixing the two makes the number that matters harder to find. Cutting
+    it also halves the API calls per run, which matters against an endpoint that throttles
+    after a handful a minute.
 
     CURRENCY IS NOT ASSUMED. Every usage item carries its own `currency`, and firefly's
     returns EUR, not USD (verified live). The formatter takes the currency from the data, and
@@ -92,11 +87,6 @@ data:
     # Long tails are noise. Everything past this is folded into one "+N more" line so a single
     # chatty service cannot push the other tenancy out of a readable message.
     MAX_SERVICES = 8
-    MAX_FREE_SERVICES = 5
-    # Two units per service. OCI routinely meters one resource several ways -- Compute reports
-    # "OCPU Hours", "OCPU Per Hour" AND "Gigabyte Per Hour" for the same running instance --
-    # and printing all of them makes one service look like three.
-    MAX_FREE_UNITS_PER_SERVICE = 2
 
     # Used only when a tenancy returned no cost rows at all, in which case every figure is zero
     # and the symbol is cosmetic. Both tenancies here are EU-billed accounts, and firefly's live
@@ -137,13 +127,6 @@ data:
         # point, so precision widens exactly as far as the magnitude demands.
         places = -magnitude.adjusted() + 2
         return f"{sign}{symbol}{magnitude:.{places}f}"
-
-
-    def _qty(amount: Decimal) -> str:
-        """Usage quantities, which are counts more often than fractions."""
-        if amount == amount.to_integral_value():
-            return f"{int(amount):,}"
-        return f"{amount.quantize(Decimal('0.01')).normalize():,f}"
 
 
     def _dec(value) -> Decimal:
@@ -425,7 +408,6 @@ data:
         window_start = min(month_start, yesterday)
 
         cost_rows = query_usage(tenancy, window_start, today, "COST")
-        usage_rows = query_usage(tenancy, window_start, today, "USAGE")
 
         # Whether OCI has ANY row for yesterday, of either kind. Usage data lands with a lag,
         # and an early-morning run can find yesterday not yet written. Without this flag that
@@ -433,7 +415,7 @@ data:
         # 0.00 and be believed.
         has_yesterday = any(
             (row.get("timeUsageStarted") or "")[:10] == yesterday.isoformat()
-            for row in cost_rows + usage_rows
+            for row in cost_rows
         )
 
         day: dict[str, Decimal] = collections.defaultdict(Decimal)
@@ -450,16 +432,6 @@ data:
             if date >= month_start.isoformat():
                 mtd[service] += amount
 
-        # A (service, unit) pair that moved quantity yesterday and cost nothing is running
-        # inside an allowance. That pairing is the only free-tier signal OCI exposes.
-        free: dict[str, dict[str, Decimal]] = collections.defaultdict(lambda: collections.defaultdict(Decimal))
-        for row in usage_rows:
-            if (row.get("timeUsageStarted") or "")[:10] != yesterday.isoformat():
-                continue
-            quantity = _dec(row.get("computedQuantity"))
-            if quantity > 0 and _dec(row.get("computedAmount")) == 0:
-                free[row.get("service") or "unknown"][row.get("unit") or "units"] += quantity
-
         return {
             "name": tenancy.name,
             # None, not a guess, when the tenancy reported nothing. The fleet total's
@@ -468,7 +440,6 @@ data:
             "mixed_currency": len(currencies) > 1,
             "day": dict(day),
             "mtd": dict(mtd),
-            "free": {svc: dict(units) for svc, units in free.items()},
             "has_yesterday": has_yesterday,
             "warn": tenancy.warn,
             "alert": tenancy.alert,
@@ -526,21 +497,6 @@ data:
             rest = sum((result["mtd"].get(s, Decimal(0)) for s in hidden), Decimal(0))
             lines.append(f"        • _+{len(hidden)} more — {_money(rest, currency)} MTD_")
 
-        if result["free"]:
-            # Ranked by how many meters a service moved, so the busiest free service leads and
-            # the ordering does not depend on a name.
-            ranked_free = sorted(result["free"].items(), key=lambda kv: (-len(kv[1]), kv[0]))
-            parts = []
-            for service, units in ranked_free[:MAX_FREE_SERVICES]:
-                # Units are picked ALPHABETICALLY, never by quantity: 576 "Gigabyte Per Hour"
-                # is not larger than 48 "OCPU Hours", they are different things, and sorting
-                # by the number silently drops whichever meter happens to count in small
-                # units. Alphabetical is arbitrary but stable, so the same two show up daily.
-                top = sorted(units.items())[:MAX_FREE_UNITS_PER_SERVICE]
-                parts.append(f"{service} ({', '.join(f'{_qty(q)} {u}' for u, q in top)})")
-            if len(ranked_free) > MAX_FREE_SERVICES:
-                parts.append(f"+{len(ranked_free) - MAX_FREE_SERVICES} more")
-            lines.append(f"        _running free:_ {' · '.join(parts)}")
         return lines
 
 
@@ -608,10 +564,8 @@ data:
             lines.append("")
 
         lines.append(
-            "_Cost is what OCI billed, in each tenancy's own currency. `running free` is "
-            "quantity consumed at zero cost, which is the closest thing OCI exposes to an "
-            "Always Free allowance meter — when one of those lines starts carrying a price, "
-            "the allowance is gone._"
+            "_Cost is what OCI has actually billed, in each tenancy's own currency. "
+            "Anything above zero is real money._"
         )
 
         message = "\n".join(lines).rstrip()

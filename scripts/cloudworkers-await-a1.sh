@@ -11,10 +11,15 @@
 # Everything else in the stack (VCN, CHRs, IPSec) is already applied; this leaf
 # is idempotent and only the two instances are missing, so re-running is safe.
 #
-# Run it on a machine that stays on and leave it. It is quiet by default: one
-# line per attempt, and it only gets loud when something happens.
+# Run it on a machine that stays on and leave it. One line per attempt carrying how
+# long it has been waiting and when the next go is, plus a quota check every tenth
+# attempt to confirm the blocker is still host capacity and not a service limit.
 #
-#   scripts/cloudworkers-await-a1.sh                 # forever, 5 min apart
+# NOTE ON CADENCE: the interval is the gap BETWEEN attempts, not the attempt rate. A
+# terragrunt init+plan+apply cycle against this leaf takes several minutes on its own,
+# so a 60s interval yields an attempt roughly every 4-6 minutes in practice.
+#
+#   scripts/cloudworkers-await-a1.sh                 # forever, 1 min apart
 #   scripts/cloudworkers-await-a1.sh -i 120          # every 2 minutes
 #   scripts/cloudworkers-await-a1.sh -n 50           # give up after 50 tries
 #
@@ -29,7 +34,7 @@
 
 set -Eeuo pipefail
 
-INTERVAL=300
+INTERVAL=60
 MAX_ATTEMPTS=0 # 0 = forever
 
 while getopts ":i:n:h" opt; do
@@ -124,8 +129,17 @@ if both_running; then
     exit 0
 fi
 
-echo "waiting for A1 capacity in ${AD}. Interval ${INTERVAL}s. Ctrl-C to stop."
+echo
+echo "=== cloudworkers A1 wait ==="
+echo "  target      : ff-oci3 + ff-oci4 (VM.Standard.A1.Flex, 2 OCPU / 12 GB each)"
+echo "  placement   : ${AD}, one per fault domain"
+echo "  leaf        : ${LEAF}"
+echo "  interval    : ${INTERVAL}s$( [ "$MAX_ATTEMPTS" -gt 0 ] && echo ", max ${MAX_ATTEMPTS} attempts" || echo ", no limit" )"
+echo "  started     : $(date '+%Y-%m-%d %H:%M:%S')"
+echo "  Ctrl-C to stop. The key is wiped on exit."
+echo
 attempt=0
+started=$(date +%s)
 while :; do
     attempt=$((attempt + 1))
     log="$WORK/apply.log"
@@ -135,8 +149,17 @@ while :; do
     rc=$?
     set -e
 
+    # How long this has been going, so the terminal answers "should I give up on this
+    # region" without anyone doing arithmetic. Computed BEFORE the success check because
+    # the success message uses it too, and under `set -u` an unset for_str would crash
+    # the loop at the exact moment the VMs finally came up.
+    now=$(date +%s); secs=$(( now - started ))
+    if [ "$secs" -ge 3600 ]; then for_str="$(( secs / 3600 ))h$(printf '%02d' $(( (secs % 3600) / 60 )))m"
+    else for_str="$(( secs / 60 ))m$(printf '%02d' $(( secs % 60 )))s"; fi
+    next_at=$(date -d "+${INTERVAL} seconds" '+%H:%M:%S' 2>/dev/null || echo "+${INTERVAL}s")
+
     if [ $rc -eq 0 ] && both_running; then
-        echo "attempt ${attempt}: SUCCESS. ff-oci3 and ff-oci4 are RUNNING."
+        echo "attempt ${attempt}: SUCCESS after ${for_str}. ff-oci3 and ff-oci4 are RUNNING."
         echo
         echo "Next, on the cluster (the kubelet may not self-set kubernetes.io labels,"
         echo "so the worker role label has to be applied by hand):"
@@ -149,14 +172,24 @@ while :; do
     fi
 
     if grep -q "Out of host capacity" "$log"; then
-        echo "$(date '+%H:%M:%S') attempt ${attempt}: no capacity, retrying in ${INTERVAL}s"
+        printf '%s attempt %-4s no A1 capacity  |  waiting %s  |  next %s
+' "$(date '+%H:%M:%S')" "$attempt" "$for_str" "$next_at"
+        # Every tenth attempt, confirm the quota is still NOT the problem. If it ever
+        # drops, this stops being a capacity wait and becomes a limit problem, which
+        # needs a service request rather than patience.
+        if [ $(( attempt % 10 )) -eq 0 ]; then
+            avail=$(OCI_CLI_CONFIG_FILE="$WORK/oci_config" oci limits resource-availability get                 --compartment-id "$TENANCY" --service-name compute                 --limit-name standard-a1-core-count --availability-domain "$AD" 2>/dev/null                 | python -c "import json,sys; d=json.load(sys.stdin)['data']; print(f\"{d['available']} available, {d['used']} used\")" 2>/dev/null)
+            echo "           quota check: ${avail:-could not read the limits API this round} (quota is not the blocker; host capacity is)"
+        fi
     elif grep -qE "Plugin did not respond|plugin process exited" "$log"; then
         # Seen intermittently on Windows under memory pressure: the 250 MB oracle/oci
         # provider fails to load its schema. Transient and unrelated to capacity, so it
         # is retried rather than treated as fatal.
-        echo "$(date '+%H:%M:%S') attempt ${attempt}: provider plugin crashed (transient), retrying in ${INTERVAL}s"
+        printf '%s attempt %-4s provider plugin crashed (transient, not capacity)  |  waiting %s  |  next %s
+' "$(date '+%H:%M:%S')" "$attempt" "$for_str" "$next_at"
     elif [ $rc -eq 0 ]; then
-        echo "$(date '+%H:%M:%S') attempt ${attempt}: apply succeeded but both nodes are not RUNNING yet; rechecking in ${INTERVAL}s"
+        printf '%s attempt %-4s apply OK but both nodes not RUNNING yet  |  waiting %s  |  next %s
+' "$(date '+%H:%M:%S')" "$attempt" "$for_str" "$next_at"
     else
         # Anything else is a real problem and repeating it will not help.
         echo "attempt ${attempt}: FAILED for a reason that is not capacity. Stopping." >&2
