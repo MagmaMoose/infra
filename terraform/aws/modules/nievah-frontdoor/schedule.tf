@@ -55,6 +55,22 @@ locals {
       tick = "maintenance_tick"
       cron = "cron(0 * * * ? *)"
     }
+    # The auto-triage lane's retry. That lane starts from ONE webhook delivery, and GitHub
+    # never re-sends one it failed to place, so a dropped delivery strands a PR silently —
+    # "no job ran" and "a job ran and found nothing" are the same empty log.
+    #
+    # THIS SCHEDULE IS LOAD-BEARING IN A WAY THE OTHERS ARE NOT. `_audit_schedule` reports on
+    # the PREVIOUS fire, so it only ever runs BECAUSE a tick fired. A reconcile tick with no
+    # schedule therefore never runs and never alarms — the repair job failing in exactly the
+    # silence it exists to break. If you remove this entry, remove TICK_RECONCILE from
+    # CRONJOB_TICKS in the same change.
+    #
+    # Minute 20 deliberately: away from the planner (7) and maintenance (0), so an hour's
+    # three fires do not arrive together on a single-runner queue.
+    reconcile = {
+      tick = "reconcile_tick"
+      cron = "cron(20 * * * ? *)"
+    }
   }
 }
 
