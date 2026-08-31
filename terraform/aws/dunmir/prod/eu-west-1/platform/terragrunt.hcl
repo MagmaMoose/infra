@@ -82,11 +82,11 @@ inputs = {
   # rollback is a one-line revert to a key still holding exactly the bytes that were reviewed.
   #
   # COLD START: this must name a version that ALREADY EXISTS. ../artifacts was applied first and
-  # `backend/0.0.25.zip` was published by hand into it (the module's own header documents that
+  # `backend/0.0.26.zip` was published by hand into it (the module's own header documents that
   # bootstrap, because the front door cannot come up before something is there to run). From the
   # next release onward this is bumped by a reviewed PR and nothing else changes.
   # ───────────────────────────────────────────────────────────────────────────────────────────
-  artifact_version = "0.0.25"
+  artifact_version = "0.0.26"
 
   # Wired from the sibling leaf rather than hardcoded, so a bucket rename cannot leave this
   # pointing at a bucket that no longer exists while still planning cleanly.
@@ -98,25 +98,22 @@ inputs = {
 
   # ── the database ────────────────────────────────────────────────────────────────────────────
   #
-  # "external", NOT "rds", and this is the single most important line in the file.
+  # DYNAMODB, and this is the single most important line in the file.
   #
-  # This is a MEMBER account of o-zipq67xej5, so its 12-month free-tier allowances were spent
-  # before the account existed (see ../../../provider.hcl). A db.t4g.micro would bill from its
-  # first hour at roughly $15/month, with no devices and no users — the definition of a surprise
-  # bill. "external" makes `local.creates_database` false, which also makes `local.networked`
-  # false, so this apply creates no RDS instance, no VPC, no subnets, no NAT-adjacent anything.
+  # It is the only database on AWS that is free FOREVER, and this organisation has no 12-month
+  # allowances at all — AWS replaced that free tier on 2025-07-15 and the payer signed up
+  # 2025-09-18, two months after the cutover (recorded in modules/caldrith-frontdoor/api.tf).
+  # A db.t4g.micro would therefore bill ~$15/month from its first hour, with no devices and no
+  # users, which is the definition of a surprise bill.
   #
-  # The consequence is that the function has INTERNET ACCESS (nothing attaches it to a VPC), so
-  # the no-egress constraint the module is built around does not bind on this deployment. That
-  # is a relaxation, not a problem: everything still works, and outbound features could be
-  # switched on later if wanted.
+  # It is not Postgres, which is why `dunmir_control_plane/store/` exists: the application asks
+  # for what it wants by name and each backend answers in its own terms, so Kubernetes keeps
+  # Postgres and this keeps its free tier, from one codebase.
   #
-  # `database_url` is empty for now, which is a deliberate half-step rather than an oversight:
-  # every route that needs no database (`/v1/health`, `/api/session/config`) answers, so the
-  # whole edge/identity/packaging chain is provably live in real AWS, and supplying a DSN is the
-  # only thing between that and a working console.
-  db_mode      = "external"
-  database_url = ""
+  # The capacity is TIGHT and the allowance is shared across the whole organisation — see
+  # modules/dunmir-platform/database_dynamo.tf for the arithmetic. Four sibling tables already
+  # hold about half of it.
+  db_mode = "dynamodb"
 
   # ── the public entrypoint ───────────────────────────────────────────────────────────────────
   #

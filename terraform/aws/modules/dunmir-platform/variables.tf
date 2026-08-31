@@ -61,13 +61,20 @@ variable "localstack" {
 # ── database ────────────────────────────────────────────────────────────────────────────────
 variable "db_mode" {
   description = <<-EOT
-    Where Postgres comes from.
+    Where the control-plane data lives.
 
+      "dynamodb" — the control plane's own store, in DynamoDB. **This is what production runs**,
+                   and it is the only option that is free forever; see `database_dynamo.tf` for
+                   the capacity arithmetic, which is tight and organisation-wide.
       "rds"      — this module creates a `db.t4g.micro` single-AZ instance. **Read the cost note
                    below before choosing it.**
       "external" — the module creates nothing and uses `database_url` verbatim. This is what the
                    LocalStack root uses (a compose container), and it is also the escape hatch
                    for pointing at a managed Postgres somewhere cheaper.
+
+    The first is not Postgres at all, which is why the seam in
+    `dunmir_control_plane/store/` exists: the application asks for what it wants by name and
+    each backend answers in its own terms, so Kubernetes keeps Postgres unchanged.
 
     THE COST NOTE, because "free tier" is the whole brief and this is the one line item that can
     break it. `db.t4g.micro` is free-tier eligible for **12 months**, and — per
@@ -92,8 +99,8 @@ variable "db_mode" {
   default     = "rds"
 
   validation {
-    condition     = contains(["rds", "external"], var.db_mode)
-    error_message = "db_mode must be \"rds\" or \"external\"."
+    condition     = contains(["dynamodb", "rds", "external"], var.db_mode)
+    error_message = "db_mode must be \"dynamodb\", \"rds\" or \"external\"."
   }
 }
 

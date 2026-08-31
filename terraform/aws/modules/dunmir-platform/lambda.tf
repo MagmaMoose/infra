@@ -95,6 +95,16 @@ locals {
       # which expire in hours and are scoped to this one function — the alternative is a
       # long-lived IAM user whose secret sits in this configuration forever.
 
+      # --- which store backs the control plane ---------------------------------------------
+      #
+      # `dynamodb` selects `dunmir_control_plane/store/dynamo.py`; anything else keeps the SQL
+      # implementation, which is what every Kubernetes deployment runs. The branch lands in one
+      # factory rather than at the call sites, which is the entire reason the seam exists.
+      DB_BACKEND = var.db_mode == "dynamodb" ? "dynamodb" : "sql"
+      # Empty unless there is a table, so a misconfiguration fails at boot naming the setting
+      # rather than at the first write naming a table that does not exist.
+      DYNAMODB_TABLE = var.db_mode == "dynamodb" ? aws_dynamodb_table.control_plane[0].name : ""
+
       # --- the heartbeat floor ----------------------------------------------------------
       #
       # THE ONE FIELD THAT CAN WALK THIS DEPLOYMENT OUT OF THE FREE TIER.

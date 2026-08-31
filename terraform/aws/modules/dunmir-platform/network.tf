@@ -39,7 +39,24 @@ locals {
   # `vpc_config` there attaches the function to a VPC that has no meaning for its networking.
   # The whole network is therefore skipped locally, and the security-group path between
   # function and database is one of the things a local run does not prove (see `localstack`).
-  networked = !var.localstack && var.db_mode == "rds"
+  # BOTH real stores get a VPC, and for DynamoDB that is a security choice rather than a
+  # connectivity one.
+  #
+  # RDS needs it: the instance has no public address and the function is the only thing that can
+  # reach it.
+  #
+  # DynamoDB does NOT need it — its public endpoint is reachable from a Lambda on the AWS-managed
+  # network, free, with no NAT. But a function outside a VPC has unrestricted internet egress,
+  # and the whole `AUTH_MODE=cognito` design rests on the backend making NO outbound calls: the
+  # browser drives Cognito, the JWKS arrives as configuration, S3 URLs are signed locally,
+  # alert delivery is off. Putting it in a subnet with no internet gateway and only the two FREE
+  # gateway endpoints (S3, DynamoDB) turns that from a property of the code into a property of
+  # the network — so a compromised dependency has nowhere to send anything, rather than merely
+  # no reason to.
+  #
+  # This costs nothing. A VPC, its subnets and gateway endpoints are free; it is the NAT gateway
+  # (~$32/month) and interface endpoints (~$7.30 each) that bill, and there are none of either.
+  networked = !var.localstack && contains(["rds", "dynamodb"], var.db_mode)
 }
 
 data "aws_availability_zones" "available" {
@@ -135,16 +152,19 @@ resource "aws_security_group" "lambda" {
   description = "Dun Mir API function"
   vpc_id      = aws_vpc.this[0].id
 
-  # Egress to the database and nowhere else. There is nowhere else to go — no NAT, no interface
-  # endpoints — but saying so explicitly means an added route cannot silently become an added
-  # capability. S3 traffic leaves via the gateway endpoint, which needs its own rule because
-  # gateway endpoints are matched by prefix list, not by an address the group would recognise.
-  egress {
-    description     = "Postgres"
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.database[0].id]
+  # Egress to the store and nowhere else. There IS nowhere else to go — no NAT, no internet
+  # gateway, no interface endpoints — but saying so explicitly means an added route cannot
+  # silently become an added capability. Both stores leave via a prefix-list or group rule
+  # rather than an address, which is why each needs its own.
+  dynamic "egress" {
+    for_each = local.creates_database ? [1] : []
+    content {
+      description     = "Postgres"
+      from_port       = 5432
+      to_port         = 5432
+      protocol        = "tcp"
+      security_groups = [aws_security_group.database[0].id]
+    }
   }
 
   egress {
@@ -155,11 +175,26 @@ resource "aws_security_group" "lambda" {
     prefix_list_ids = [aws_vpc_endpoint.s3[0].prefix_list_id]
   }
 
+  dynamic "egress" {
+    for_each = var.db_mode == "dynamodb" ? [1] : []
+    content {
+      description     = "DynamoDB via the gateway endpoint"
+      from_port       = 443
+      to_port         = 443
+      protocol        = "tcp"
+      prefix_list_ids = [aws_vpc_endpoint.dynamodb[0].prefix_list_id]
+    }
+  }
+
   tags = { Name = "${local.name}-lambda" }
 }
 
 resource "aws_security_group" "database" {
-  count = local.networked ? 1 : 0
+  # `creates_database`, not `networked`: the VPC now also exists for the DynamoDB topology,
+  # which has no Postgres for this group to protect. Counting it on `networked` would create a
+  # security group named "-db" guarding nothing, and a lambda egress rule permitting 5432 to an
+  # empty group — configuration that reads as a database being present.
+  count = local.creates_database ? 1 : 0
 
   name        = "${local.name}-db"
   description = "Dun Mir Postgres"
@@ -171,7 +206,7 @@ resource "aws_security_group" "database" {
 # Declared as a standalone rule rather than inline, because the two groups reference each other
 # and an inline pair would be a cycle Terraform cannot resolve.
 resource "aws_vpc_security_group_ingress_rule" "database_from_lambda" {
-  count = local.networked ? 1 : 0
+  count = local.creates_database ? 1 : 0
 
   description                  = "Postgres from the API function only"
   security_group_id            = aws_security_group.database[0].id
@@ -179,4 +214,52 @@ resource "aws_vpc_security_group_ingress_rule" "database_from_lambda" {
   from_port                    = 5432
   to_port                      = 5432
   ip_protocol                  = "tcp"
+}
+
+# DynamoDB over a GATEWAY endpoint — the second and last of them, and the reason the control
+# plane's own store can live inside the VPC with no NAT gateway.
+#
+# THIS IS WHY DYNAMODB AND NOT SOMETHING ELSE. Most AWS services are reachable from a private
+# subnet only through an INTERFACE endpoint, which is an ENI billed at ~$7.30/month whether or
+# not a byte moves — on a topology whose whole brief is "free", that is the same problem as the
+# NAT gateway this VPC exists to avoid. S3 and DynamoDB are the two services with gateway
+# endpoints, which are route-table entries and cost nothing. The choice of store and the choice
+# not to have a NAT are therefore the same decision.
+resource "aws_vpc_endpoint" "dynamodb" {
+  count = local.networked && var.db_mode == "dynamodb" ? 1 : 0
+
+  vpc_id            = aws_vpc.this[0].id
+  service_name      = "com.amazonaws.${var.region}.dynamodb"
+  vpc_endpoint_type = "Gateway"
+  route_table_ids   = [aws_route_table.private[0].id]
+
+  # SCOPED, for the same reason the S3 endpoint above is. The default endpoint policy is
+  # `Principal: *`, `Action: *`, `Resource: *` — which would make every DynamoDB table in every
+  # AWS account a reachable network destination from this subnet. The IAM role bounds what the
+  # role may DO; it does not bound where code in this subnet may send bytes, and exfiltration to
+  # an attacker's own table needs no permission of ours.
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = "*"
+      Action = [
+        "dynamodb:GetItem",
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:TransactGetItems",
+        "dynamodb:TransactWriteItems",
+      ]
+      Resource = [
+        aws_dynamodb_table.control_plane[0].arn,
+        "${aws_dynamodb_table.control_plane[0].arn}/index/*",
+      ]
+    }]
+  })
+
+  tags = { Name = "${local.name}-dynamodb" }
 }

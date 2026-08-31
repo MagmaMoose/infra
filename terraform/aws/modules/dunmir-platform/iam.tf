@@ -63,9 +63,22 @@ data "aws_iam_policy_document" "lambda" {
 }
 
 resource "aws_iam_role_policy" "lambda" {
-  name   = "${local.name}-lambda"
-  role   = aws_iam_role.lambda.id
-  policy = data.aws_iam_policy_document.lambda.json
+  name = "${local.name}-lambda"
+  role = aws_iam_role.lambda.id
+  # Merged rather than a second attached policy, so the function's whole permission surface is
+  # one document somebody can read top to bottom. The DynamoDB half is empty unless the table
+  # exists — an inline `count`ed policy would otherwise attach a document with no statements,
+  # which IAM rejects.
+  policy = var.db_mode == "dynamodb" ? data.aws_iam_policy_document.lambda_with_dynamodb[0].json : data.aws_iam_policy_document.lambda.json
+}
+
+data "aws_iam_policy_document" "lambda_with_dynamodb" {
+  count = var.db_mode == "dynamodb" ? 1 : 0
+
+  source_policy_documents = [
+    data.aws_iam_policy_document.lambda.json,
+    data.aws_iam_policy_document.lambda_dynamodb[0].json,
+  ]
 }
 
 # The ENI permissions, written out rather than taken from AWSLambdaVPCAccessExecutionRole.
@@ -151,4 +164,40 @@ resource "aws_iam_role_policy" "scheduler" {
       Resource = [aws_lambda_function.api.arn, "${aws_lambda_function.api.arn}:*"]
     }]
   })
+}
+
+# The control-plane table.
+#
+# SCOPED TO THE TABLE AND ITS INDEXES, and no wildcard on the account. The function is the only
+# thing that touches this data, so a policy naming `dynamodb:*` on `*` would grant it the ability
+# to read and delete every sibling service's table in the same account — caldrith's dedup,
+# nievah's, diatreme's JWKS cache — none of which it has any business seeing.
+#
+# No `CreateTable`/`DeleteTable`/`UpdateTable`: Terraform owns the shape, and UpdateTable is
+# specifically how a runaway would raise provisioned capacity and start billing.
+data "aws_iam_policy_document" "lambda_dynamodb" {
+  count = var.db_mode == "dynamodb" ? 1 : 0
+
+  statement {
+    sid = "ControlPlaneTable"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:BatchGetItem",
+      "dynamodb:Query",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:BatchWriteItem",
+      "dynamodb:TransactGetItems",
+      "dynamodb:TransactWriteItems",
+      # NOT Scan. Every access pattern in `dunmir_control_plane/store/` is a Query against a key
+      # or an index, deliberately, and a Scan on a provisioned table is how a single request
+      # consumes the whole month's read allowance. Denying it means a Scan that slips in fails
+      # loudly in review rather than quietly on the bill.
+    ]
+    resources = [
+      aws_dynamodb_table.control_plane[0].arn,
+      "${aws_dynamodb_table.control_plane[0].arn}/index/*",
+    ]
+  }
 }
