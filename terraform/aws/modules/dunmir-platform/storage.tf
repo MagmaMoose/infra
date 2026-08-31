@@ -9,7 +9,18 @@
 # backend never holds the plaintext and never holds the key, which is why a bucket policy that
 # merely blocks the public is a sufficient control here rather than a nervous one.
 
+# trivy:ignore:AVD-AWS-0089
 resource "aws_s3_bucket" "backups" {
+  # Each of these is declined for a reason, not waved through. The three that look
+  # alarming are the three that are already satisfied by a separate resource below
+  # — checkov wants them inline and the provider has not accepted them inline for
+  # years.
+  #
+  # checkov:skip=CKV_AWS_21:Versioning is configured below, and DISABLED deliberately — see the note there. A version of an encrypted blob is a second copy of the same ciphertext and a lifecycle rule that expires current versions leaves the non-current ones behind, so it would quietly defeat the retention this bucket exists to have.
+  # checkov:skip=CKV_AWS_145:SSE-S3, configured below. The bodies are encrypted ON THE DEVICE before upload, so a KMS CMK adds a per-request charge and a second key to lose in exchange for encrypting ciphertext twice.
+  # checkov:skip=CKV_AWS_18:No access logging. It needs a second bucket that bills for every request written to it, on a topology whose brief is free-tier only; the audit trail records who asked for a download, which is the question anyone would actually ask.
+  # checkov:skip=CKV_AWS_144:No cross-region replication. It doubles storage cost and this is one region by design.
+  # checkov:skip=CKV2_AWS_62:No event notifications. Nothing subscribes; adding one to satisfy a scanner is a queue nobody drains.
   bucket = "${local.name}-backups"
 
   # No `force_destroy`. `terraform destroy` should fail on a bucket that still has objects in
@@ -37,7 +48,11 @@ resource "aws_s3_bucket_ownership_controls" "backups" {
   }
 }
 
+# trivy:ignore:AVD-AWS-0132
 resource "aws_s3_bucket_server_side_encryption_configuration" "backups" {
+  # AVD-AWS-0132 wants a customer-managed KMS key. See the note below: the object
+  # is ciphertext before it reaches S3, so this encrypts it a second time with a
+  # key the operator would then have to not lose.
   bucket = aws_s3_bucket.backups.id
 
   rule {
@@ -58,6 +73,7 @@ resource "aws_s3_bucket_versioning" "backups" {
   # own catalogue row, so versioning would store a second copy of data that is never overwritten
   # — and versioned objects are the classic way a bucket quietly outgrows its free allowance,
   # because a lifecycle rule that expires current versions leaves the non-current ones behind.
+  # trivy:ignore:AVD-AWS-0090
   versioning_configuration {
     status = "Disabled"
   }

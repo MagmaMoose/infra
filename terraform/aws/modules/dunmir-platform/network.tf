@@ -65,6 +65,7 @@ data "aws_availability_zones" "available" {
 }
 
 resource "aws_vpc" "this" {
+  # checkov:skip=CKV2_AWS_11:No VPC flow logs. They bill per GB ingested into CloudWatch, on a topology whose entire brief is free-tier only, and there is very little to see: this VPC has no internet gateway, no NAT, and exactly two destinations reachable through gateway endpoints. "What did it talk to" is answered by the design rather than by a log.
   count = local.networked ? 1 : 0
 
   cidr_block           = "10.42.0.0/16"
@@ -262,4 +263,29 @@ resource "aws_vpc_endpoint" "dynamodb" {
   })
 
   tags = { Name = "${local.name}-dynamodb" }
+}
+
+# The VPC's default security group, closed.
+#
+# NOT A SUPPRESSION — the scanner is right, and this is cheap. Every new VPC comes
+# with a default security group that allows ALL traffic between anything assigned
+# to it, and AWS attaches it to anything created without an explicit group. Nothing
+# here does that today, which is exactly why it is worth closing now: the day
+# something is added without a `vpc_security_group_ids`, it would silently land in
+# an allow-all group rather than failing.
+#
+# `aws_default_security_group` ADOPTS the existing group rather than creating one,
+# and declaring it with no rules removes the ones AWS ships. Destroying this
+# resource does not delete the group — it only stops Terraform managing it — so
+# there is nothing here that a teardown can strand.
+resource "aws_default_security_group" "closed" {
+  count = local.networked ? 1 : 0
+
+  vpc_id = aws_vpc.this[0].id
+
+  # No ingress and no egress blocks: that is the point. Anything that needs to talk
+  # gets its own group, which is then a decision somebody made rather than one AWS
+  # made for them.
+
+  tags = { Name = "${local.name}-default-closed" }
 }

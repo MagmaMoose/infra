@@ -237,7 +237,10 @@ locals {
 # Created by Terraform, NOT by Lambda. A group Lambda creates for itself retains forever, and by
 # the time anyone notices the bill, changing the retention does not reclaim what is already
 # stored. This also makes the IAM policy in iam.tf able to name the group's ARN.
+# trivy:ignore:AVD-AWS-0017
 resource "aws_cloudwatch_log_group" "lambda" {
+  # checkov:skip=CKV_AWS_158:No KMS CMK for the log group. A CMK bills per key per month and the logs carry no secret — the DSN and the JWKS are environment variables, and every credential this function handles is hashed or sealed before it is written anywhere.
+  # checkov:skip=CKV_AWS_338:Retention is set explicitly (var.log_retention_days); the one-year floor this rule wants is a compliance requirement this product does not have, and CloudWatch's always-free allowance is 5 GB of INGEST pooled across the organisation.
   name              = "/aws/lambda/${local.name}-api"
   retention_in_days = var.log_retention_days
 

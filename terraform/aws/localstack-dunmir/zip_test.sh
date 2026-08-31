@@ -25,6 +25,16 @@
 #
 # WHAT IT DOES NOT NEED: an AWS account, LocalStack, or a database. Every check is chosen to
 # exercise the import graph and the handler dispatch without touching Postgres.
+# EVERY URL IN THIS FILE IS http://localhost, and that is not a transport to secure:
+# the Runtime Interface Emulator listens on loopback inside a container this script
+# started, and the "connection" is a socket on the same machine. There is nothing
+# between the two ends to intercept.
+#
+# Suppressed once here rather than per line, because the per-line form cannot be
+# appended to a `\` continuation without swallowing the next line — which is exactly
+# what a first attempt did, and `bash -n` accepts it happily.
+#
+# DevSkim: ignore DS162092
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

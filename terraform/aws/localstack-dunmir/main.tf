@@ -1,3 +1,8 @@
+# The LocalStack root. Everything in here addresses an EMULATOR on loopback and is
+# never applied to an AWS account — see main.tf's header and localstack_provider.tf.
+# The credentials below are the fixed strings LocalStack and the compose Postgres
+# accept from anyone; there is no secret here to leak.
+# kics-scan disable=487f4be7-3fd9-4506-a07a-eae252180c08
 # A LocalStack root that instantiates the SAME module the Terragrunt leaf instantiates.
 #
 # It exists because the leaf cannot run locally: Terragrunt's root.hcl generates a GCS backend
