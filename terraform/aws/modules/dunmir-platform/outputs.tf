@@ -48,7 +48,15 @@ output "certificate_validation_record" {
     The DNS record that validates the ACM certificate — phase 1's whole output.
 
     Create it in Cloudflare (DNS-only), wait for ACM to report ISSUED, then set
-    `certificate_arn` in the leaf and apply again. Empty when no custom domain is configured.
+    **`enable_custom_domain = true`** in the leaf and apply again. Empty when no custom domain
+    is configured.
+
+    DO NOT SET `certificate_arn` TO THE ARN BELOW, however natural that reads — it destroys the
+    certificate it just told you to validate. `certificate_arn` is the BYO input, and
+    `aws_acm_certificate.api` is counted on it being empty (edge.tf), so filling it in takes the
+    module's own certificate from count 1 to 0. Terraform then deletes it and points
+    `aws_apigatewayv2_domain_name` at the ARN of something that no longer exists. The `arn`
+    field is here to check status with `aws acm describe-certificate`, nothing else.
   EOT
   value = local.creates_api && local.wants_domain && var.certificate_arn == "" ? {
     name  = one(aws_acm_certificate.api[0].domain_validation_options).resource_record_name
@@ -89,13 +97,23 @@ output "lambda_function_name" {
 
         aws lambda invoke --function-name "$(terragrunt output -raw lambda_function_name)" \
           --cli-binary-format raw-in-base64-out --payload '{"task":"migrate"}' \
-          /dev/stdout | jq -e '.ok == true'
+          /tmp/migrate.json > /tmp/migrate-meta.json
+        jq -e 'has("FunctionError") | not' /tmp/migrate-meta.json >/dev/null
+        jq -e '.ok == true' /tmp/migrate.json
 
-    **The `jq -e` is not decoration.** `aws lambda invoke` exits 0 whenever the API CALL
+    **The assertions are not decoration.** `aws lambda invoke` exits 0 whenever the API CALL
     succeeded — a handler that raised is still a successful invocation, reported only in
-    `FunctionError` with the traceback in the payload. Without an assertion on the result, a
-    migration that died (an unreachable DSN, a SQL error, a timeout) looks exactly like one that
-    worked, and the next step proceeds against an empty database.
+    `FunctionError` with the traceback in the payload. Without checking, a migration that died
+    (an unreachable DSN, a SQL error, a timeout) looks exactly like one that worked, and the
+    next step proceeds against an empty database.
+
+    **A RESPONSE FILE, NOT `/dev/stdout`**, and the earlier version of this command got that
+    wrong in a way that failed on SUCCESS. `aws lambda invoke` writes the function's response to
+    the named file AND its own invoke metadata to stdout, so `… /dev/stdout | jq -e '.ok == true'`
+    fed jq two JSON documents: the payload, then `{"StatusCode": 200, …}`. jq evaluates both,
+    `.ok` is null on the second, and `-e` takes its exit status from the LAST output — so a
+    perfectly good migration exited 1. Separating the two streams is what makes each assertion
+    mean what it says.
 
     It has to run from in here because the database has no public address; this function is the
     only thing inside the VPC that can reach it. The schema is idempotent, so re-running is a

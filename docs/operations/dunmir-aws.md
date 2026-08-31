@@ -29,26 +29,36 @@ Almost everything here is on an *always*-free allowance and does not care:
 | Cognito | 10,000 monthly active users | never |
 | EventBridge Scheduler | 14M invocations / month | never |
 | CloudWatch Logs | 5 GB ingest | never |
-| API Gateway HTTP API | 1M requests / month | **12 months**, then $1.00/M |
-| CloudWatch alarms | 10 alarms — **pooled across the organisation** | never |
-| S3 | 5 GB | **12 months** |
+| CloudWatch alarms | 10 alarms + 5 GB logs | never |
+| SNS | 1k email notifications | never |
+| DynamoDB | 25 GB + 25 RCU + 25 WCU, **provisioned** | never |
 | Lambda code storage | 300 GB — a quota, not a meter; it never bills | n/a |
-| **RDS** | db.t4g.micro, 20 GB, 750 h/month | **12 months** |
+| API Gateway HTTP API | **none — bills from the first request** | n/a |
+| S3 | **none — bills from the first PUT** | n/a |
+| **RDS** | db.t4g.micro, 20 GB, 750 h/month | 12 months **this org never had** |
 
-RDS is the one that matters — it is ~$15/month once the tier lapses. Which is why the
-production leaf runs `db_mode = "external"` and creates no database and no VPC.
+**THERE IS NO 12-MONTH ALLOWANCE IN THIS ORGANISATION, for anything.** AWS replaced the old
+free tier on 2025-07-15 with a Free-plan/Paid-plan credits model — short-term credits plus the
+always-free offers, and no 12-month S3 or API Gateway allowance at all. The payer signed up
+2025-09-18, two months after the cutover. `modules/caldrith-frontdoor/api.tf` records this at
+length; it is written there because two modules' comments had confidently counted on
+allowances that never existed.
 
-The rest is cents. The default heartbeat interval is **one hour**, so a thousand devices
-generate ~720k API requests a month (~$0.72), and the S3 lifecycle expires backup bodies after
-a year. The deployment artefact is a ~23 MB zip in the artefact bucket, about $0.0005/month;
-it was a ~210 MB container image in ECR until 2026-08-30, which at $0.10/GB-month and ten
-retained tags was ~$0.21/month — small, but the only meter in the stack that grew with release
-cadence, and it bought nothing the zip does not do.
+So the honest position: **RDS is the one that would matter** at ~$15/month, which is why the
+production leaf runs `db_mode = "external"` and creates no database and no VPC. Everything
+else bills now, and bills a trivial amount. The default heartbeat interval is **one hour**, so
+a thousand devices generate ~720k API requests a month, about **$0.72** at $1.00/million. The
+deployment artefact is a ~23 MB zip, about $0.0005/month.
 
-**Two things are easy to overstate as free.** CloudWatch's 10-alarm allowance is pooled across
-the whole organisation, not per account; this stack uses two, and if the siblings have already
-spent the ten, they bill at $0.10/alarm-month. And the backups bucket is free only while it is
-empty.
+**DynamoDB's allowance is PROVISIONED capacity and it is pooled ORGANISATION-wide**, which is
+the constraint that shapes the table design rather than a footnote to it. 25 RCU + 25 WCU is
+18,600 capacity-unit-hours a month (25 × 744). Already committed by siblings: caldrith's dedup
+2+2, nievah's dedup 2+2, caldrith's entitlements 1+1, diatreme's jwks_cache 1+1 — about 8,900
+of the 18,600, so roughly **13 capacity units are left for Dün Mir**. On-demand billing has no
+always-free component at all, so switching a table to it is the one change here that looks
+like a modernisation and is actually a bill.
+
+CloudWatch's 10-alarm allowance is pooled the same way; this stack uses two.
 
 So:
 
@@ -154,8 +164,9 @@ reviewed. To ship a change, publish a new version.
 cd terraform/aws/dunmir/prod/eu-west-1/platform && AWS_PROFILE=mm-dunmir terragrunt apply
 ```
 
-RDS takes about ten minutes. The API comes up on its own `*.execute-api` hostname and is usable
-immediately.
+The API comes up on its own `*.execute-api` hostname and is usable immediately. (Where
+`db_mode = "rds"` this is also where the ten-minute database creation happens; the production
+leaf runs `db_mode = "external"` and creates none.)
 
 Read the validation record and create it in Cloudflare, **DNS-only (grey cloud)**:
 
@@ -171,19 +182,28 @@ have every call blocked by the browser. Deploy the console after phase 2.
 
 ### 4. Apply the schema
 
-Terraform does not do this, and nothing outside the VPC can — the database has no public
-address, and this function is the only thing inside the VPC that can reach it:
+Terraform does not do this. Where the database is an RDS instance, nothing outside the VPC can
+either — it has no public address and the function is the only thing that can reach it — so the
+migration runs as a task on the function itself:
 
 ```bash
-aws lambda invoke --function-name "$(terragrunt output -raw lambda_function_name)" \
-  --cli-binary-format raw-in-base64-out --payload '{"task":"migrate"}' \
-  /dev/stdout | jq -e '.ok == true'
+aws lambda invoke --function-name "$(terragrunt output -raw lambda_function_name)" --cli-binary-format raw-in-base64-out --payload '{"task":"migrate"}' /tmp/migrate.json > /tmp/migrate-meta.json
 ```
 
-**The `jq -e` matters.** `aws lambda invoke` exits 0 whenever the API call succeeded — a handler
-that raised is still a successful *invocation*, reported only in `FunctionError`. Without the
-assertion a failed migration is indistinguishable from a successful one, and you proceed against
-an empty database.
+```bash
+jq -e 'has("FunctionError") | not' /tmp/migrate-meta.json >/dev/null && jq -e '.ok == true' /tmp/migrate.json
+```
+
+**Both assertions matter.** `aws lambda invoke` exits 0 whenever the API call succeeded — a
+handler that raised is still a successful *invocation*, reported only in `FunctionError`.
+Without checking, a failed migration is indistinguishable from a successful one and you proceed
+against an empty database.
+
+**And the response goes to a FILE, not `/dev/stdout`.** This command used to end
+`… /dev/stdout | jq -e '.ok == true'`, which failed on a *successful* migration: `invoke` writes
+the function's response to the named file and its own metadata to stdout, so jq received two
+documents, evaluated `.ok` as null on the second, and `-e` took its exit status from the last
+one. Keeping the streams apart is what makes each assertion mean what it says.
 
 Expect `{"ok": true, "seeded": false}`. The schema is idempotent, so re-running is a no-op.
 
