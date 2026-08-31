@@ -199,7 +199,7 @@ projects:
       enabled: true
     apply_requirements: [mergeable]
 
-  # ─── OCI prod / eu-amsterdam-1 (10 leaves) ───────────────────────────────
+  # ─── OCI prod / eu-amsterdam-1 (11 leaves) ───────────────────────────────
   - name: oci-prod-eu-amsterdam-1-network
     dir: terraform/oci/prod/eu-amsterdam-1/network
     workspace: default
@@ -303,7 +303,20 @@ projects:
       enabled: true
     apply_requirements: [mergeable]
 
-  # ─── OCI cloudworkers prod / eu-amsterdam-1 (4 leaves) ───────────────────
+  # Monthly spend backstop. autoplan enabled, matching its firefly siblings: Atlantis already
+  # carries this tenancy's OCI credentials, and the leaf's one parse-time `run_cmd "oci"` vault
+  # fetch is the same call ../network makes on every autoplan.
+  - name: oci-prod-eu-amsterdam-1-budget
+    dir: terraform/oci/prod/eu-amsterdam-1/budget
+    workspace: default
+    terraform_version: v1.11.3
+    workflow: terragrunt
+    autoplan:
+      when_modified: ["**/*.tf", "**/*.tfvars", "**/*.hcl"]
+      enabled: true
+    apply_requirements: [mergeable]
+
+  # ─── OCI cloudworkers prod / eu-amsterdam-1 (5 leaves) ───────────────────
   # Second OCI tenancy (traceysargeant), its own Always Free allowance: two more
   # native-cloud k3s workers (ff-oci3/ff-oci4) and two CHR edge routers
   # (ff-chr3/ff-chr4). Credentials come from OCI_CW_* via
@@ -338,6 +351,9 @@ projects:
   #   5. server    (ff-oci3 .71, ff-oci4 .72; joins k3s over the tunnel)
   # No `mikrotik` config leaf here on purpose: CHR masquerade is set up
   # out-of-band, see the edge leaf's own notes.
+  # `budget` is absent from that order deliberately — it touches no VCN, DRG or instance and
+  # can be applied first, which is the right moment for a spend backstop in a tenancy that is
+  # no longer Always Free.
   - name: oci-cloudworkers-prod-eu-amsterdam-1-network
     dir: terraform/oci/cloudworkers/prod/eu-amsterdam-1/network
     workspace: default
@@ -370,6 +386,20 @@ projects:
 
   - name: oci-cloudworkers-prod-eu-amsterdam-1-server
     dir: terraform/oci/cloudworkers/prod/eu-amsterdam-1/server
+    workspace: default
+    terraform_version: v1.11.3
+    workflow: terragrunt
+    autoplan:
+      when_modified: ["**/*.tf", "**/*.tfvars", "**/*.hcl"]
+      enabled: false
+    apply_requirements: [mergeable]
+
+  # Monthly spend backstop. autoplan disabled for the same reason as the four above: it asserts
+  # OCI_CW_TENANCY_OCID / OCI_CW_COMPARTMENT_OCID with regex() at parse time and Atlantis has
+  # no OCI_CW_* at all, so an autoplan hard-fails. It also does a parse-time `run_cmd "oci"`
+  # vault fetch for the alert recipient.
+  - name: oci-cloudworkers-prod-eu-amsterdam-1-budget
+    dir: terraform/oci/cloudworkers/prod/eu-amsterdam-1/budget
     workspace: default
     terraform_version: v1.11.3
     workflow: terragrunt

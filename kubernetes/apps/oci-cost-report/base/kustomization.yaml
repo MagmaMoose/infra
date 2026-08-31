@@ -1,0 +1,30 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Runs in the `observability` namespace beside krr, the other Slack-reporting CronJob.
+# Each resource carries its own metadata.namespace; the namespace itself is owned by
+# kubernetes/infrastructure/configs/namespaces/.
+resources:
+  - configmap-script.yaml
+  - externalsecret.yaml
+  - cronjob.yaml
+labels:
+  # Placement tier — consumed by the Kyverno `place-cloud` ClusterPolicy, which
+  # adds the nodeSelector at admission. Replaces components/node-selectors/native-cloud.
+  # includeSelectors/includeTemplates false: these fields are immutable on a live
+  # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  #
+  # `cloud` rather than `on-prem`: this job talks to two public OCI endpoints and Slack
+  # and touches nothing on the LAN, so it has no reason to sit on ff-vm1 — which is the
+  # most contended node in the fleet (~97% CPU / ~99% memory requested). The cloud tier is
+  # tight on CPU too (~30m unreserved, measured 2026-08-06), which is why the request is
+  # 10m; a short daily batch at 10m fits where a long-running service would not. Both
+  # cloud nodes are arm64 and `python:3.12-slim` publishes a linux/arm64 manifest, so the
+  # tier's arch warning is satisfied.
+  #
+  # `priority: low` — a daily cost report is the first thing that should be evicted when
+  # the tier is under pressure, and it loses nothing by running an hour late.
+  - pairs:
+      placement.sargeant.co/tier: cloud
+      placement.sargeant.co/priority: low
+    includeSelectors: false
+    includeTemplates: false

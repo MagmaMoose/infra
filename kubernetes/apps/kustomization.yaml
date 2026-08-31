@@ -98,6 +98,10 @@ resources:
   - ./krr
   - ./kube-prometheus-stack
   - ./loki
+  # Daily OCI spend across BOTH tenancies (firefly + cloudworkers) in one Slack message.
+  # Sits here rather than under a finops heading because it is a scheduled report in the
+  # observability namespace, same as krr.
+  - ./oci-cost-report
   - ./thanos-compactor
   - ./thanos-query
   - ./thanos-store

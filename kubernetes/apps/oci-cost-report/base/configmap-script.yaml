@@ -1,0 +1,703 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # MOUNTED, NOT EMBEDDED IN THE CRONJOB. This is ~500 lines of Python with a hand-rolled
+  # RSA signer in it; inlined into the CronJob's `args` it would be an unreviewable string
+  # inside a YAML scalar, and every edit to the report wording would rewrite the workload
+  # spec. A ConfigMap mounted at /app is the house pattern for exactly this
+  # (security-integrations, streaming-sync), and it costs nothing extra here because a
+  # CronJob mounts the current ConfigMap fresh on every run — there is no rollout to
+  # trigger and so no configmap-hash annotation to maintain.
+  name: oci-cost-report-script
+  namespace: observability
+data:
+  report.py: |
+    #!/usr/bin/env python3
+    """Daily usage + cost across every OCI tenancy in the fleet, in one Slack message.
+
+    WHY A KUBERNETES CRONJOB AND NOT OCI FUNCTIONS. Functions is the obvious OCI-native
+    answer and it was the wrong one here. It would be a NEW runtime: an OCIR repository, a
+    container build in CI, an application + function definition in Terraform, a dynamic
+    group and a policy to let it read usage -- all for one script that runs once a day. The
+    cluster already runs scheduled Python (see security-integrations), already has the Slack
+    bot token in OCI Vault reachable through the `oci-vault` ClusterSecretStore, and already
+    mounts OCI API credentials into a pod (atlantis). Only ONE of the two tenancies could
+    host the Function anyway, so the cross-tenancy credential problem would remain exactly as
+    it is here -- with a build pipeline added on top.
+
+    WHY THE USAGE API AND NOT A COST-AND-USAGE-REPORT BUCKET. The AWS sibling of this report
+    (terraform/aws/modules/cost-report/src/handler.py) reads a CSV out of S3 precisely
+    BECAUSE Cost Explorer bills $0.01 per request. OCI has no such charge: control-plane API
+    calls, including usageapi, are free, and the response is already aggregated by day and
+    service. OCI's equivalent CSV -- the cost reports Oracle drops into a tenancy-owned
+    bucket -- would mean cross-tenancy Object Storage reads, gzip parsing, and a bucket to
+    manage, to arrive at numbers the API hands over directly. So this one calls the API, and
+    the AWS one reads a file, for opposite reasons that are both about price.
+
+    WHY STDLIB ONLY, INCLUDING THE RSA SIGNER. The OCI Python SDK is ~40MB of wheels with
+    architecture-specific cryptography binaries. This job is pinned to the `cloud` tier,
+    which is arm64, so a `pip install oci` at container start would pull arm64 wheels over
+    the network on every run and fail closed the day PyPI hiccups. The whole dependency is
+    one RSA-SHA256 signature over six header lines; `_rsa_sign` below does it with `pow()`
+    and about forty lines of DER parsing, which makes `python:3.12-slim` (multi-arch, no
+    install step) a complete runtime. Same reasoning as streaming-sync's "stdlib only".
+
+    WHY THERE IS NO ALWAYS-FREE ALLOWANCE SECTION. The AWS report has one because
+    GetFreeTierUsage publishes AWS's own limits and forecasts. OCI publishes no equivalent:
+    `oci usage-api` has no free-tier or allowance resource (checked against CLI 3.88.0 --
+    the command list is queries, schedules, custom tables and carbon emissions, nothing
+    else), and the `overage`/`overagesFlag` fields on a usage item stay null on both of
+    these tenancies because they describe Universal Credits commitments, not the Always Free
+    allowance. `oci limits` reports service LIMITS, which is a different number, and after
+    the cloudworkers tenancy was converted to Pay As You Go its limits no longer track the
+    free allowance at all. What IS available, and is the next best thing, is the USAGE query:
+    a service consuming quantity at zero cost is by definition sitting inside an allowance,
+    and the run in which its amount stops being zero is the run that says so. That is the
+    `running free` line under each tenancy.
+
+    CURRENCY IS NOT ASSUMED. Every usage item carries its own `currency`, and firefly's
+    returns EUR, not USD (verified live). The formatter takes the currency from the data, and
+    the fleet total refuses to add two tenancies together unless they agree -- a number that
+    silently mixes EUR and USD is worse than no number.
+
+    `_money` is lifted from the AWS handler cited above, for the same reason it exists there:
+    every figure in this report rounds to 0.00 at two decimal places, so sub-cent amounts keep
+    three significant figures instead of vanishing.
+    """
+
+    from __future__ import annotations
+
+    import base64
+    import collections
+    import datetime as dt
+    import hashlib
+    import json
+    import logging
+    import os
+    import re
+    import sys
+    import time
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+    from decimal import Decimal, InvalidOperation
+
+    logging.basicConfig(level=logging.INFO, format="oci-cost-report: %(message)s")
+    log = logging.getLogger("oci-cost-report")
+
+    # The Usage API is versioned in the path, not in a header. Endpoint is regional but the
+    # DATA is tenancy-wide, so any region the tenancy is subscribed to returns the same rows.
+    USAGE_API_VERSION = "20200107"
+
+    # Long tails are noise. Everything past this is folded into one "+N more" line so a single
+    # chatty service cannot push the other tenancy out of a readable message.
+    MAX_SERVICES = 8
+    MAX_FREE_SERVICES = 5
+    # Two units per service. OCI routinely meters one resource several ways -- Compute reports
+    # "OCPU Hours", "OCPU Per Hour" AND "Gigabyte Per Hour" for the same running instance --
+    # and printing all of them makes one service look like three.
+    MAX_FREE_UNITS_PER_SERVICE = 2
+
+    # Used only when a tenancy returned no cost rows at all, in which case every figure is zero
+    # and the symbol is cosmetic. Both tenancies here are EU-billed accounts, and firefly's live
+    # response confirms EUR; nothing is inferred from this constant when real data exists.
+    FALLBACK_CURRENCY = "EUR"
+
+    # Slack accepts 40k characters in `text`, but a wall that long is not a report. This is a
+    # hard backstop for a pathological response, not the primary limit -- MAX_SERVICES is.
+    MAX_MESSAGE_CHARS = 12000
+
+    HTTP_TIMEOUT = int(os.environ.get("HTTP_TIMEOUT", "60"))
+
+    _SHA256_DIGEST_INFO = bytes.fromhex("3031300d060960864801650304020105000420")
+
+
+    # ---------------------------------------------------------------- formatting
+
+
+    def _money(amount: Decimal, currency: str) -> str:
+        """Format an amount so sub-cent values stay legible instead of rounding to 0.00.
+
+        Taken from terraform/aws/modules/cost-report/src/handler.py, where it was written for
+        an organisation whose entire monthly spend is a fraction of a cent. The same problem
+        applies here: an Always Free tenancy that has started billing does so at 0.0004 a day
+        long before it does so at 0.01, and "0.00" is exactly the wrong thing to print on the
+        day the number stops being zero.
+        """
+        symbol = {"EUR": "€", "USD": "$", "GBP": "£", "ZAR": "R"}.get(currency, f"{currency} ")
+        if amount == 0:
+            return f"{symbol}0.00"
+        # Sign outside the symbol: credits are negative, and "EUR-0.04" reads as a malformed
+        # number where "-EUR0.04" reads as money owed back.
+        sign = "-" if amount < 0 else ""
+        magnitude = amount.copy_abs()
+        if magnitude >= Decimal("0.01"):
+            return f"{sign}{symbol}{magnitude:,.2f}"
+        # Three significant figures. `-adjusted()` is the count of leading zeros after the
+        # point, so precision widens exactly as far as the magnitude demands.
+        places = -magnitude.adjusted() + 2
+        return f"{sign}{symbol}{magnitude:.{places}f}"
+
+
+    def _qty(amount: Decimal) -> str:
+        """Usage quantities, which are counts more often than fractions."""
+        if amount == amount.to_integral_value():
+            return f"{int(amount):,}"
+        return f"{amount.quantize(Decimal('0.01')).normalize():,f}"
+
+
+    def _dec(value) -> Decimal:
+        try:
+            return Decimal(str(value if value is not None else "0"))
+        except InvalidOperation:
+            return Decimal(0)
+
+
+    # ---------------------------------------------------------------- credentials
+
+
+    def normalise_pem(raw: str) -> str:
+        """Rebuild a PEM private key from however it survived the round trip.
+
+        THIS IS NOT DEFENSIVE PROGRAMMING, IT IS A KNOWN BUG BEING FIXED. The OCI API signing
+        keys in 1Password are stored FLATTENED -- the newlines inside the PEM were replaced by
+        spaces at some point in their life, and `op read` hands back one long line. Feed that
+        to any OCI SDK and it fails with "PEM data was not found in buffer", which reads like
+        an authentication or permissions problem and sends you to look at IAM policies for an
+        afternoon. It is a text-encoding problem.
+
+        So the body is rebuilt canonically rather than trusted: markers stripped, ALL
+        whitespace removed (spaces, CRs, stray newlines alike), base64 re-wrapped at 64
+        columns, markers put back. A key that arrives correctly formatted comes out
+        byte-identical, so this is safe to run unconditionally.
+        """
+        text = raw.strip()
+        match = re.search(r"-----BEGIN ([A-Z ]*PRIVATE KEY)-----(.*?)-----END \1-----", text, re.S)
+        if not match:
+            raise ValueError("no PEM private key found (expected -----BEGIN ... PRIVATE KEY-----)")
+        label, body = match.group(1), re.sub(r"\s+", "", match.group(2))
+        if "ENCRYPTED" in label:
+            # Decrypting one needs a passphrase and a KDF this script deliberately does not
+            # carry. Say so plainly rather than failing later inside the DER parser.
+            raise ValueError("encrypted private keys are not supported; store a passphrase-less key")
+        wrapped = "\n".join(body[i : i + 64] for i in range(0, len(body), 64))
+        return f"-----BEGIN {label}-----\n{wrapped}\n-----END {label}-----\n"
+
+
+    def _der_read(buf: bytes, pos: int) -> tuple[int, bytes, int]:
+        """Read one DER TLV. Returns (tag, value, next_position)."""
+        tag = buf[pos]
+        pos += 1
+        length = buf[pos]
+        pos += 1
+        if length & 0x80:
+            count = length & 0x7F
+            length = int.from_bytes(buf[pos : pos + count], "big")
+            pos += count
+        return tag, buf[pos : pos + length], pos + length
+
+
+    def rsa_private_numbers(pem: str) -> tuple[int, int]:
+        """Return (modulus, private exponent) from a PKCS#1 or PKCS#8 RSA key.
+
+        Both forms turn up in practice: keys minted by the OCI console arrive as PKCS#8
+        (`BEGIN PRIVATE KEY`), keys made with `openssl genrsa` as PKCS#1 (`BEGIN RSA PRIVATE
+        KEY`). Handling only the one you happen to hold is a trap that springs on whoever
+        rotates the key next.
+        """
+        der = base64.b64decode("".join(pem.strip().splitlines()[1:-1]))
+        _, seq, _ = _der_read(der, 0)
+
+        # Both encodings open with INTEGER version(0). What comes SECOND tells them apart:
+        # PKCS#1 has INTEGER n, PKCS#8 has the AlgorithmIdentifier SEQUENCE (tag 0x30).
+        _, _, pos = _der_read(seq, 0)
+        tag, value, next_pos = _der_read(seq, pos)
+        if tag == 0x30:
+            _, octet, _ = _der_read(seq, next_pos)  # OCTET STRING wrapping the PKCS#1 body
+            _, seq, _ = _der_read(octet, 0)
+            _, _, pos = _der_read(seq, 0)  # inner version
+            tag, modulus, pos = _der_read(seq, pos)
+        else:
+            modulus, pos = value, next_pos
+        if tag != 0x02:
+            raise ValueError("unexpected DER: modulus is not an INTEGER")
+        _, _, pos = _der_read(seq, pos)  # publicExponent
+        _, private_exponent, _ = _der_read(seq, pos)
+        return int.from_bytes(modulus, "big"), int.from_bytes(private_exponent, "big")
+
+
+    def rsa_sign(message: bytes, modulus: int, private_exponent: int) -> bytes:
+        """RSASSA-PKCS1-v1_5 with SHA-256, in stdlib integer arithmetic.
+
+        EM = 0x00 || 0x01 || 0xFF... || 0x00 || DigestInfo(SHA-256, H(m)), then s = m^d mod n.
+        One 2048-bit modular exponentiation per HTTP request, which CPython does in well under
+        a millisecond -- the network round trip costs orders of magnitude more.
+        """
+        t = _SHA256_DIGEST_INFO + hashlib.sha256(message).digest()
+        k = (modulus.bit_length() + 7) // 8
+        if k < len(t) + 11:
+            raise ValueError("RSA key too small to sign a SHA-256 digest")
+        em = b"\x00\x01" + b"\xff" * (k - len(t) - 3) + b"\x00" + t
+        return pow(int.from_bytes(em, "big"), private_exponent, modulus).to_bytes(k, "big")
+
+
+    class Tenancy:
+        """One OCI tenancy's identity, read from an oci-CLI-format config file.
+
+        The config body is the same text the `atlantis-oci-cli` vault entry already holds, so
+        a second tenancy is a second entry of the same shape rather than a new format. Its
+        `key_file=` line is deliberately IGNORED: it points at whatever path the machine that
+        generated it used, and the key here arrives as its own secret key mounted beside the
+        config. Trusting that line would make the job depend on a path in another pod.
+        """
+
+        def __init__(self, name: str, config_path: str, key_path: str, warn: Decimal, alert: Decimal):
+            self.name = name
+            self.warn = warn
+            self.alert = alert
+            # Checked by hand so the Slack line reads as an instruction rather than as a
+            # stack-trace fragment. A missing file here has exactly one cause -- the vault
+            # entry does not exist yet, so external-secrets never wrote the Secret and the
+            # CronJob's `optional: true` mount left the directory empty -- and saying that is
+            # worth more to whoever reads the message than the errno is.
+            for path, what in ((config_path, "config"), (key_path, "signing key")):
+                if not os.path.exists(path):
+                    raise FileNotFoundError(
+                        f"no {what} mounted at {path} — the OCI Vault entry for this tenancy is "
+                        "probably missing, so its ExternalSecret never synced"
+                    )
+            with open(config_path, encoding="utf-8") as fh:
+                cfg = fh.read()
+            get = lambda key: self._cfg_value(cfg, key)  # noqa: E731
+            self.user = get("user")
+            self.fingerprint = get("fingerprint")
+            self.tenancy = get("tenancy")
+            self.region = get("region") or "eu-amsterdam-1"
+            missing = [k for k in ("user", "fingerprint", "tenancy") if not getattr(self, k)]
+            if missing:
+                raise ValueError(f"config is missing {', '.join(missing)}")
+            with open(key_path, encoding="utf-8") as fh:
+                pem = normalise_pem(fh.read())
+            self.modulus, self.exponent = rsa_private_numbers(pem)
+
+        @staticmethod
+        def _cfg_value(cfg: str, key: str) -> str:
+            for line in cfg.splitlines():
+                stripped = line.strip()
+                if "=" in stripped and stripped.split("=", 1)[0].strip() == key:
+                    return stripped.split("=", 1)[1].strip()
+            return ""
+
+        @property
+        def key_id(self) -> str:
+            return f"{self.tenancy}/{self.user}/{self.fingerprint}"
+
+        @property
+        def host(self) -> str:
+            return f"usageapi.{self.region}.oci.oraclecloud.com"
+
+
+    def signed_post(tenancy: Tenancy, path: str, body: dict) -> tuple[dict, str | None]:
+        """POST to the Usage API with an OCI request signature (draft-cavage-httpsig-04).
+
+        Returns (parsed body, next-page token). The token is a RESPONSE HEADER
+        (`opc-next-page`) and not a body field, so it has to be handed back separately or
+        pagination cannot work at all -- see query_usage.
+
+        The signed header set and its ORDER are what the service verifies, so they are written
+        out here exactly as the OCI SDK sends them for a POST: date, (request-target), host,
+        content-length, content-type, x-content-sha256. Omitting x-content-sha256 (an easy
+        mistake, since GET does not use it) yields a 401 that says nothing about the body.
+
+        `path` must already carry any query string: it is signed as part of
+        (request-target), so appending a parameter after signing invalidates the signature.
+        """
+        payload = json.dumps(body).encode()
+        now = dt.datetime.now(dt.timezone.utc).strftime("%a, %d %b %Y %H:%M:%S GMT")
+        body_hash = base64.b64encode(hashlib.sha256(payload).digest()).decode()
+
+        signed = [
+            ("date", now),
+            ("(request-target)", f"post {path}"),
+            ("host", tenancy.host),
+            ("content-length", str(len(payload))),
+            ("content-type", "application/json"),
+            ("x-content-sha256", body_hash),
+        ]
+        signing_string = "\n".join(f"{name}: {value}" for name, value in signed).encode()
+        signature = base64.b64encode(rsa_sign(signing_string, tenancy.modulus, tenancy.exponent)).decode()
+
+        request = urllib.request.Request(  # nosec B310 - scheme is a fixed https literal
+            f"https://{tenancy.host}{path}",
+            data=payload,
+            method="POST",
+            headers={
+                "date": now,
+                "host": tenancy.host,
+                "content-type": "application/json",
+                "x-content-sha256": body_hash,
+                "accept": "application/json",
+                "authorization": (
+                    'Signature version="1",'
+                    f'keyId="{tenancy.key_id}",'
+                    'algorithm="rsa-sha256",'
+                    f'headers="{" ".join(name for name, _ in signed)}",'
+                    f'signature="{signature}"'
+                ),
+            },
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as resp:  # nosec B310
+                return json.loads(resp.read().decode()), resp.headers.get("opc-next-page")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", "replace")[:400]
+            # OCI answers a missing `read usage-report in tenancy` policy with 404 NotAuthorized
+            # rather than 403, which reads as "wrong URL". Say what it usually means.
+            hint = ""
+            if exc.code in (401, 404):
+                hint = " (check the API key AND `allow group <g> to read usage-report in tenancy`)"
+            if exc.code == 429:
+                hint = " (rate limited; the Usage API throttles after a handful of calls a minute)"
+            raise RuntimeError(f"usage API {exc.code}: {detail}{hint}") from exc
+
+
+    def query_usage(tenancy: Tenancy, start: dt.date, end: dt.date, query_type: str) -> list[dict]:
+        """One RequestSummarizedUsages call, grouped by service, following pagination.
+
+        `timeUsageEnded` is EXCLUSIVE (verified live: asking for [29th, 31st) returns the 29th
+        and the 30th), so the caller passes the day AFTER the last day it wants.
+        """
+        items: list[dict] = []
+        page = None
+        for attempt in range(20):  # bounded: a per-service daily summary is a handful of rows
+            body = {
+                "tenantId": tenancy.tenancy,
+                "timeUsageStarted": f"{start.isoformat()}T00:00:00Z",
+                "timeUsageEnded": f"{end.isoformat()}T00:00:00Z",
+                "granularity": "DAILY",
+                "queryType": query_type,
+                "groupBy": ["service"],
+            }
+            # The continuation token is a QUERY PARAMETER, not a body field, and it must be
+            # in the path before signing because (request-target) covers the query string.
+            # An earlier version put it in the body and read it from the body too, so the
+            # loop always exited after one page -- which on a response that really was
+            # truncated would silently under-report spend. That is the one failure a cost
+            # report must not have, so the bound above is a backstop, not the mechanism.
+            path = f"/{USAGE_API_VERSION}/usage"
+            if page:
+                path += "?" + urllib.parse.urlencode({"page": page})
+
+            # The Usage API throttles hard: roughly four to six signed calls in a minute is
+            # enough to draw a 429. One scheduled run a day never approaches that, but a
+            # manual `kubectl create job --from=cronjob` beside the scheduled one does, and
+            # so does a multi-page walk. Back off rather than lose the whole report.
+            for delay in (0, 5, 15, 45):
+                if delay:
+                    time.sleep(delay)
+                try:
+                    data, page = signed_post(tenancy, path, body)
+                    break
+                except RuntimeError as exc:
+                    if "usage API 429" not in str(exc) or delay == 45:
+                        raise
+            items += data.get("items") or []
+            if not page:
+                break
+            if attempt == 19:
+                # Say so rather than returning a quietly truncated total.
+                raise RuntimeError("usage API paginated past 20 pages; refusing to report a partial total")
+        # Forecast rows are opt-in and should not be here, but if one ever is it must not be
+        # added to a figure labelled "spent".
+        return [i for i in items if not i.get("isForecast")]
+
+
+    # ---------------------------------------------------------------- report
+
+
+    def collect(tenancy: Tenancy, today: dt.date) -> dict:
+        """Everything one tenancy contributes to the message."""
+        yesterday = today - dt.timedelta(days=1)
+        month_start = today.replace(day=1)
+        # On the 1st, yesterday belongs to last month, so the window starts at whichever is
+        # earlier. The Usage API takes an arbitrary range, which is why this is one line here
+        # and a second file read in the AWS version.
+        window_start = min(month_start, yesterday)
+
+        cost_rows = query_usage(tenancy, window_start, today, "COST")
+        usage_rows = query_usage(tenancy, window_start, today, "USAGE")
+
+        # Whether OCI has ANY row for yesterday, of either kind. Usage data lands with a lag,
+        # and an early-morning run can find yesterday not yet written. Without this flag that
+        # state is indistinguishable from a day on which nothing ran -- the report would say
+        # 0.00 and be believed.
+        has_yesterday = any(
+            (row.get("timeUsageStarted") or "")[:10] == yesterday.isoformat()
+            for row in cost_rows + usage_rows
+        )
+
+        day: dict[str, Decimal] = collections.defaultdict(Decimal)
+        mtd: dict[str, Decimal] = collections.defaultdict(Decimal)
+        currencies: set[str] = set()
+        for row in cost_rows:
+            service = row.get("service") or "unknown"
+            date = (row.get("timeUsageStarted") or "")[:10]
+            amount = _dec(row.get("computedAmount"))
+            if row.get("currency"):
+                currencies.add(row["currency"])
+            if date == yesterday.isoformat():
+                day[service] += amount
+            if date >= month_start.isoformat():
+                mtd[service] += amount
+
+        # A (service, unit) pair that moved quantity yesterday and cost nothing is running
+        # inside an allowance. That pairing is the only free-tier signal OCI exposes.
+        free: dict[str, dict[str, Decimal]] = collections.defaultdict(lambda: collections.defaultdict(Decimal))
+        for row in usage_rows:
+            if (row.get("timeUsageStarted") or "")[:10] != yesterday.isoformat():
+                continue
+            quantity = _dec(row.get("computedQuantity"))
+            if quantity > 0 and _dec(row.get("computedAmount")) == 0:
+                free[row.get("service") or "unknown"][row.get("unit") or "units"] += quantity
+
+        return {
+            "name": tenancy.name,
+            # None, not a guess, when the tenancy reported nothing. The fleet total's
+            # currency-agreement check must not be satisfied by an assumption.
+            "currency": sorted(currencies)[0] if currencies else None,
+            "mixed_currency": len(currencies) > 1,
+            "day": dict(day),
+            "mtd": dict(mtd),
+            "free": {svc: dict(units) for svc, units in free.items()},
+            "has_yesterday": has_yesterday,
+            "warn": tenancy.warn,
+            "alert": tenancy.alert,
+        }
+
+
+    def _tenancy_block(result: dict) -> list[str]:
+        currency = result["currency"] or FALLBACK_CURRENCY
+        day_total = sum(result["day"].values(), Decimal(0))
+        mtd_total = sum(result["mtd"].values(), Decimal(0))
+
+        # Thresholds are checked against MONTH-TO-DATE, not yesterday. A tenancy that is meant
+        # to sit at zero can register a fraction of a cent on one day from rounding and mean
+        # nothing by it; a month-to-date figure above the threshold is a thing that is actually
+        # happening. The alert has to be trustworthy or it gets ignored, which is worse than
+        # not having it.
+        if mtd_total >= result["alert"]:
+            marker = ":rotating_light: "
+        elif mtd_total >= result["warn"]:
+            marker = ":warning: "
+        else:
+            marker = ""
+
+        lines = [
+            f"{marker}*{result['name']}* · {currency}",
+            f"{_money(day_total, currency)} yesterday · {_money(mtd_total, currency)} MTD",
+        ]
+        if result["mixed_currency"]:
+            lines.append("        _this tenancy reported more than one currency; totals are approximate_")
+        if not result["has_yesterday"]:
+            lines.append(
+                "        :hourglass_flowing_sand: _no rows for yesterday yet — OCI usage data "
+                "lags; the yesterday column is unknown, not zero. MTD is still complete to the "
+                "last day OCI has written._"
+            )
+
+        # Ranked by month-to-date so the order does not reshuffle every morning on sub-cent
+        # daily noise. A service earns its line by having spent in either window.
+        services = set(result["day"]) | set(result["mtd"])
+        ranked = sorted(
+            services,
+            key=lambda s: (-result["mtd"].get(s, Decimal(0)), -result["day"].get(s, Decimal(0)), s),
+        )
+        billing = [s for s in ranked if result["mtd"].get(s, Decimal(0)) or result["day"].get(s, Decimal(0))]
+
+        if not billing:
+            lines.append("        _nothing billed_")
+        for service in billing[:MAX_SERVICES]:
+            lines.append(
+                f"        • {service} — {_money(result['day'].get(service, Decimal(0)), currency)} yesterday"
+                f" · {_money(result['mtd'].get(service, Decimal(0)), currency)} MTD"
+            )
+        if len(billing) > MAX_SERVICES:
+            hidden = billing[MAX_SERVICES:]
+            rest = sum((result["mtd"].get(s, Decimal(0)) for s in hidden), Decimal(0))
+            lines.append(f"        • _+{len(hidden)} more — {_money(rest, currency)} MTD_")
+
+        if result["free"]:
+            # Ranked by how many meters a service moved, so the busiest free service leads and
+            # the ordering does not depend on a name.
+            ranked_free = sorted(result["free"].items(), key=lambda kv: (-len(kv[1]), kv[0]))
+            parts = []
+            for service, units in ranked_free[:MAX_FREE_SERVICES]:
+                # Units are picked ALPHABETICALLY, never by quantity: 576 "Gigabyte Per Hour"
+                # is not larger than 48 "OCPU Hours", they are different things, and sorting
+                # by the number silently drops whichever meter happens to count in small
+                # units. Alphabetical is arbitrary but stable, so the same two show up daily.
+                top = sorted(units.items())[:MAX_FREE_UNITS_PER_SERVICE]
+                parts.append(f"{service} ({', '.join(f'{_qty(q)} {u}' for u, q in top)})")
+            if len(ranked_free) > MAX_FREE_SERVICES:
+                parts.append(f"+{len(ranked_free) - MAX_FREE_SERVICES} more")
+            lines.append(f"        _running free:_ {' · '.join(parts)}")
+        return lines
+
+
+    def build_message(results: list[dict], failures: list[tuple[str, str]], today: dt.date) -> tuple[str, str]:
+        """Return (title, message). Every tenancy in ONE message, with one combined total.
+
+        ONE MESSAGE, NOT ONE PER TENANCY. The question being answered is "what is the fleet
+        costing", and two messages posted a second apart make the reader do the addition. The
+        AWS sibling splits its output only because its two messages answer genuinely different
+        questions (spend vs free-tier headroom); here it is one question over two accounts.
+
+        YESTERDAY AND MONTH-TO-DATE, BOTH. Same reasoning as the AWS handler: yesterday is the
+        headline because this is a daily report and yesterday is the last complete day, but at
+        this scale a single day is frequently and legitimately zero, and "0.00 yesterday" alone
+        says nothing about whether anything is running. Month-to-date is what makes a quiet day
+        readable as quiet rather than as broken.
+        """
+        yesterday = today - dt.timedelta(days=1)
+        month_start = today.replace(day=1)
+
+        alerting = [r["name"] for r in results if sum(r["mtd"].values(), Decimal(0)) >= r["alert"]]
+        if alerting:
+            title = f":rotating_light: OCI daily cost — unexpected spend in {', '.join(alerting)}"
+        elif failures:
+            title = f":warning: OCI daily cost — {yesterday.isoformat()} ({len(failures)} tenancy unavailable)"
+        else:
+            title = f":moneybag: OCI daily cost — {yesterday.isoformat()}"
+
+        lines = [f"*{title}*", ""]
+
+        # The fleet total only exists if every tenancy that reported agrees on a currency.
+        # Adding EUR to USD to produce one confident-looking number is the single worst thing a
+        # cost report can do, so when they disagree the line says so instead of inventing one.
+        currencies = {r["currency"] for r in results if r["currency"]}
+        if results and len(currencies) <= 1:
+            currency = next(iter(currencies), FALLBACK_CURRENCY)
+            day_total = sum((sum(r["day"].values(), Decimal(0)) for r in results), Decimal(0))
+            mtd_total = sum((sum(r["mtd"].values(), Decimal(0)) for r in results), Decimal(0))
+            # Named honestly when a tenancy is missing: "fleet total" over a partial fleet is a
+            # number someone will quote later without the caveat attached.
+            scope = (
+                "Fleet total"
+                if not failures
+                else f"Total across {len(results)} of {len(results) + len(failures)} tenancies"
+            )
+            lines.append(
+                f"*{scope}* — {_money(day_total, currency)} yesterday · "
+                f"{_money(mtd_total, currency)} month-to-date "
+                f"({month_start.day}–{today.day} {today:%b %Y})"
+            )
+        elif len(currencies) > 1:
+            lines.append("*Fleet total* — _not shown: these tenancies bill in different currencies_")
+        lines.append("")
+
+        # Biggest spender first, so the tenancy that needs attention is not below the fold.
+        for result in sorted(results, key=lambda r: (-sum(r["mtd"].values(), Decimal(0)), r["name"])):
+            lines += _tenancy_block(result)
+            lines.append("")
+
+        # Named, not silent. A tenancy missing from a cost report reads as "spent nothing",
+        # which is exactly the wrong conclusion when the truth is "could not be asked".
+        for name, error in failures:
+            lines.append(f":x: *{name}* — could not be read: `{error}`")
+        if failures:
+            lines.append("")
+
+        lines.append(
+            "_Cost is what OCI billed, in each tenancy's own currency. `running free` is "
+            "quantity consumed at zero cost, which is the closest thing OCI exposes to an "
+            "Always Free allowance meter — when one of those lines starts carrying a price, "
+            "the allowance is gone._"
+        )
+
+        message = "\n".join(lines).rstrip()
+        if len(message) > MAX_MESSAGE_CHARS:
+            message = message[:MAX_MESSAGE_CHARS] + "\n_…truncated._"
+        return title, message
+
+
+    def post_to_slack(token: str, channel: str, title: str, message: str) -> None:
+        payload = json.dumps(
+            {"channel": channel, "text": message, "mrkdwn": True, "unfurl_links": False}
+        ).encode()
+        request = urllib.request.Request(  # nosec B310 - fixed https literal
+            "https://slack.com/api/chat.postMessage",
+            data=payload,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json; charset=utf-8",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as resp:  # nosec B310
+            body = json.loads(resp.read().decode())
+        # Slack answers a bad token or a channel the bot is not in with HTTP 200 and ok:false.
+        # Without this check the job would exit 0 having posted nothing at all.
+        if not body.get("ok"):
+            raise RuntimeError(f"slack chat.postMessage failed: {body.get('error')}")
+        log.info("posted to %s (%s chars)", channel, len(message))
+
+
+    def main() -> int:
+        token = os.environ.get("SLACK_BOT_TOKEN", "").strip()
+        channel = os.environ.get("SLACK_CHANNEL", "").strip()
+        if not token or not channel:
+            log.error("SLACK_BOT_TOKEN and SLACK_CHANNEL are both required")
+            return 2
+
+        try:
+            spec = json.loads(os.environ["OCI_TENANCIES"])
+        except (KeyError, json.JSONDecodeError) as exc:
+            log.error("OCI_TENANCIES must be a JSON list: %s", exc)
+            return 2
+
+        today = dt.datetime.now(dt.timezone.utc).date()
+        results: list[dict] = []
+        failures: list[tuple[str, str]] = []
+
+        for entry in spec:
+            # Inside the try: a malformed entry (a bare string rather than an object)
+            # must take the per-tenancy failure path, not raise past it and lose every
+            # other tenancy's report.
+            name = "?"
+            try:
+                name = entry.get("name", "?")
+                tenancy = Tenancy(
+                    name=name,
+                    config_path=entry["config"],
+                    key_path=entry.get("key") or os.path.join(os.path.dirname(entry["config"]), "key.pem"),
+                    warn=_dec(entry.get("warn", "0.01")),
+                    alert=_dec(entry.get("alert", "1.00")),
+                )
+                results.append(collect(tenancy, today))
+            except Exception as exc:  # noqa: BLE001
+                # PER TENANCY, ON PURPOSE. One misconfigured account must not cost us the
+                # report on the other -- that failure mode turns a cost report into a thing
+                # nobody trusts, and the tenancy most likely to have broken credentials is the
+                # newest one, which is also the one most worth watching.
+                log.warning("tenancy %s failed: %s", name, exc, exc_info=True)
+                failures.append((name, str(exc).replace("`", "'")[:200]))
+
+        if not results and failures:
+            # Still posted. A report that says "both accounts are unreadable" is information;
+            # silence is indistinguishable from a healthy quiet month.
+            log.error("every tenancy failed")
+
+        title, message = build_message(results, failures, today)
+        post_to_slack(token, channel, title, message)
+
+        # EXIT 0 WHILE ANY TENANCY REPORTED. The Slack message is this job's alerting channel,
+        # not the Job's exit status, and it already names every tenancy it could not read. A
+        # non-zero exit on a partial report would mean a permanently-misconfigured account
+        # turns into a red CronJob every single morning, which is the fastest way to make
+        # people stop looking at CronJob status at all. Nothing reported at all is a different
+        # thing and does fail the Job.
+        return 1 if failures and not results else 0
+
+
+    if __name__ == "__main__":
+        sys.exit(main())

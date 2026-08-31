@@ -1,0 +1,22 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: prod-oci-cost-report
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./kubernetes/apps/oci-cost-report/base
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  timeout: 2m
+  wait: true
+  # external-secrets lives in infrastructure/controllers, and both ExternalSecrets here
+  # are inert without its CRDs — applying them first fails the whole Kustomization on a
+  # cold cluster rebuild.
+  dependsOn:
+    - name: infrastructure-controllers
+# No `decryption` block: every secret here is an ExternalSecret backed by OCI Vault.
+# Nothing in this app is SOPS-encrypted.
