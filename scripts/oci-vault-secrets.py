@@ -58,6 +58,14 @@ CLUSTERS = {
         "region": "af-johannesburg-1",
         "vault": "vault-franklinhouse",
     },
+    # The SECOND tenancy in eu-amsterdam-1 (traceysargeant), holding ff-oci3/ff-oci4
+    # and ff-chr3/ff-chr4. Same region as firefly and a different Oracle account, so
+    # the region is not what tells these two apart -- the credentials are.
+    "cloudworkers": {
+        "op": "op://Magma Moose/6kbpuhvcmj6bmmujjifwtmlg4q",
+        "region": "eu-amsterdam-1",
+        "vault": "vault-cloudworkers",
+    },
 }
 
 

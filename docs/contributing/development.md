@@ -16,24 +16,38 @@ below, so install them too.
 
 ## Pre-commit
 
-Pre-commit must pass before a commit lands. Two hook sets run:
+**This repo carries no `.pre-commit-config.yaml`.** Hooks are configured once per
+workstation and apply to every repo, so there is nothing repo-local to install or keep
+in sync.
 
-| Repo | Hook | Covers |
-| --- | --- | --- |
-| `calebsargeant/pre-commit-hooks` | `all` | SHA pinning, branch-name hygiene, general checks |
-| `MagmaMoose/chargate` | `chargate` | The security gate, on staged files |
+The wiring is `core.hooksPath = ~/.git-hooks` in the global git config. That directory's
+`pre-commit` script runs the SHA-pinning hook directly, then hands off to
+`pre-commit hook-impl --config=$HOME/.pre-commit-config.yaml`. A `commit-msg` hook in the
+same directory strips AI co-author trailers.
+
+| Where | Covers |
+| --- | --- |
+| `~/.git-hooks/github-actions-pin-sha.sh` | Pins GitHub Actions to SHAs, rewrites and stages in place |
+| `~/.pre-commit-config.yaml` → `MagmaMoose/chargate` | ShellCheck, actionlint, Hadolint, ESLint, kustomize, Trivy, TruffleHog, Semgrep, pip-audit, npm-audit, govulncheck, Checkov |
+| `~/.pre-commit-config.yaml` (local, pre-push) | Conventional branch names, blocks `[codex]` PR titles |
+| `~/.git-hooks/commit-msg` | Strips AI co-author trailers |
+
+Because `core.hooksPath` overrides `.git/hooks`, `pre-commit install` inside this repo does
+nothing. To run the checks by hand, point at the global config:
 
 ```bash
-pre-commit install
-```
-
-```bash
-pre-commit run --all-files
+pre-commit run --config ~/.pre-commit-config.yaml --all-files
 ```
 
 !!! warning "`--all-files` samples when nothing is staged"
     A green run with an empty index doesn't prove the whole repo is clean. Stage the files
     you changed and run it again before you trust it.
+
+!!! danger "The hooks are workstation-local, not a repo guarantee"
+    None of this exists in CI, in an agent container, or in a fresh clone on another
+    machine. A contributor without the global setup gets no hooks at all and no warning
+    that they are missing. Treat a green local run as your own check, not as a gate the
+    repo enforces. See COMMON_MISTAKES #8 for how silently this fails.
 
 ## Rendering Kubernetes changes
 

@@ -46,7 +46,6 @@ nav:
       - Gluetun Setup: guides/gluetun-setup.md
       - LiteLLM Clients: guides/litellm-clients.md
       - Warp Setup: guides/warp-setup.md
-      - Single-Hook Implementation: guides/single-hook-implementation.md
   - Operations:
       - AppSec and Dev Tooling: operations/appsec-dev-tooling.md
       - Delivery & Automation: operations/delivery-and-automation.md

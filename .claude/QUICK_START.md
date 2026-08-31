@@ -14,8 +14,8 @@ flux reconcile kustomization <name> -n flux-system
 # Ansible (always --check first)
 cd ansible && ansible-playbook -i hosts.yaml <playbook>.yml [--check]
 
-# Pre-commit (must pass)
-pre-commit run --all-files
+# Pre-commit (hooks are workstation-global; no repo config)
+pre-commit run --config ~/.pre-commit-config.yaml --all-files
 
 # SOPS encrypt (fallback only)
 sops -e secret.yaml > secret.enc.yaml
