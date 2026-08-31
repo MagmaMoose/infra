@@ -28,6 +28,22 @@
   `cloudworkers/provider.hcl`, `atlantis.yaml`, `scripts/terragrunt-pipeline.sh`,
   `AGENTS.md`, `PROJECT_INDEX.json`, `docs/reference/cluster-topology.md`, `docs/glossary.md`
 
+## Applied to traceysargeant (2026-08-31)
+- `network` 22 resources, then a second pass to set `internet_gateway_ip=192.168.240.11`
+  (2 in-place route table updates).
+- `vpn` 14 resources. Tunnel headends 158.101.193.222 / 193.123.39.248, BGP inside
+  169.254.24.0/24 (FG1, ASN 65010) and 169.254.25.0/24 (FG2, ASN 65020). All tunnels DOWN
+  until the FortiGate side is built. PSKs are in that leaf's own vault, per tunnel.
+- `edge` 4 resources. ff-chr3 158.178.154.125 / .11, ff-chr4 84.235.162.6 / .12, both
+  RUNNING on reserved IPs, RouterOS 7.18.2.
+- Bootstrapped by hand: `key-cloudworkers` (AES, SOFTWARE, so no per-key charge) and a copy
+  of the node-token as `k3s-firefly-node-token` in `vault-cloudworkers`; MikroTik
+  chr-7.18.2.vmdk imported into the tenancy; srcnat masquerade for the app and data /26s
+  added to BOTH CHRs (neither had any NAT rule, the FranklinHouse failure mode).
+- `server` NOT applied. IAM (dynamic group + policy) landed; both A1 instances fail with
+  `500-InternalError, Out of host capacity`. OCI-side, not config. Re-run the leaf to retry;
+  it is idempotent and only the two instances are missing.
+
 ## Follow-up / next steps
 - Operator bootstrap blocks any apply: import a CHR image into the tenancy (firefly's is a
   tenancy-private custom image and 404s), create a KMS key + token secret in the empty
