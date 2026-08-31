@@ -103,8 +103,9 @@ data:
     # signature padding. It is a fixed constant published in RFC 8017 §9.2, identical in
     # every implementation on earth, and carries no key material -- scanners flag it purely
     # because a long hex literal next to the word "sign" looks like one.
-    # DevSkim: ignore DS173237 — RFC 8017 §9.2 ASN.1 constant, not a key
-    _SHA256_DIGEST_INFO = bytes.fromhex("3031300d060960864801650304020105000420")  # pragma: allowlist secret
+    # The suppression has to be a TRAILING comment on the offending line; DevSkim does not
+    # honour it on the preceding line, which is why the finding survived the first attempt.
+    _SHA256_DIGEST_INFO = bytes.fromhex("3031300d060960864801650304020105000420")  # pragma: allowlist secret  # DevSkim: ignore DS173237
 
 
     # ---------------------------------------------------------------- formatting
