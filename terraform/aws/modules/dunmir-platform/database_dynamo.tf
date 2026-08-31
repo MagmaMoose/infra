@@ -154,8 +154,23 @@ resource "aws_dynamodb_table" "control_plane" { # nosemgrep: terraform.aws.secur
   # read, so an unswept row is not a valid session) and it is NOT fine as the sole mechanism for
   # anything with a compliance-visible retention promise. The audit log's 90-day prune is
   # therefore still a sweep, not a TTL.
+  # `ttl`, and the NAME has to match what every domain in
+  # `dunmir_control_plane/store/` stamps — a table has exactly one TTL attribute,
+  # table-wide. Two domains originally disagreed (audit wrote `expires_at`,
+  # identity wrote `ttl`), and whichever name had been configured here, the other
+  # domain's rows would never have been collected. Nothing errors; the table just
+  # grows, on a deployment whose premise is a 25 GB allowance.
+  #
+  # NOT `expires_at`, which is a DOMAIN field the application compares against —
+  # a session's own expiry, which `load_session` refuses on. Collecting on it would
+  # tie "when the row is deleted" to "when the credential stops working".
+  # `tests/test_store_ttl_attribute.py` asserts this file and the code agree.
+  #
+  # TTL DOES NOT FILTER READS: an expired-but-uncollected item is still returned,
+  # so the application's expiry checks stay where they are. This bounds storage; it
+  # enforces nothing. Collection is asynchronous, "typically within 48 hours".
   ttl {
-    attribute_name = "expires_at"
+    attribute_name = "ttl"
     enabled        = true
   }
 
