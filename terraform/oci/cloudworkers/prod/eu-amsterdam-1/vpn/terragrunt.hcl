@@ -113,7 +113,16 @@ inputs = {
   # tunnel) MUST match the FortiGate side. New /24s because 169.254.21.0/24
   # (decommissioned MikroTik), .22.0/24 (FGT1->firefly) and .23.0/24
   # (FGT2->firefly) are already spoken for.
-  #   FGT1 (AS 65010): 169.254.24.0/24   FGT2 (AS 65020): 169.254.25.0/24
+  #   FGT1 (AS 65010): 169.254.26.0/24   FGT2 (AS 65020): 169.254.27.0/24
+  #
+  # NOT .24/.25, which the first version of this file used. That was chosen by grepping
+  # the repo, and the repo does not know everything: 169.254.24.0/24 is LIVE on FG1 as
+  # the transit for jhb-t1/jhb-t2, the FranklinHouse Johannesburg tunnels, which are
+  # hand-configured on the unit and appear in no terraform. Building on .24 would have
+  # collided with a running tunnel. Ranges verified against the DEVICE (interfaces,
+  # static routes and BGP neighbours) rather than against this repo: .19 is to-fg2,
+  # .22 is firefly-OCI, .24 is FranklinHouse, and .23 is reserved by ../vpn-fortigate
+  # for FGT2 even though that leaf has never been applied.
   vpn_connections = {
     fortigate1 = {
       peer_ip             = local.fgt1_wan_ip
@@ -126,10 +135,10 @@ inputs = {
       routing_type            = "BGP"
       ike_version             = "V2"
       bgp_asn                 = 65010
-      bgp_oracle_ip_tunnel1   = "169.254.24.1/30"
-      bgp_customer_ip_tunnel1 = "169.254.24.2/30"
-      bgp_oracle_ip_tunnel2   = "169.254.24.5/30"
-      bgp_customer_ip_tunnel2 = "169.254.24.6/30"
+      bgp_oracle_ip_tunnel1   = "169.254.26.1/30"
+      bgp_customer_ip_tunnel1 = "169.254.26.2/30"
+      bgp_oracle_ip_tunnel2   = "169.254.26.5/30"
+      bgp_customer_ip_tunnel2 = "169.254.26.6/30"
       shared_secret_tunnel1   = local.fgt1_psk != "" ? local.fgt1_psk : null
       shared_secret_tunnel2   = local.fgt1_psk != "" ? local.fgt1_psk : null
     }
@@ -144,10 +153,10 @@ inputs = {
       routing_type            = "BGP"
       ike_version             = "V2"
       bgp_asn                 = 65020
-      bgp_oracle_ip_tunnel1   = "169.254.25.1/30"
-      bgp_customer_ip_tunnel1 = "169.254.25.2/30"
-      bgp_oracle_ip_tunnel2   = "169.254.25.5/30"
-      bgp_customer_ip_tunnel2 = "169.254.25.6/30"
+      bgp_oracle_ip_tunnel1   = "169.254.27.1/30"
+      bgp_customer_ip_tunnel1 = "169.254.27.2/30"
+      bgp_oracle_ip_tunnel2   = "169.254.27.5/30"
+      bgp_customer_ip_tunnel2 = "169.254.27.6/30"
       shared_secret_tunnel1   = local.fgt2_psk != "" ? local.fgt2_psk : null
       shared_secret_tunnel2   = local.fgt2_psk != "" ? local.fgt2_psk : null
     }
