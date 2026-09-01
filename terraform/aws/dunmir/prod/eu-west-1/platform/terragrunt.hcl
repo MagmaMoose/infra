@@ -113,6 +113,33 @@ inputs = {
   # The capacity is TIGHT and the allowance is shared across the whole organisation — see
   # modules/dunmir-platform/database_dynamo.tf for the arithmetic. Four sibling tables already
   # hold about half of it.
+  # ─────────────────────────────────────────────────────────────────────────────────────────────
+  # STALE, AND KNOWN TO BE. THE APPLICATION NO LONGER HAS A DynamoDB BACKEND.
+  #
+  # MagmaMoose/dunmir removed `dunmir_control_plane/store/`'s DynamoDB implementation — about
+  # 8,500 lines — because the product is a fleet CONSOLE and every console feature worth
+  # charging for is "show me the devices where...", which is a WHERE clause on Postgres and a
+  # new index or a full scan on DynamoDB. `docs/store.md` in that repo is the record.
+  #
+  # So this leaf still provisions a table nothing can read. An apply is not destructive to
+  # anything that matters — the table holds one tenant item and the function serves no traffic —
+  # but a Lambda deployed from a current build would fail at startup, because the store it gets
+  # is the SQL one and there is no DATABASE_URL for it.
+  #
+  # NOT CHANGED HERE, because every option costs money and that is not a decision to bury in a
+  # comment:
+  #   "rds"       — Postgres in the same region as the compute. The right answer, ~$15/month,
+  #                 and the shape `docs/store.md` argues for. There is no 12-month free tier in
+  #                 this organisation (see ../../../provider.hcl), so it bills from hour one.
+  #   "external"  — no database here at all; the function points at one somewhere else. Free,
+  #                 and only sensible if that database is in this region, which the OCI one is
+  #                 not: a measurement on the real code put a heartbeat at ~250ms against
+  #                 ~11ms co-located.
+  #   removing it — the honest option while nothing runs here. Destroys the table.
+  #
+  # Until one is chosen this stack is inert rather than wrong: nothing routes to it, and
+  # `enable_custom_domain` below is false.
+  # ─────────────────────────────────────────────────────────────────────────────────────────────
   db_mode = "dynamodb"
 
   # ── the public entrypoint ───────────────────────────────────────────────────────────────────
