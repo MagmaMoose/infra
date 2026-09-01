@@ -119,18 +119,33 @@ inputs = {
   # ff-chr4 is a warm spare, not an automatic failover.
   internet_gateway_ip = "192.168.240.11"
 
+  # WireGuard mesh ports. 51820 is the default this module already had and is
+  # what the ff-crs1 tunnels land on (see the port note in
+  # terraform/mikrotik/wireguard-mesh/prod); 51845-51850 are the six OCI-to-OCI
+  # tunnels, whose two ends both listen on the same number.
+  wireguard_ingress_port_ranges = [
+    { min = 51820, max = 51820 },
+    { min = 51845, max = 51850 },
+  ]
+
   # Operator IPs allowed to talk to the MikroTik plaintext binary API on the
   # public IPs in the edge subnet (the routeros terraform provider needs this).
   routeros_api_management_cidrs = local.operator_mgmt_cidrs
 
-  # Remote networks reachable from this VCN. Drives BOTH the DRG route rules and
-  # the "allow all from remote networks" ingress rules in modules/network.
+  # Remote networks reachable from this VCN. Drives BOTH the route rules and the
+  # "allow all from remote networks" ingress rules in modules/network. Each entry
+  # picks its own next hop with `via` — see modules/network/variables.tf.
   #
   # ff-oci3/ff-oci4 are agents of the firefly k3s cluster, so this VCN needs a
   # path to the control plane at home AND to the other cluster members' VXLAN
-  # endpoints. Traffic reaches all of them over this tenancy's own IPSec tunnels
-  # to the FortiGates (../vpn) — there is no direct tenancy-to-tenancy link, so
-  # firefly-bound traffic hairpins through FG1.
+  # endpoints. Everything on-prem is reached over this tenancy's own IPSec
+  # tunnels to the FortiGates (../vpn), i.e. via = "drg".
+  #
+  # Firefly's VCN is NOT, and the hairpin-through-FG1 plan this file originally
+  # described is abandoned: two DRGs that are both Oracle AS 31898 cannot
+  # exchange prefixes through a single FG1 without as-override, and the failure
+  # is silent. ff-chr3 now carries that leg over WireGuard instead
+  # (terraform/mikrotik/wireguard-mesh/prod).
   remote_networks = {
     sargeant_home = {
       cidr        = "192.168.19.0/24"
@@ -151,9 +166,17 @@ inputs = {
     # The entry firefly's own network leaf does not (and cannot) have: a VCN
     # never lists itself. Without it ff-oci3 has no route to ff-oci1/ff-oci2 and
     # the flannel mesh is one-way.
+    #
+    # via = "chr" — see the matching note on `cloudworkers_vcn` in firefly's own
+    # network leaf. This entry WAS applied, pointing at the DRG, and that is why
+    # the failure was asymmetric and confusing: ff-oci3 had a route towards
+    # ff-oci1 and firefly had none back. Traceroute from ff-oci3 to
+    # 192.168.223.71 left via the DRG and died there, because FG1 never learned
+    # 192.168.223.0/24 from this tenancy's side of the AS 31898 pair.
     firefly_vcn = {
       cidr        = "192.168.223.0/24"
-      description = "Firefly OCI VCN (caleb tenancy) — ff-oci1/ff-oci2, postgres-oci"
+      description = "Firefly OCI VCN (caleb tenancy) — ff-oci1/ff-oci2, via ff-chr3 WireGuard"
+      via         = "chr"
     }
     # k3s cluster CIDRs — these nodes are members of the on-prem k3s cluster
     # over the tunnel, so the VCN must admit (and return-route) pod/service

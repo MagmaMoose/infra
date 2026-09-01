@@ -118,7 +118,36 @@ inputs = {
   routeros_username        = "admin"
   routeros_password        = local.routeros_password
   cloudflared_tunnel_token = local.cloudflared_tunnel_token
-  trusted_addresses        = local.recon_blockers.mikrotik_trusted_addresses
+
+  # The vault list carries the operator's employer and both family residences by
+  # name, which is why it is not in this public repo. The two entries merged in
+  # here are neither: they are OCI reserved public IPs in the operator's own
+  # second tenancy, and firefly's own pair is already inlined a few lines up as
+  # `routers`.
+  #
+  # They have to be here because these two CHRs now dial WireGuard at ff-chr1 and
+  # ff-chr2 (terraform/mikrotik/wireguard-mesh/prod). The input chain this module
+  # builds is `accept established/related`, `accept TRUSTED`, then a blanket drop
+  # — so a handshake INITIATED by ff-chr3 lands on the drop unless its source is
+  # trusted. It would half-work without this: whichever side dials first gets a
+  # conntrack entry and the reply rides `established`, so the tunnel comes up
+  # and then fails to re-establish after a restart on the wrong side. Worth
+  # naming, because that is the kind of fault that looks like flapping hardware.
+  #
+  # The third entry is the mesh's own transit range, and it is what makes the
+  # routes over that mesh usable at all. Each route carries check-gateway=ping,
+  # so ff-chr1 must answer an ICMP echo sent to its own 192.168.255.x transit
+  # address by the far router. This module's input chain is
+  # established/related -> TRUSTED -> drop, and the transit /26 matched none of
+  # them: the tunnels handshaked, traffic could have flowed, and every route
+  # across them sat `inactive` because the health check was being dropped by the
+  # router the check was aimed at. (The RFC1918 list does not help — this module
+  # only uses it in the forward chain.)
+  trusted_addresses = merge(local.recon_blockers.mikrotik_trusted_addresses, {
+    "Cloudworkers OCI ff-chr3, Amsterdam, NL" = "158.178.154.125"
+    "Cloudworkers OCI ff-chr4, Amsterdam, NL" = "84.235.162.6"
+    "WireGuard mesh transit"                  = "192.168.255.0/26"
+  })
 
   # Masquerade outbound traffic from app + data subnets so they can use this
   # MikroTik as their internet gateway (paired with the 0.0.0.0/0 route in the

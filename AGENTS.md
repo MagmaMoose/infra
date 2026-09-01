@@ -37,7 +37,23 @@ terraform/
   oci/cloudworkers/prod/eu-amsterdam-1/
                                  # network, edge, vpn, server. Same modules as oci/prod,
                                  # different tenancy. Builds ff-chr3/ff-chr4 + ff-oci3/ff-oci4
+  mikrotik/modules/crs/          # Physical home-lab CRS switches
+  mikrotik/modules/wireguard-mesh/
+                                 # Point-to-point WireGuard tunnels between MikroTik routers
+  mikrotik/prod/                 # The two physical CRS switches
+  mikrotik/wireguard-mesh/prod/  # THE ONE LEAF THAT SPANS BOTH OCI TENANCIES. Ten tunnels
+                                 # across ff-crs1 + ff-chr1..ff-chr4; per-router credentials,
+                                 # so it is not under either provider.hcl
 ```
+
+**Third key pattern: one leaf may span tenancies when the resource itself does.** Every other leaf
+belongs to exactly one cloud account. `mikrotik/wireguard-mesh/prod` does not, because a WireGuard
+tunnel is a single object with two ends and each end's peer references the other end's *generated*
+public key — split it per site and the keys have to be copied between two terragrunt runs by hand.
+It sits outside `oci/` entirely, takes a password per router rather than one for the leaf, and is
+the only transport between the two OCI environments. Apply it **before** either `network` leaf:
+those route the far tenancy's /24 at their local CHR (`via = "chr"`), which is a no-op until the
+CHR has somewhere to send the packet. See `docs/reference/wireguard-mesh.md`.
 
 **Key Pattern**: Each provider directory structure mirrors cloud regions/environments. Terragrunt auto-generates `backend.tf` and `provider.tf` - **don't manually edit these files** (they're marked `if_exists = "overwrite"`).
 

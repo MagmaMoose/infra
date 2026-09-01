@@ -28,6 +28,15 @@ spec:
       # container holds the pod Running so kubelet re-runs the init on every
       # (re)start — making the fix durable across reboots and node rebuilds.
       # Only targets the native-cloud (OCI) tier.
+      #
+      # THE CIDR LIST BELOW MUST NAME EVERY OCI ENVIRONMENT, INCLUDING THE ONE
+      # THE NODE IS IN. It is not derived from anything: a new environment whose
+      # CIDR is missing gets nodes that reject the data plane from their own
+      # neighbours, and the DaemonSet still reports Running on them. That is
+      # exactly what happened when 192.168.240.0/24 (ff-oci3/ff-oci4) was added
+      # on 2026-08-31 and this list was not — flannel VXLAN between those two
+      # nodes was rejected by their own host firewall, with the cloud security
+      # lists innocent and the pods healthy.
       automountServiceAccountToken: false
       priorityClassName: system-node-critical
       hostPID: true
@@ -65,7 +74,7 @@ spec:
             - -c
             - |
               set -eu
-              for c in 10.42.0.0/16 10.43.0.0/16 192.168.19.0/24 192.168.223.0/24; do
+              for c in 10.42.0.0/16 10.43.0.0/16 192.168.19.0/24 192.168.223.0/24 192.168.240.0/24; do
                 iptables -C INPUT -s "$c" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -s "$c" -j ACCEPT
               done
               netfilter-persistent save 2>/dev/null || { mkdir -p /etc/iptables; iptables-save > /etc/iptables/rules.v4; }

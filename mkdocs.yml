@@ -73,6 +73,7 @@ nav:
       - Terraform (OCI): reference/terraform-oci.md
       - Terraform Modules: reference/terraform-modules.md
       - Terraform OCI VPN: reference/terraform-oci-vpn.md
+      - WireGuard Mesh: reference/wireguard-mesh.md
       - OCI Infra Improvements: reference/oci-infra-improvements.md
       - OCI VRRP HA Design: reference/oci-vrrp-ha-design.md
       - Cloudflare ZTNA Improvements: reference/cloudflare-ztna-improvements.md
