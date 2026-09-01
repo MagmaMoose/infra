@@ -31,5 +31,13 @@ terraform {
       source  = "hashicorp/random"
       version = "~> 3.6"
     }
+    # `archive` builds the sweep poker's zip from an inline source file. The function
+    # is twenty lines with no dependencies, so a release pipeline to deliver it would
+    # be more moving parts than the thing it delivers — and every one of them is
+    # another way the sweep stops firing.
+    archive = {
+      source  = "hashicorp/archive"
+      version = "~> 2.4"
+    }
   }
 }

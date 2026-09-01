@@ -175,9 +175,25 @@ inputs = {
   ops_email           = "caleb@magmamoose.com"
   enable_budget_alarm = true
 
-  # The DynamoDB table is provisioned by Terraform (database_dynamo.tf) and needs no DSN — the
-  # function finds it by name from the environment variables Terraform sets. The sweep is ready
-  # to run: it fires once a minute and walks each tenant's DEVSTAT# prefix looking for stale
-  # heartbeats. It is the core of the product's alerting and invisible when disabled.
-  sweep_enabled = true
+  # ── the dead-man sweep ──────────────────────────────────────────────────────────────────────
+  #
+  # FIRED AT KUBERNETES, NOT AT THE LAMBDA HERE. The application in production is the OCI
+  # cluster, and its sweep is a CronJob inside that cluster — the only thing that notices a
+  # router has stopped reporting, sitting in the same failure domain as the thing it watches. A
+  # cluster that is unwell runs no sweep, marks nothing down, raises no alert, and shows every
+  # operator a healthy fleet. Quiet reads as healthy.
+  #
+  # Setting this creates a small function that POSTs `/internal/sweep` on the same schedule, so
+  # the trigger lives somewhere that keeps working when Amsterdam does not, and a firing that
+  # cannot reach the cluster fails as a Lambda error rather than as silence.
+  #
+  # TWO THINGS THIS APPLY NEEDS THAT TERRAFORM WILL NOT DO:
+  #   1. put the cluster's ADMIN_TOKEN into the SSM parameter the module creates
+  #      (`/dunmir-prod/sweep/admin-token`) — the value is deliberately left alone, because a
+  #      credential that authenticates every `/v1/admin/*` route does not belong in state;
+  #   2. delete `k8s/base/cron-sweep.yaml` in the same change, or two sweeps race. Idempotent,
+  #      so nothing breaks, but the writes double and "did the sweep run" stops having one
+  #      answer.
+  sweep_target_url = "https://api.dunmir.magmamoose.com/internal/sweep"
+  sweep_enabled    = true
 }

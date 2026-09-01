@@ -539,3 +539,33 @@ variable "admin_token" {
   default     = ""
   sensitive   = true
 }
+
+variable "sweep_target_url" {
+  description = <<-EOT
+    Where the dead-man sweep is fired, when it is fired over HTTP.
+
+    Empty (the default) means the sweep target is this account's own Lambda, invoked directly
+    with `{"task": "sweep"}` — correct when the application runs here.
+
+    Set it to the Kubernetes backend's `POST /internal/sweep` URL and a small function is
+    created that calls it on the same schedule. That is for the topology in production today,
+    where the application is on the OCI cluster and its sweep is a CronJob INSIDE the cluster it
+    monitors — so a cluster that is unwell produces no sweep, no alerts, and a console showing
+    every fleet healthy. Moving the trigger out makes that failure loud.
+
+    The bearer token is NOT set here. Terraform creates the SSM parameter and leaves its value
+    alone; put the cluster's `ADMIN_TOKEN` in out of band. A credential that authenticates
+    `/internal/sweep` and every `/v1/admin/*` route does not belong in a state file.
+
+    ONE SWEEP AT A TIME. Setting this does not disable the Kubernetes CronJob — remove that in
+    the same change that applies this, or two sweeps race. They are idempotent so nothing
+    breaks, but the writes double and "did the sweep run" stops having one answer.
+  EOT
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.sweep_target_url == "" || startswith(var.sweep_target_url, "https://")
+    error_message = "sweep_target_url must be https:// — the request carries the admin bearer token."
+  }
+}
