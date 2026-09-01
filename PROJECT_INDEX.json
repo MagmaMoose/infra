@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-31T00:00:00Z",
+  "generated": "2026-09-01T00:00:00Z",
   "summary": "Monolithic infrastructure-as-code repo for a Raspberry Pi home lab plus multi-cloud (GCP/OCI/Cloudflare). Terragrunt-wrapped Terraform provisions cloud, Ansible bootstraps systems, FluxCD reconciles TWO k3s clusters: 'firefly' (Pi + OCI nodes) and 'franklinhouse' (6 VMs on a 3-node Proxmox cluster, folded in from calebsargeant/infra-v2 on 2026-08-13).",
   "entrypoints": [
     "kubernetes/clusters/firefly/kustomization.yaml",
@@ -39,14 +39,16 @@
     },
     "terraform-mikrotik": {
       "path": "terraform/mikrotik/",
-      "purpose": "Two physical home-lab MikroTik CRS edge switches (one behind each FortiGate). routeros provider iterated per-unit via for_each (OpenTofu 1.9+). L2 access bridge (MSTP, shared region) + routed /30 cross-link & inter-switch uplinks. Both ISPs active-active via ECMP (equal-distance default routes), no failover. Pairs with terraform/fortigate. NOT the OCI CHRs under terraform/oci/.../mikrotik.",
+      "purpose": "Home-lab and cloud MikroTik config, split across two leaves. `prod` is the two physical CRS edge switches (one behind each FortiGate): routeros provider iterated per-unit via for_each (OpenTofu 1.9+), L2 access bridge (MSTP, shared region) + routed /30 cross-link & inter-switch uplinks, both ISPs active-active via ECMP. `wireguard-mesh/prod` is the ten point-to-point WireGuard tunnels joining ALL FIVE routers across three sites — ff-crs1 (home), ff-chr1/ff-chr2 (calebsargeant OCI) and ff-chr3/ff-chr4 (traceysargeant OCI) — and is the only transport between the two OCI tenancies. NOT the OCI CHR base config, which is terraform/oci/.../mikrotik.",
       "leaves": [
-        "prod"
+        "prod",
+        "wireguard-mesh/prod"
       ],
       "shared_modules": [
-        "modules/crs"
+        "modules/crs",
+        "modules/wireguard-mesh"
       ],
-      "notes": "Hardware not wired yet (mt2 not installed) — Atlantis autoplan disabled; run 'atlantis plan -p mikrotik-prod' once reachable + password in OCI Vault. Placeholder addressing consistent with terraform/fortigate; verify CRS port names before apply."
+      "notes": "`prod`: hardware not wired yet (mt2 not installed) — Atlantis autoplan disabled; run 'atlantis plan -p mikrotik-prod' once reachable. Placeholder addressing; verify CRS port names before apply. `wireguard-mesh/prod`: reaches five routers across two Oracle accounts with per-router credentials from two OCI Vault secrets, so autoplan is disabled too. ONE interface per tunnel (allowed-address must not overlap within an interface, which a two-router-per-site mesh would). Apply it BEFORE either oci network leaf — those route the far /24 at their local CHR via = \"chr\". Private keys are generated on the routers; only public_key crosses terraform."
     },
     "terraform-gcp": {
       "path": "terraform/gcp/",

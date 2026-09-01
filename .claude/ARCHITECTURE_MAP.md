@@ -8,7 +8,7 @@ Ansible → bootstraps systems/k3s          → runtime-only after Flux owns the
 
 Three sources of truth (in flow order):
 1. `terraform/` — Terragrunt wraps TF; GCS backend (all clouds); 1 leaf = 1 state file.
-   `terragrunt.yml` plans/applies; Atlantis is legacy and covers only 20 of 27 leaves
+   `terragrunt.yml` plans/applies; Atlantis is legacy and covers 24 of 33 leaves (the 9 gaps are all AWS)
 2. `ansible/` — host config, k3s bootstrap, network devices (idempotent roles)
 3. `kubernetes/` — Flux: cluster root → infrastructure (configs→controllers→services) + apps
 

@@ -177,6 +177,36 @@ projects:
       enabled: false
     apply_requirements: [mergeable]
 
+  # ─── WireGuard mesh across the three router sites ────────────────────────
+  # ff-crs1 (home) + ff-chr1/ff-chr2 (calebsargeant OCI) + ff-chr3/ff-chr4
+  # (traceysargeant OCI), ten point-to-point tunnels. One leaf, because a tunnel
+  # is one object with two ends and each end's peer needs the other end's
+  # generated public key — two state files could not do it without copying keys
+  # by hand.
+  #
+  # autoplan disabled for the same reason as mikrotik-prod and every
+  # cloudworkers project: a plan opens a live RouterOS API session to all five
+  # routers, and it also resolves both admin passwords through parse-time
+  # `run_cmd "oci"` vault fetches, so it needs a working ~/.oci/config on
+  # whatever runs terragrunt. Atlantis has neither today, and a red check nobody
+  # can fix is a red check everyone learns to ignore. Run manually:
+  #   atlantis plan -p mikrotik-wireguard-mesh-prod
+  #
+  # NOTE the cross-leaf dependency, which Atlantis does not model: the two
+  # `network` leaves route the far tenancy's /24 at their local CHR
+  # (`via = "chr"`). Apply THIS project before either of those, or the route
+  # points at a CHR with nowhere to send the packet and it goes back into the
+  # VCN it came from.
+  - name: mikrotik-wireguard-mesh-prod
+    dir: terraform/mikrotik/wireguard-mesh/prod
+    workspace: default
+    terraform_version: v1.11.3
+    workflow: terragrunt
+    autoplan:
+      when_modified: ["**/*.tf", "**/*.tfvars", "**/*.hcl"]
+      enabled: false
+    apply_requirements: [mergeable]
+
   # ─── GCP ─────────────────────────────────────────────────────────────────
   - name: gcp-prod-project
     dir: terraform/gcp/prod/europe-west4/project
@@ -349,8 +379,17 @@ projects:
   #   3. network again, with internet_gateway_ip = "192.168.240.11"
   #   4. vpn       (this tenancy's own DRG + IPSec to FG1/FG2)
   #   5. server    (ff-oci3 .71, ff-oci4 .72; joins k3s over the tunnel)
-  # No `mikrotik` config leaf here on purpose: CHR masquerade is set up
-  # out-of-band, see the edge leaf's own notes.
+  # There is still no cloudworkers `mikrotik` config leaf, so ff-chr3/ff-chr4's
+  # base firewall and their app/data masquerade rules remain hand-configured —
+  # see the edge leaf's notes. Their WireGuard config is NOT hand-configured:
+  # that lives in the `mikrotik-wireguard-mesh-prod` project above, which
+  # reaches all five routers across both tenancies.
+  #
+  # Those two routers currently run with NO /ip/firewall/filter rules at all
+  # while the edge security list admits ssh/http/https/winbox from 0.0.0.0/0.
+  # The blank admin password they shipped with was fixed on 2026-09-01; the open
+  # ports were not. A cloudworkers mikrotik leaf is the fix and is the main
+  # outstanding item in this tenancy.
   # `budget` is absent from that order deliberately — it touches no VCN, DRG or instance and
   # can be applied first, which is the right moment for a spend backstop in a tenancy that is
   # no longer Always Free.
