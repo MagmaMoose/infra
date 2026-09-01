@@ -62,4 +62,13 @@ inputs = {
   # group + policy that grants that read.
   k3s_url               = get_env("K3S_URL", "https://192.168.19.10:6443")
   k3s_token_secret_ocid = "ocid1.vaultsecret.oc1.eu-amsterdam-1.amaaaaaa4ebs56aam3bqx2dsmdg6wrdjvdhc6mcgnqil766lofkbv6nlujoa"
+
+  # Match the firefly control plane (ff-pi1). Unpinned, the installer resolves
+  # the `stable` channel at boot, so a rebuild of these VMs today would join on a
+  # different minor than the one they were built with — which is exactly how the
+  # second OCI environment ended up three minors ahead of the API server. See the
+  # sibling cloudworkers leaf for the full account. Governs new VMs only: it is
+  # not in the user_data replace hash, so this does not rebuild ff-oci1/ff-oci2
+  # (they carry the postgres-oci instances). Raise it with the control plane.
+  k3s_version = "v1.33.4+k3s1"
 }

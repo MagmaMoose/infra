@@ -32,11 +32,12 @@ spec:
       # The CNPG Clusters set it directly for a related reason (their kind is not
       # matchable at all), so the whole data plane is consistent.
       priorityClassName: critical
-      # TEMPORARY, until the CHR WireGuard tunnels between the two OCI environments
-      # exist. `topology.sargeant.co/tier: native-cloud` used to mean {ff-oci1, ff-oci2};
+      # TEMPORARY, until the path to the second OCI environment is both reachable AND
+      # usable. `topology.sargeant.co/tier: native-cloud` used to mean {ff-oci1, ff-oci2};
       # ff-oci3/ff-oci4 joined as a SECOND OCI environment on 2026-08-31 carrying the same
       # label, and the tier silently became "any of four, across a path that does not
-      # exist". That is COMMON_MISTAKES #22, and the comment below still says
+      # exist". That is COMMON_MISTAKES #28 (labelled capacity that cannot actually carry
+      # the work accepts it rather than failing), and the comment below still says
       # "(ff-oci1/ff-oci2)" because it was true when it was written.
       #
       # It cost an outage the same day. Measured 2026-09-01: a pod on ff-oci1 or ff-oci2
@@ -53,6 +54,28 @@ spec:
       # REMOVE THIS once ff-chr1/ff-chr2 <-> ff-chr3/ff-chr4 are tunnelled and the intended
       # topology — valkey-oci and postgres-oci spanning both OCI environments, one per
       # node — is actually reachable. Deleting it before then re-strands the data plane.
+      #
+      # REACHABLE IS NOT THE WHOLE TEST, and as of 2026-09-01 the first half is already
+      # met while the second is not. The tunnels were built that day and pod-to-pod now
+      # passes in both directions (0% loss over 120 packets, ~1.7ms). Removing the pin on
+      # that evidence alone would re-cause the outage, because ff-chr3 still runs the FREE
+      # MikroTik CHR licence, which caps every interface at 1 Mbps:
+      #
+      #   5MB pod-to-pod, ff-oci1 -> ff-oci4 (via ff-chr3)   57.1s   (~0.7 Mbit/s)
+      #   5MB pod-to-pod, ff-oci1 -> ff-oci2 (intra-VCN)      0.04s
+      #   3MB egress from a pod on ff-oci1 (via ff-chr1)      0.30s  (~80 Mbit/s)
+      #   3MB egress from a pod on ff-oci4 (via ff-chr3)     25.5s   (~0.9 Mbit/s)
+      #
+      # The cap is not an MTU fault — forcing the pod MTU down to the measured 1328B path
+      # MTU changed nothing (51.2s vs 59.8s). It applies to the whole environment, not just
+      # the inter-site tunnel, so those nodes also pull container images at ~1 Mbit/s.
+      #
+      # So the real precondition is a paid CHR licence on ff-chr3 (and ff-chr4 before it
+      # carries anything). ff-chr1/ff-chr2 are already licensed — that is why the existing
+      # environment is fast. Prove it before deleting this block, from a pod on ff-oci1:
+      #   time nc -w 60 <pod-ip-on-ff-oci4> 7000 | wc -c     # 5MB should take << 1s
+      # A path that pings but moves 1 Mbit/s is exactly the "healthy but useless" state
+      # that made the first outage take 12 hours to read.
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
