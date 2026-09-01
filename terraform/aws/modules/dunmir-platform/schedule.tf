@@ -24,7 +24,20 @@ resource "aws_scheduler_schedule" "sweep" {
     mode = "OFF"
   }
 
-  state               = var.sweep_enabled ? "ENABLED" : "DISABLED"
+  # ARMED ONLY WHEN THIS ACCOUNT IS THE ONE RUNNING THE APPLICATION.
+  #
+  # `sweep_http.tf` says the two sweeps are mutually exclusive -- "Exactly one of
+  # them should ever be on" -- but both schedules read `var.sweep_enabled`, so
+  # that was impossible to express and the comment claiming the HTTP sweep is
+  # "independent of sweep_enabled" was simply wrong. Turning the sweep on gave you
+  # BOTH, and this one invokes a Lambda that, on a stack pointed at Kubernetes,
+  # has no database to sweep: every firing fails and the function-error alarm
+  # emails on a five-minute cycle until somebody mutes the one alarm that can see
+  # the sweep fail at all.
+  #
+  # So `sweep_target_url` now decides WHICH sweep runs and `sweep_enabled` decides
+  # WHETHER one does, which is what both comments always described.
+  state               = var.sweep_enabled && !local.creates_http_sweep ? "ENABLED" : "DISABLED"
   schedule_expression = var.sweep_schedule_expression
   # Explicit rather than the account default. A `cron()` expression written for a European
   # operator and silently interpreted as UTC is the kind of off-by-an-hour that only shows up

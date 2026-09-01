@@ -26,10 +26,13 @@
 # parameter (free) and twenty lines of stdlib read it. That is the only reason.
 
 locals {
-  # The HTTP sweep is opt-in and independent of `sweep_enabled`, which arms the
-  # in-account schedule in schedule.tf. Exactly one of them should ever be on:
-  # two sweeps racing is harmless (it is idempotent) but doubles the writes and
-  # makes "did the sweep run" ambiguous.
+  # The HTTP sweep is opt-in via `sweep_target_url`, and setting it is what makes
+  # this sweep the one that runs: `schedule.tf` disables the in-account schedule
+  # whenever this local is true, so exactly one of them is ever armed. Two sweeps
+  # racing is harmless (it is idempotent) but doubles the writes and makes "did
+  # the sweep run" stop having one answer.
+  #
+  # `sweep_enabled` still decides whether ANY sweep runs, and gates both.
   creates_http_sweep = var.sweep_target_url != "" && !var.localstack
 }
 
