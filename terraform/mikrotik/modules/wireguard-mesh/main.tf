@@ -83,6 +83,19 @@ resource "terraform_data" "endpoint_assertions" {
   }
 }
 
+# A routes entry whose router is not an endpoint of its named tunnel fails at
+# apply time with a bare "key not found". Catch it at plan time instead.
+resource "terraform_data" "route_assertions" {
+  for_each = { for r in var.routes : "${r.router}/${r.dst}/${r.via}" => r }
+
+  lifecycle {
+    precondition {
+      condition     = contains(keys(local.ends), "${each.value.router}/${each.value.via}")
+      error_message = "Route ${each.value.dst} on ${each.value.router} via ${each.value.via}: ${each.value.router} is not an endpoint of tunnel ${each.value.via}. Valid routers for that tunnel are its 'a' and 'b' values in var.tunnels."
+    }
+  }
+}
+
 # --- Interfaces ---
 
 # private_key is left unset on purpose: RouterOS generates the keypair and the
@@ -159,5 +172,5 @@ resource "routeros_ip_route" "mesh" {
   # does not ARP over WireGuard.
   check_gateway = "ping"
 
-  depends_on = [routeros_ip_address.transit]
+  depends_on = [routeros_ip_address.transit, terraform_data.route_assertions]
 }
