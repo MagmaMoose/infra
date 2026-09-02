@@ -65,6 +65,11 @@ data:
         transport: streamable-http
         headers:
           Authorization: "Bearer ${N8N_MCP_AUTH_TOKEN}"
+      # Do NOT add HolmesGPT as a direct mcp_servers entry. holmesgpt's
+      # NetworkPolicy blocks inbound connections from the automation namespace, so a
+      # direct entry produces a confusing refused connection rather than a useful
+      # error. HolmesGPT investigations reach Hermes through the nievah MCP below.
+      #
       # Nievah's own MCP: the documentation index across every indexed repo, the
       # read verbs (repo policy, work status, pending questions), the write verbs
       # (review a pull request, plan an issue, approve a plan, answer a
@@ -84,7 +89,7 @@ data:
       # the endpoint compares one shared token, so a second copy would be a second
       # thing to rotate and a silent 401 the day only one of them was.
       nievah:
-        url: http://nievah.nievah.svc.cluster.local:8000/mcp
+        url: http://nievah.nievah.svc.cluster.local:8000/mcp  # DevSkim: ignore DS137138 - in-cluster ClusterIP, no external exposure
         transport: streamable-http
         headers:
           Authorization: "Bearer ${NIEVAH_MCP_TOKEN}"

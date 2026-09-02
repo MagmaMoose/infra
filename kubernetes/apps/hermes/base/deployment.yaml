@@ -17,7 +17,7 @@ spec:
         # Rolls the pod (→ re-seed) whenever the git-managed config.yaml changes.
         # sha256 of kubernetes/apps/hermes/base/configmap.yaml (there is no nested
         # hermes/ dir; the old path in this comment pointed at nothing).
-        checksum/config: 06affca51ad60aac9c291c106e9f619d26b0e7699150c66f3894e0286a5285f3
+        checksum/config: b91e7de1a2aa76df27d15b0d5e263440637f27f55891c7c1ace370ba907afa7a
       labels:
         app: hermes
     spec:
