@@ -41,6 +41,19 @@ data:
       default: claude-sonnet-4-6
       base_url: http://litellm.automation.svc.cluster.local:8080/v1
       api_mode: chat_completions
+      # MUST be stated here. The OPENAI_API_KEY env is NOT a fallback for a
+      # custom provider: upstream gates that fallback on the base_url being an
+      # authoritative OpenAI host, deliberately, so a key meant for OpenAI is
+      # never posted to an arbitrary one. Ours points at the in-cluster LiteLLM,
+      # so the gate correctly refuses and the resolver falls through to its
+      # placeholder literal `no-key-required` — which LiteLLM rejects with
+      # "Virtual Key expected ... expected to start with 'sk-'".
+      #
+      # That failure surfaced only once Slack could actually deliver a message:
+      # the model call is the first thing past the gateway, and nothing before
+      # it had ever reached one. `${VAR}` is expanded recursively across the
+      # whole config at load, so this resolves the same way the MCP headers do.
+      api_key: ${OPENAI_API_KEY}
 
     memory:
       memory_enabled: true
