@@ -112,7 +112,6 @@
         "kyverno-policies",
         "litellm",
         "loki",
-        "mem0",
         "n8n",
         "n8n-mcp",
         "nextcloud",
