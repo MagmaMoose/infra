@@ -9,16 +9,16 @@
 #
 # The RESOURCE names here are load-bearing: they must match the `$imagepolicy`
 # markers in the dunmir repo's k8s/overlays/prod/kustomization.yaml, which read
-#   {"$imagepolicy": "flux-system:dunmir-pro-backend:tag"}
-#   {"$imagepolicy": "flux-system:dunmir-pro-frontend:tag"}
+#   {"$imagepolicy": "flux-system:dunmir-backend:tag"}
+#   {"$imagepolicy": "flux-system:dunmir-frontend:tag"}
 # A marker naming a policy that doesn't exist is not an error — the setter is
 # just never rewritten and the tag stays frozen at the placeholder. They keep the
-# `dunmir-pro-` prefix on purpose, matching this directory and the namespace,
+# `dunmir-` prefix on purpose, matching this directory and the namespace,
 # even though the repository is now `dunmir`.
 #
 # `spec.image` DID have to move, and that is a separate axis. The published image
 # name follows the REPOSITORY name — Diatreme bakes with
-# IMAGE_NAME=magmamoose/${GITHUB_REPOSITORY##*/} — so renaming dunmir-pro →
+# IMAGE_NAME=magmamoose/${GITHUB_REPOSITORY##*/} — so renaming dunmir →
 # dunmir moved the images to ghcr.io/magmamoose/dunmir-{backend,frontend} while
 # these still scanned the old name. v0.0.7 through v0.0.12 published to a name
 # nothing consumed and the cluster ran v0.0.6 for six releases, reporting itself
@@ -29,13 +29,13 @@
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImageRepository
 metadata:
-  name: dunmir-pro-backend
+  name: dunmir-backend
   namespace: flux-system
 spec:
   image: ghcr.io/magmamoose/dunmir-backend
   interval: 5m
   provider: generic
-  # dunmir-pro is a private repo, so its GHCR packages inherit private
+  # dunmir is a private repo, so its GHCR packages inherit private
   # visibility — this scan needs credentials where a public image would not.
   secretRef:
     name: ghcr-pull-secret
@@ -43,11 +43,11 @@ spec:
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImagePolicy
 metadata:
-  name: dunmir-pro-backend
+  name: dunmir-backend
   namespace: flux-system
 spec:
   imageRepositoryRef:
-    name: dunmir-pro-backend
+    name: dunmir-backend
   filterTags:
     pattern: '^v[0-9]+\.[0-9]+\.[0-9]+$'
     extract: '$0'
@@ -56,7 +56,7 @@ spec:
       # `>=0.1.0` matched NOTHING. GHCR holds v0.0.4 plus pr-* and latest, and
       # the filterTags pattern above discards every pr-*/latest tag before the
       # range is applied — so the policy could never resolve, the $imagepolicy
-      # setter in dunmir-pro's k8s/overlays/prod/kustomization.yaml was never
+      # setter in dunmir's k8s/overlays/prod/kustomization.yaml was never
       # rewritten, and the v0.1.0 placeholder shipped to the cluster as a real
       # tag. Every pod then sat in ImagePullBackOff pulling a tag that has
       # never existed. A policy that matches no tag is not an error in Flux —
@@ -66,7 +66,7 @@ spec:
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImageRepository
 metadata:
-  name: dunmir-pro-frontend
+  name: dunmir-frontend
   namespace: flux-system
 spec:
   image: ghcr.io/magmamoose/dunmir-frontend
@@ -78,11 +78,11 @@ spec:
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImagePolicy
 metadata:
-  name: dunmir-pro-frontend
+  name: dunmir-frontend
   namespace: flux-system
 spec:
   imageRepositoryRef:
-    name: dunmir-pro-frontend
+    name: dunmir-frontend
   filterTags:
     pattern: '^v[0-9]+\.[0-9]+\.[0-9]+$'
     extract: '$0'
@@ -97,21 +97,21 @@ spec:
 # policy the marker names. So two policies + one automation is correct here; a
 # second automation on the same branch would just race the first for the push.
 #
-# Flux rewrites the tags in the dunmir-pro repo's k8s/overlays/prod/
+# Flux rewrites the tags in the dunmir repo's k8s/overlays/prod/
 # kustomization.yaml and pushes the bump back to that repo's main branch. The
 # github-app-magmamoose installation token on the GitRepository above is what
-# authorises that push, so it needs contents:write on dunmir-pro — read-only
+# authorises that push, so it needs contents:write on dunmir — read-only
 # access is enough to reconcile but NOT enough to automate.
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImageUpdateAutomation
 metadata:
-  name: dunmir-pro
+  name: dunmir
   namespace: flux-system
 spec:
   interval: 5m
   sourceRef:
     kind: GitRepository
-    name: dunmir-pro
+    name: dunmir
   git:
     checkout:
       ref:
@@ -121,12 +121,15 @@ spec:
         email: actions@users.noreply.github.com
         name: fluxcdbot
       messageTemplate: |-
-        chore: update dunmir-pro images
+        chore: update dunmir images
         {{range .Changed.Changes}}{{print .OldValue}} -> {{println .NewValue}}{{end}}
 
         [ci skip]
     push:
       branch: main
   update:
-    path: "./k8s/overlays/prod"
+    # chart/values.yaml now, not the deleted kustomize overlay. The setter markers
+    # moved with the tags and the syntax is unchanged; automation matches them per
+    # LINE, so the comment must stay beside the tag it rewrites.
+    path: "./chart"
     strategy: Setters

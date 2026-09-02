@@ -437,7 +437,14 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "firefly" {
     # which the tunnel passes through without a proxy-body-size ceiling.
     ingress_rule {
       hostname = "api.dunmir.magmamoose.com"
-      service  = "http://dunmir-backend.dunmir-pro.svc.cluster.local:8000"
+      # APPLY ORDER MATTERS. This is the live path for api.dunmir.magmamoose.com:
+      # cloudflared connects straight to the Service, bypassing the Ingress. The
+      # namespace moved dunmir-pro -> dunmir with the Helm cutover, and applying
+      # this BEFORE the new namespace is serving points the tunnel at a Service
+      # that does not exist yet, which is a hard outage on the API and on every
+      # agent check-in. Bring the new namespace up, confirm a pod is Ready, then
+      # apply this.
+      service  = "http://dunmir-backend.dunmir.svc.cluster.local:8000"
       origin_request {}
     }
 

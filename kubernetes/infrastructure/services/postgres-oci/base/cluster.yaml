@@ -75,7 +75,7 @@ spec:
   # (spec.cluster.name: postgres-oci, metadata.namespace: database-oci) — NOT a
   # Cluster of their own.
   #
-  # First consumer: Dün Mir Pro (kubernetes/apps/dunmir-pro/base/dunmir-pro/
+  # First consumer: Dün Mir Pro (kubernetes/apps/dunmir/base/dunmir/
   # database.yaml — database `dunmir`, owner `app`). It reuses `app` rather than
   # taking a dedicated role, which is the reverse of what this comment used to
   # recommend, for two reasons worth recording: this operator ships no

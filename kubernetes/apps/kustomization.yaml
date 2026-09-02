@@ -45,7 +45,7 @@ resources:
   # needs github-app-magmamoose for read access, not just rate-limit headroom.
   # Migrated off Cloudflare Workers (Workers Free caps CPU at 10ms; Pro's PBKDF2
   # login costs ~190ms), so the cluster is now the only place it runs.
-  - ./dunmir-pro
+  - ./dunmir
   - ./github-contributions
   - ./github-timesheet
   - ./github-usage-dashboard
