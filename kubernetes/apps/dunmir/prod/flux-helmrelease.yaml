@@ -95,6 +95,19 @@ spec:
   chart:
     spec:
       chart: ./chart
+      # REPACKAGE ON EVERY SOURCE REVISION, NOT ON A VERSION BUMP.
+      #
+      # Flux versions a git-sourced chart by Chart.yaml's `version`, which is
+      # static here, so it cached the first package it built and served that for
+      # ever. Every reconcile reported success while deploying a chart several
+      # commits stale: the release kept rendering dunmir-backend:v0.0.48 while
+      # main had moved to v0.0.51, and no amount of reconciling the GitRepository
+      # or the HelmRelease changed it, because neither is what was stale.
+      #
+      # `Revision` makes the chart artifact track the source revision instead.
+      # Without it a chart whose version never changes is effectively frozen at
+      # its first successful package.
+      reconcileStrategy: Revision
       sourceRef:
         kind: GitRepository
         name: dunmir
