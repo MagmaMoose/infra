@@ -1,5 +1,5 @@
 {
-  "generated": "2026-08-31T00:00:00Z",
+  "generated": "2026-09-02T00:00:00Z",
   "summary": "Monolithic infrastructure-as-code repo for a Raspberry Pi home lab plus multi-cloud (GCP/OCI/Cloudflare). Terragrunt-wrapped Terraform provisions cloud, Ansible bootstraps systems, FluxCD reconciles TWO k3s clusters: 'firefly' (Pi + OCI nodes) and 'franklinhouse' (6 VMs on a 3-node Proxmox cluster, folded in from calebsargeant/infra-v2 on 2026-08-13).",
   "entrypoints": [
     "kubernetes/clusters/firefly/kustomization.yaml",
@@ -112,18 +112,21 @@
         "kyverno-policies",
         "litellm",
         "loki",
+        "mem0",
         "n8n",
         "n8n-mcp",
         "nextcloud",
         "nievah",
         "node-tuning",
         "nzbhydra2",
+        "oci-cost-report",
         "openhands",
         "overseerr",
         "platform2",
         "plex",
         "prowlarr",
         "qbittorrent",
+        "quarry",
         "radarr",
         "recyclarr",
         "renovate",
@@ -217,8 +220,15 @@
     },
     "terraform-aws": {
       "path": "terraform/aws",
-      "purpose": "AWS serverless front doors and shared artifact buckets, per product. Each product (nievah, chargate, brimyr, caldrith, diatreme) gets its own Terragrunt leaves under prod/<region>/; modules/ holds the reusable stacks. Free-tier-shaped: Lambda + SQS FIFO + DynamoDB + EventBridge Scheduler, no NAT and no CMKs.",
-      "exports": [
+      "purpose": "AWS serverless front doors and shared artifact buckets, per product. Free-tier-shaped: Lambda + SQS FIFO + DynamoDB + EventBridge Scheduler, no NAT and no CMKs.",
+      "structure": "Each product with its own AWS account has its own subtree (<product>/provider.hcl + <product>/prod/<region>/<leaf>/) so credentials are isolated. Products sharing the default account live under prod/<region>/. localstack/ provides a local Docker-based AWS sandbox (docker-compose + main.tf + seed.sh + smoke.py) for integration testing.",
+      "product_trees": [
+        "brimyr/ (brimyr-broker, artifacts leaves; own provider.hcl)",
+        "chargate/ (chargate-broker, artifacts leaves; own provider.hcl)",
+        "diatreme/ (diatreme-broker, artifacts leaves; own provider.hcl)",
+        "prod/ (nievah-frontdoor, caldrith-frontdoor, caldrith-artifacts, cost-report, artifacts — default account)"
+      ],
+      "shared_modules": [
         "modules/nievah-frontdoor",
         "modules/artifacts",
         "modules/cost-report",
@@ -226,6 +236,7 @@
         "modules/chargate-broker",
         "modules/diatreme-broker"
       ],
+      "notes": "brimyr-broker reuses the chargate-broker module (parameterised on oidc_audience). localstack/ is NOT a Terragrunt leaf — run 'docker compose up -d' then 'terraform apply' inside it for local smoke tests.",
       "depends_on": [
         "terraform-cloudflare"
       ]
