@@ -15,8 +15,9 @@ spec:
     metadata:
       annotations:
         # Rolls the pod (→ re-seed) whenever the git-managed config.yaml changes.
-        # sha256 of kubernetes/apps/hermes/base/hermes/configmap.yaml.
-        checksum/config: 6f1980601205f4261b57c86afb2c9341c708601b5e9ca04226684be73eff7cd2
+        # sha256 of kubernetes/apps/hermes/base/configmap.yaml (there is no nested
+        # hermes/ dir; the old path in this comment pointed at nothing).
+        checksum/config: 06affca51ad60aac9c291c106e9f619d26b0e7699150c66f3894e0286a5285f3
       labels:
         app: hermes
     spec:
@@ -157,11 +158,30 @@ spec:
             # (the only amd64 on-prem worker this amd64-only image can run on) is
             # CPU-REQUEST-saturated (~63% real use but requests fully reserved), and
             # a Recreate roll couldn't reschedule at 200m. 50m fits and, with no CPU
-            # limit, the agent still bursts freely. Revisit from KRR / relieve ff-vm1
-            # request pressure.
+            # limit, the agent still bursts freely.
+            #
+            # MEMORY request 512Mi -> 384Mi. This is the "revisit from KRR / relieve
+            # ff-vm1 request pressure" the CPU note above asked for, done with a
+            # real measurement instead of a spot reading:
+            # max_over_time(working_set[7d]) = 292Mi, current 284Mi. The workload is
+            # flat — it is an LLM gateway, so its bytes are on the wire, not in the
+            # heap — so 384Mi is 1.3x a peak that does not move, not 1.3x an average
+            # that might.
+            #
+            # Why bother with 128Mi: ff-vm1 is 91% memory-REQUESTED while only 73%
+            # memory-USED, and the on-prem tier flip needs ~1.4GiB of request it
+            # does not have. This is over-reservation, not usage — exactly the kind
+            # that should be given back rather than solved by moving work to the
+            # cloud tier.
+            #
+            # LIMIT stays 2Gi (6.8x peak). Not tightened to match: COMMON_MISTAKES
+            # #13/#14 — a limit near measured use is a deferred OOM, and equal
+            # request/limit is Guaranteed QoS, i.e. a hard cap. hermes is exactly
+            # the workload that would trip that, since a long tool-calling
+            # conversation can briefly hold a large context in memory.
             requests:
               cpu: 50m
-              memory: 512Mi
+              memory: 384Mi
             limits:
               memory: 2Gi
           readinessProbe:
