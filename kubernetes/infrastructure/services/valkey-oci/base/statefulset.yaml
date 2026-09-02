@@ -32,41 +32,12 @@ spec:
       # The CNPG Clusters set it directly for a related reason (their kind is not
       # matchable at all), so the whole data plane is consistent.
       priorityClassName: critical
-      # TEMPORARY, until the CHR WireGuard tunnels between the two OCI environments
-      # exist. `topology.sargeant.co/tier: native-cloud` used to mean {ff-oci1, ff-oci2};
-      # ff-oci3/ff-oci4 joined as a SECOND OCI environment on 2026-08-31 carrying the same
-      # label, and the tier silently became "any of four, across a path that does not
-      # exist". That is COMMON_MISTAKES #22, and the comment below still says
-      # "(ff-oci1/ff-oci2)" because it was true when it was written.
-      #
-      # It cost an outage the same day. Measured 2026-09-01: a pod on ff-oci1 or ff-oci2
-      # cannot open a TCP connection to a pod on ff-oci4 (TimeoutError) — on-prem can
-      # reach both environments, but the two OCI environments have no route to each
-      # other. valkey-oci was rescheduled onto ff-oci4 at 06:58Z, and both nievah-backend
-      # replicas then CrashLoopBackOff'd on `redis.exceptions.TimeoutError: Timeout
-      # connecting to server`, taking the GitHub webhook ingest down for ~12 hours.
-      #
-      # nodeAffinity rather than a narrower nodeSelector because the tier selector is
-      # injected by Kyverno at admission: the two AND together, so this can only narrow
-      # the choice, never fight it.
-      #
-      # REMOVE THIS once ff-chr1/ff-chr2 <-> ff-chr3/ff-chr4 are tunnelled and the intended
-      # topology — valkey-oci and postgres-oci spanning both OCI environments, one per
-      # node — is actually reachable. Deleting it before then re-strands the data plane.
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: kubernetes.io/hostname
-                    operator: NotIn
-                    values:
-                      - ff-oci3
-                      - ff-oci4
       containers:
         - name: valkey
           # Redis-compatible cache pinned to the OCI native-cloud tier
-          # (ff-oci1/ff-oci2), for OCI-resident workloads that need a
+          # (ff-oci1/ff-oci2 plus ff-oci3/ff-oci4 in the second OCI environment,
+          # reachable across the CHR WireGuard mesh since 2026-09-01), for
+          # OCI-resident workloads that need a
           # low-latency cache co-located with their nodes — the mirror of
           # postgres-oci for the Redis side. Internal ClusterIP only (headless
           # svc, database ns) — no auth, matching the shared valkey/CNPG tiers.
