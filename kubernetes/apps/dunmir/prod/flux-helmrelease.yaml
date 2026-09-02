@@ -108,9 +108,17 @@ spec:
     timeout: 5m
     remediation:
       retries: 3
-  dependsOn:
-    - name: prod-dunmir-source
-    - name: infrastructure-services
+  # NO dependsOn, and that is not an omission. A HelmRelease's `dependsOn`
+  # resolves to other HELMRELEASES, not Kustomizations. Carrying the old
+  # Kustomization's list over left this release blocked for ever on
+  #
+  #   DependencyNotReady: unable to get 'flux-system/prod-dunmir-source'
+  #   dependency: helmreleases.helm.toolkit.fluxcd.io "prod-dunmir-source" not found
+  #
+  # while production was down. The ordering it was expressing still holds and is
+  # still enforced: `prod-dunmir-source` is the Kustomization that APPLIES this
+  # HelmRelease, and it already dependsOn infrastructure-services, so nothing here
+  # exists until both are ready.
   # WHAT USED TO BE `patches:` HERE NOW LIVES IN THE CHART. The Kustomization
   # added a nodeSelector and a priorityClassName to the Deployments, the Job and
   # the (since retired) CronJob at reconcile time. Those are chart/values.yaml's
