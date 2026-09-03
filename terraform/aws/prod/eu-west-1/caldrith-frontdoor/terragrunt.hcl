@@ -1,5 +1,5 @@
-# Caldrith's webhook front door: API Gateway HTTP API -> producer -> events.fifo -> consumer
-# -> jobs.fifo -> reconcile. Full serverless; there is no cluster behind this one.
+# Caldrith's webhook front door: API Gateway HTTP API -> producer -> jobs.fifo -> reconcile.
+# Full serverless; there is no cluster behind this one.
 #
 # Caldrith is a multi-tenant GitHub App that enforces configuration-as-code: install it, put
 # `.github/settings.yml` in an admin repo, and it reconciles every repository to match. This
@@ -292,7 +292,7 @@ inputs = {
   #   throttle_rate_limit           1 req/s   (nievah uses 2)  — the gateway ceiling
   #   throttle_burst_limit          5         (nievah uses 10)
   #   api_flood_alarm_hourly_count  1000                       — the flood detector
-  #   reconcile_max_concurrency     5                          — GitHub's limit as much as AWS's
+  #   reconcile_max_concurrency     2                          — GitHub's limit as much as AWS's
   #   monthly_budget_usd            1                          — the backstop
   #
   # Every one of them has its reasoning, its arithmetic and its failure mode written out in the
