@@ -174,7 +174,7 @@ inputs = {
   # ─────────────────────────────────────────────────────────────────────────────────────────
   # THIS LINE IS THE DEPLOYMENT.
   #
-  # It resolves to TWO objects — `edge/<v>.zip` (producer + consumer, stdlib only) and
+  # It resolves to TWO objects — `edge/<v>.zip` (the producer, stdlib only) and
   # `edge/<v>-reconcile.zip` (the whole package plus githubkit, pydantic, PyNaCl, Jinja2,
   # PyYAML). Both must exist before this applies; a version whose second upload failed leaves
   # the reconcile function pointed at a key that is not there, and the apply fails naming the
@@ -191,8 +191,15 @@ inputs = {
   #
   # COLD START: this must name a version that has actually been published. Until step 3 above
   # has run at least once, no value here is correct.
+  #
+  # 2.0.0 IS NOT AN OPTIONAL BUMP IN THIS CHANGE. It is the first release containing the fold
+  # (MagmaMoose/caldrith#95), and the module edited alongside this file no longer creates
+  # events.fifo or the overflow bucket. Leaving this at 1.19.1 deploys a producer that reads
+  # EVENTS_QUEUE_URL and OVERFLOW_BUCKET into a stack that provides neither: it applies clean
+  # and then answers 502 on every delivery GitHub will not re-send. Both objects were verified
+  # present in caldrith-artifacts-483461801743 on 2026-09-03.
   # ─────────────────────────────────────────────────────────────────────────────────────────
-  artifact_version = "1.19.1"
+  artifact_version = "2.0.0"
 
   # A clean hostname for the GitHub App's webhook URL. The module requests its own REGIONAL ACM
   # certificate (see api.tf); `certificate_arn` is only for reusing one managed elsewhere.
