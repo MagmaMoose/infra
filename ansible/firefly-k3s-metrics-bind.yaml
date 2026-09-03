@@ -41,6 +41,7 @@
 #   ansible-playbook -i hosts.yaml firefly-k3s-metrics-bind.yaml -e restart_k3s=true --limit 192.168.19.10
 - name: Expose k3s control-plane metrics to the cluster network
   hosts: firefly_cluster
+  serial: 1
   gather_facts: false
   become: true
   vars:
@@ -95,7 +96,7 @@
       ansible.builtin.debug:
         msg: >-
           Drop-in written but k3s was NOT restarted, so the metrics ports are still on
-          localhost. Re-run with -e restart_k3s=true, or let the next k3s upgrade pick
+          127.0.0.1. Re-run with -e restart_k3s=true, or let the next k3s upgrade pick
           it up.
       when:
         - (dropin_server is changed) or (dropin_agent is changed)

@@ -34,7 +34,7 @@ alternative is to *downgrade* ff-oci3/ff-oci4 to 1.33 first, which restores a su
 state immediately and lets the whole cluster then move up together at its own pace. Pick
 that one if the window matters more than the destination.
 
-Latest per minor at time of writing:
+Latest per minor at time of writing (verify against https://github.com/k3s-io/k3s/releases before starting each step):
 
 | Minor | Latest        |
 |-------|---------------|
