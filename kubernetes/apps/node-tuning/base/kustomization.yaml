@@ -4,3 +4,4 @@ resources:
   - daemonset.yaml
   - oci-firewall-daemonset.yaml
   - oci-flannel-csum-daemonset.yaml
+  - coredns-oraclevcn-nxdomain.yaml

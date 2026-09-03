@@ -1,0 +1,128 @@
+---
+# Binds the k3s-embedded control-plane metrics outward so Prometheus can scrape them.
+#
+# WHY THIS EXISTS: k3s does not run kube-scheduler, kube-controller-manager or kube-proxy
+# as separate labelled pods — they run INSIDE the k3s process, and each binds its metrics
+# port to 127.0.0.1 by default. kube-prometheus-stack still ships a headless Service and
+# ServiceMonitor for all three, selecting on `component=kube-scheduler` and friends, which
+# matches nothing on k3s. Those Services resolve to ZERO endpoints, so no target is ever
+# discovered and `absent(up{job="kube-scheduler"} == 1)` evaluates true forever.
+#
+# The result was three permanently-firing critical alerts — KubeSchedulerDown,
+# KubeControllerManagerDown, KubeProxyDown — from the moment the monitoring stack was
+# installed (2026-08-17 20:06, about 40 seconds after the Watchdog) until 17 days later.
+# None of them was ever a cluster fault. Their real cost was drowning the one genuine
+# critical sharing that Slack channel: CNPGBackupTooOld, which was correct, and which
+# meant the `database/postgres` cluster went 27 days with no backup.
+#
+# The alternative fix is to switch the three rules off. That trades a false alarm for a
+# blind spot: you would then have no signal at all if the scheduler really did stop. This
+# playbook takes the other option and scrapes the real components.
+#
+# HOW: a drop-in under /etc/rancher/k3s/config.yaml.d/ rather than a rewrite of
+# config.yaml, so whatever else is configured on a node is left alone. k3s merges
+# config.yaml.d/*.yaml over config.yaml at startup.
+#
+# The scheduler and controller-manager exist only on the SERVER; kube-proxy runs on every
+# node, so the kube-proxy override is applied everywhere.
+#
+# RESTART IS NOT AUTOMATIC. Writing the drop-in changes nothing until k3s restarts, and
+# restarting k3s on ff-pi1 briefly takes the API server away (it is the only control-plane
+# node). Pods keep running throughout — containerd is not touched and kubelet reconnects —
+# but controllers and kubectl stall for the ~30-60s the server is down. Pass
+# `-e restart_k3s=true` when you want the restart, and prefer folding it into the k3s
+# version upgrade so each node restarts ONCE rather than twice.
+#
+# After the restart, kubernetes/apps/kube-prometheus-stack/base/helmrelease.yaml already
+# points the three components at these node IPs, so the targets come up on their own.
+#
+#   ansible-playbook -i hosts.yaml firefly-k3s-metrics-bind.yaml --check --diff
+#   ansible-playbook -i hosts.yaml firefly-k3s-metrics-bind.yaml
+#   ansible-playbook -i hosts.yaml firefly-k3s-metrics-bind.yaml -e restart_k3s=true --limit 192.168.19.10
+- name: Expose k3s control-plane metrics to the cluster network
+  hosts: firefly_cluster
+  gather_facts: false
+  become: true
+  vars:
+    restart_k3s: false
+    dropin_dir: /etc/rancher/k3s/config.yaml.d
+    dropin_path: /etc/rancher/k3s/config.yaml.d/10-metrics-bind.yaml
+  tasks:
+    - name: Ensure the k3s config drop-in directory exists
+      ansible.builtin.file:
+        path: "{{ dropin_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    # `k3s_role: system` on ff-pi1 is the control plane. Membership of
+    # firefly_cluster_server is the authoritative test — role labels are for scheduling.
+    - name: Write the drop-in (control plane — scheduler, controller-manager, kube-proxy)
+      ansible.builtin.copy:
+        dest: "{{ dropin_path }}"
+        owner: root
+        group: root
+        mode: "0600"
+        content: |
+          # Managed by ansible/firefly-k3s-metrics-bind.yaml — do not edit by hand.
+          # Binds the embedded control-plane components' metrics off localhost so the
+          # kube-prometheus-stack ServiceMonitors can reach them.
+          kube-scheduler-arg:
+            - bind-address=0.0.0.0
+          kube-controller-manager-arg:
+            - bind-address=0.0.0.0
+          kube-proxy-arg:
+            - metrics-bind-address=0.0.0.0
+      when: inventory_hostname in groups['firefly_cluster_server']
+      register: dropin_server
+
+    - name: Write the drop-in (agents — kube-proxy only)
+      ansible.builtin.copy:
+        dest: "{{ dropin_path }}"
+        owner: root
+        group: root
+        mode: "0600"
+        content: |
+          # Managed by ansible/firefly-k3s-metrics-bind.yaml — do not edit by hand.
+          # Agents run kube-proxy but not the scheduler or controller-manager.
+          kube-proxy-arg:
+            - metrics-bind-address=0.0.0.0
+      when: inventory_hostname in groups['firefly_cluster_agents']
+      register: dropin_agent
+
+    - name: Report that a restart is still required
+      ansible.builtin.debug:
+        msg: >-
+          Drop-in written but k3s was NOT restarted, so the metrics ports are still on
+          localhost. Re-run with -e restart_k3s=true, or let the next k3s upgrade pick
+          it up.
+      when:
+        - (dropin_server is changed) or (dropin_agent is changed)
+        - not (restart_k3s | bool)
+
+    - name: Restart k3s server
+      ansible.builtin.systemd:
+        name: k3s
+        state: restarted
+      when:
+        - restart_k3s | bool
+        - inventory_hostname in groups['firefly_cluster_server']
+
+    - name: Wait for the API server to answer again
+      ansible.builtin.wait_for:
+        host: "{{ inventory_hostname }}"
+        port: 6443
+        delay: 5
+        timeout: 180
+      when:
+        - restart_k3s | bool
+        - inventory_hostname in groups['firefly_cluster_server']
+
+    - name: Restart k3s agent
+      ansible.builtin.systemd:
+        name: k3s-agent
+        state: restarted
+      when:
+        - restart_k3s | bool
+        - inventory_hostname in groups['firefly_cluster_agents']
