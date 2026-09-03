@@ -96,7 +96,7 @@
       ansible.builtin.debug:
         msg: >-
           Drop-in written but k3s was NOT restarted, so the metrics ports are still on
-          127.0.0.1. Re-run with -e restart_k3s=true, or let the next k3s upgrade pick
+          loopback only. Re-run with -e restart_k3s=true, or let the next k3s upgrade pick
           it up.
       when:
         - (dropin_server is changed) or (dropin_agent is changed)
