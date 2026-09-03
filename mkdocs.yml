@@ -61,6 +61,7 @@ nav:
       - NFS Setup: operations/nfs-setup.md
       - Troubleshooting: operations/troubleshooting.md
       - Kubernetes Restructure Plan: operations/kubernetes-restructure-plan.md
+      - k3s Version Upgrade: operations/k3s-version-upgrade.md
   - Reference:
       - Cluster Topology: reference/cluster-topology.md
       - Terraform (AWS): reference/terraform-aws.md
