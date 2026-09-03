@@ -159,3 +159,37 @@ AVD-KSV-01010
 DS173237
 DS-173237
 AVD-DS-173237
+
+# KSV-0023 — "do not specify hostPath volumes".
+#
+# Suppressed for system-upgrade-controller specifically. The controller mounts
+# /etc/ssl, /etc/pki, and /etc/ca-certificates from the host as read-only. It
+# needs the node's own CA bundle to validate TLS on the Kubernetes API connection
+# during k3s upgrade job execution — a ConfigMap-based substitute would carry the
+# cluster CA but not node-level CAs added by the OCI DHCP domain or out-of-band
+# certificate management. All three mounts are declared readOnly: true.
+#
+# This entry is repo-wide because Trivy does not produce a SARIF `suppressions`
+# array for inline `# trivy:ignore:` comments in Kubernetes YAML — the only
+# mechanism that makes Chargate count a result as suppressed. A per-file fix is
+# therefore not possible; only .trivyignore reaches the gate.
+KSV-0023
+KSV0023
+AVD-KSV-0023
+
+# KSV-0048 — "role/clusterrole should not have access to high-risk verbs".
+#
+# Suppressed for system-upgrade-controller. The Role (system-upgrade namespace)
+# holds create/delete/patch/update on batch/jobs — required to create and clean
+# up the Job objects that execute the k3s binary swap on each node. The drainer
+# ClusterRole holds pod eviction and delete (to drain workloads before upgrading)
+# and read-only access to statefulsets/daemonsets/replicasets (to identify
+# controller-managed pods that will reschedule after eviction). These are the
+# minimum verbs an upgrade controller needs; narrowing them further breaks the
+# drain or the job lifecycle.
+#
+# Same caveat as KSV-0023: inline trivy:ignore is a no-op for Kubernetes YAML in
+# Chargate's SARIF pipeline, so this must live here.
+KSV-0048
+KSV0048
+AVD-KSV-0048

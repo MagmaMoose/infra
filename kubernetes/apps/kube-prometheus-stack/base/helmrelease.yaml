@@ -433,12 +433,21 @@ spec:
       nodeSelector:
         node-role.kubernetes.io/worker: ""
         topology.sargeant.co/tier: on-prem
+      # 100Mi was not enough and had not been for a long time: the pod was OOMKilled 31
+      # times, quietly, because the thing that would have alerted on it is the thing
+      # being killed — kube-state-metrics IS the source of the KubePodCrashLooping
+      # series, so while it is down it cannot report that it is down.
+      #
+      # Memory here scales with the number of objects watched, not with traffic, and
+      # this cluster holds ~335 pods, ~664 replicasets, ~379 secrets and ~163
+      # configmaps across 30 watched resource types. The replicaset count is the
+      # driver and it only grows.
       resources:
         requests:
           cpu: 10m
-          memory: 100Mi
+          memory: 384Mi
         limits:
-          memory: 100Mi
+          memory: 384Mi
 
     # kube-prometheus-stack ships no OOMKilled alert. Three separate OOM bugs surfaced
     # on 2026-08-31 (one container OOMKilled mid-scan at 256Mi, another running against
@@ -465,6 +474,74 @@ spec:
                     It restarted in the last 10 minutes with reason OOMKilled. Check what
                     the container was DOING when it died before raising the limit — a
                     scan, rebuild or repair needs far more than steady state.
+
+    # ---- k3s control-plane scrape targets -------------------------------------------
+    # k3s does not run the scheduler, controller-manager and kube-proxy as separate
+    # labelled pods — they live INSIDE the k3s process, and their metrics bind to
+    # 127.0.0.1 by default. The chart still creates a headless Service + ServiceMonitor
+    # for each, selecting on `component=kube-scheduler` etc., which matches nothing here.
+    # The Services therefore resolve to ZERO endpoints, no target is ever discovered, and
+    # `absent(up{job="kube-scheduler"} == 1)` is true forever: KubeSchedulerDown,
+    # KubeControllerManagerDown and KubeProxyDown fired continuously from the moment this
+    # stack was installed (2026-08-17 20:06, ~40s after the Watchdog) and stayed critical
+    # for 17 days. They were never a cluster fault — they were three alerts about
+    # themselves, and their noise is what made the one REAL critical in the same channel
+    # (CNPGBackupTooOld, 27 days without a backup) easy to scroll past.
+    #
+    # Fix is to scrape the real thing rather than silence the rule: the components are
+    # pointed at explicit node endpoints, which only returns data once k3s is told to bind
+    # those ports outward. ORDER MATTERS — ansible/firefly-k3s-metrics-bind.yaml must be
+    # applied to the nodes FIRST. Until it is, these targets are DOWN rather than ABSENT,
+    # so the same three alerts keep firing (no worse than today, but not yet fixed).
+    #
+    # Endpoints are static node IPs because there is nothing to select on. Adding or
+    # removing a node means editing kubeProxy.endpoints below — every node runs kube-proxy,
+    # while the scheduler and controller-manager exist only on the control-plane Pi.
+    kubeControllerManager:
+      enabled: true
+      endpoints:
+        - 192.168.19.10 # ff-pi1 — the only control-plane node
+      service:
+        enabled: true
+        port: 10257
+        targetPort: 10257
+      serviceMonitor:
+        https: true
+        # k3s serves these over TLS with a self-signed cert that does not carry the node
+        # IP as a SAN, so verification cannot succeed against an IP endpoint.
+        insecureSkipVerify: true
+
+    kubeScheduler:
+      enabled: true
+      endpoints:
+        - 192.168.19.10 # ff-pi1
+      service:
+        enabled: true
+        port: 10259
+        targetPort: 10259
+      serviceMonitor:
+        https: true
+        insecureSkipVerify: true
+
+    kubeProxy:
+      enabled: true
+      # Every node runs kube-proxy, so every node is an endpoint. Keep in step with
+      # ansible/hosts.yaml.
+      endpoints:
+        - 192.168.19.10 # ff-pi1
+        - 192.168.19.11 # ff-pi2
+        - 192.168.19.13 # ff-vm1
+        - 192.168.223.71 # ff-oci1
+        - 192.168.223.72 # ff-oci2
+        - 192.168.240.71 # ff-oci3
+        - 192.168.240.72 # ff-oci4
+      service:
+        enabled: true
+        port: 10249
+        targetPort: 10249
+      serviceMonitor:
+        # kube-proxy's metrics port is plain HTTP, unlike the other two.
+        https: false
 
     # Default rules and alerts
     defaultRules:
