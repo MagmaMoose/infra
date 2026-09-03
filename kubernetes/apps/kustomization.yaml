@@ -107,6 +107,7 @@ resources:
   - ./thanos-store
   # platform (node-level tuning)
   - ./node-tuning
+  - ./system-upgrade-controller
   # progressive delivery
   - ./flagger
   # identity (SSO)
