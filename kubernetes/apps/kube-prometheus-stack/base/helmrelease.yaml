@@ -433,12 +433,21 @@ spec:
       nodeSelector:
         node-role.kubernetes.io/worker: ""
         topology.sargeant.co/tier: on-prem
+      # 100Mi was not enough and had not been for a long time: the pod was OOMKilled 31
+      # times, quietly, because the thing that would have alerted on it is the thing
+      # being killed — kube-state-metrics IS the source of the KubePodCrashLooping
+      # series, so while it is down it cannot report that it is down.
+      #
+      # Memory here scales with the number of objects watched, not with traffic, and
+      # this cluster holds ~335 pods, ~664 replicasets, ~379 secrets and ~163
+      # configmaps across 30 watched resource types. The replicaset count is the
+      # driver and it only grows.
       resources:
         requests:
           cpu: 10m
-          memory: 100Mi
+          memory: 384Mi
         limits:
-          memory: 100Mi
+          memory: 384Mi
 
     # kube-prometheus-stack ships no OOMKilled alert. Three separate OOM bugs surfaced
     # on 2026-08-31 (one container OOMKilled mid-scan at 256Mi, another running against
