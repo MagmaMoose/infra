@@ -215,6 +215,29 @@ kind: Deployment
 metadata:
   name: system-upgrade-controller
   namespace: system-upgrade
+  annotations:
+    # Checkov suppresses a set of controls that either cannot apply or whose
+    # fix would carry a cost that outweighs the benefit here.
+    #
+    # CKV_K8S_8/9: The controller exposes no HTTP endpoint; the leader-election
+    # loop is the practical availability signal, not a probe target.
+    #
+    # CKV_K8S_11: CPU limits are unset estate-wide by decision; see
+    # .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory IS limited.
+    #
+    # CKV_K8S_38: The controller must have its service-account token to create,
+    # watch, and manage upgrade Plan and Job objects via the Kubernetes API.
+    #
+    # CKV_K8S_43: The image is pinned to a specific tag (not floating :latest),
+    # so digest pinning is belt-and-suspenders. Updating the digest would need to
+    # happen on every upstream upgrade cycle — which is the very cycle this
+    # controller manages — a chicken-and-egg bootstrapping cost with no security
+    # return on a home lab.
+    checkov.io/skip1: "CKV_K8S_8=no HTTP health endpoint; leader-election is the liveness signal"
+    checkov.io/skip2: "CKV_K8S_9=same as CKV_K8S_8: controller exposes no HTTP endpoint"
+    checkov.io/skip3: "CKV_K8S_11=CPU limits unset estate-wide; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited."
+    checkov.io/skip4: "CKV_K8S_38=controller requires its service-account token to manage upgrade Plans and Jobs via the k8s API"
+    checkov.io/skip5: "CKV_K8S_43=tagged image, not floating; pinning to digest would need manual update every upgrade cycle, which is what this controller manages"
 spec:
   selector:
     matchLabels:
@@ -228,6 +251,12 @@ spec:
         app.kubernetes.io/name: system-upgrade-controller
         upgrade.cattle.io/controller: system-upgrade-controller
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -266,13 +295,20 @@ spec:
         - configMapRef:
             name: default-controller-env
         image: rancher/system-upgrade-controller:v0.20.1
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         name: system-upgrade-controller
+        resources:
+          limits:
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
             drop:
             - ALL
+          readOnlyRootFilesystem: true
           runAsGroup: 65534
           runAsNonRoot: true
           runAsUser: 65534
