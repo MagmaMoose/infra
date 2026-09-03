@@ -1,138 +1,153 @@
 # k3s version upgrade (firefly)
 
-Firefly is currently running an **unsupported** version spread. This is the runbook to
-close it, and the reasoning for why it cannot be done in one jump.
+Procedure for moving firefly across k3s minor versions, written from the 2026-09-03 run
+that took the cluster from v1.33.4 to v1.36.4. Every step below was executed; the
+surprises are called out where they bit.
 
-## The problem
+## Why it is not one jump
 
-```
-ff-pi1    control-plane,master   v1.33.4+k3s1    192.168.19.10   <- API server
-ff-pi2    on-prem,system         v1.33.4+k3s1    192.168.19.11   <- runs CoreDNS
-ff-vm1    on-prem,worker         v1.33.5+k3s1    192.168.19.13
-ff-oci1   cloud,worker           v1.33.4+k3s1    192.168.223.71
-ff-oci2   cloud,worker           v1.33.4+k3s1    192.168.223.72
-ff-oci3   cloud,worker           v1.36.4+k3s1    192.168.240.71  <- 3 minors AHEAD
-ff-oci4   cloud,worker           v1.36.4+k3s1    192.168.240.72  <- 3 minors AHEAD
-```
+The control plane moves **one minor at a time**: 1.33 → 1.34 → 1.35 → 1.36, each verified
+before the next. A kubelet may be up to 3 minors OLDER than kube-apiserver and newer by
+exactly zero.
 
-Kubernetes' version-skew policy allows a kubelet to be **up to 3 minor versions older**
-than kube-apiserver. It allows a kubelet to be **newer by exactly zero**. ff-oci3 and
-ff-oci4 joined on 2026-09-01 running v1.36.4 against a v1.33.4 API server, which is not a
-tight-but-legal configuration — it is outside the supported matrix entirely, and the
-failure mode is silent: the kubelet speaks API versions the server has never heard of, and
-what breaks depends on which feature a workload happens to touch.
+That last clause is what created the original problem. ff-oci3/ff-oci4 were provisioned on
+v1.36.4 against a v1.33.4 API server — outside the supported matrix, failing silently
+depending on which API a workload touched.
 
-## Why it is three upgrades, not one
+**A catch-up pass must never downgrade a node that is already ahead.** The agent Plan
+carries an explicit exclusion for exactly this. Dropping it turns a 1.34 pass into a
+kubelet downgrade on those two nodes, which is worse than the skew being fixed.
 
-The control plane must move **one minor at a time**. There is no supported 1.33 → 1.36
-jump, so the sequence is 1.33 → 1.34 → 1.35 → 1.36 on ff-pi1, each step verified before
-the next.
+## Method: system-upgrade-controller, not SSH
 
-The skew stays invalid until the server reaches 1.36 — an intermediate 1.34 server still
-has two nodes ahead of it. That window is unavoidable while moving forward. The
-alternative is to *downgrade* ff-oci3/ff-oci4 to 1.33 first, which restores a supported
-state immediately and lets the whole cluster then move up together at its own pace. Pick
-that one if the window matters more than the destination.
+SUC runs in-cluster and needs only the API. That is not a stylistic preference: ff-oci3
+and ff-oci4 were unreachable by SSH for their first two days (see the placeholder-key note
+in `terraform/oci/.../server/terragrunt.hcl`), and an upgrade path that depends on SSH
+stops at whichever node last drifted.
 
-Latest per minor at time of writing (verify against https://github.com/k3s-io/k3s/releases before starting each step):
+Deployed via Flux as `kubernetes/apps/system-upgrade-controller`. Plans are NOT in git —
+a Plan names one target version, so leaving one committed re-runs an upgrade nobody asked
+for. Apply them by hand, one pass at a time.
 
-| Minor | Latest        |
-|-------|---------------|
-| 1.34  | v1.34.11+k3s1 |
-| 1.35  | v1.35.8+k3s1  |
-| 1.36  | v1.36.4+k3s1  |
+### Server plan
 
-## Do this first: CoreDNS is a single replica
-
-```
-coredns-69b6458dcd-6nkkr   1/1   Running   ff-pi2
+```yaml
+apiVersion: upgrade.cattle.io/v1
+kind: Plan
+metadata: {name: k3s-server, namespace: system-upgrade, labels: {k3s-upgrade: server}}
+spec:
+  concurrency: 1
+  cordon: true
+  nodeSelector:
+    matchExpressions:
+      - {key: node-role.kubernetes.io/control-plane, operator: In, values: ["true"]}
+  serviceAccountName: system-upgrade
+  upgrade: {image: rancher/k3s-upgrade}
+  version: v1.34.11+k3s1     # then v1.35.8+k3s1, then v1.36.4+k3s1
 ```
 
-One CoreDNS pod serves the entire cluster, and it is on **ff-pi2**. Draining or restarting
-that node during the upgrade takes cluster DNS to zero — every pod, every namespace, for as
-long as it takes to reschedule. Do not start the upgrade before fixing this.
+### Agent plan
 
-CoreDNS here is a **k3s Addon**, not a Flux resource:
-
+```yaml
+apiVersion: upgrade.cattle.io/v1
+kind: Plan
+metadata: {name: k3s-agent, namespace: system-upgrade, labels: {k3s-upgrade: agent}}
+spec:
+  concurrency: 1
+  cordon: true
+  nodeSelector:
+    matchExpressions:
+      - {key: node-role.kubernetes.io/control-plane, operator: DoesNotExist}
+      # Drop this ONLY on the final pass, when the target is >= their version.
+      - {key: kubernetes.io/hostname, operator: NotIn, values: ["ff-oci3", "ff-oci4"]}
+  serviceAccountName: system-upgrade
+  prepare: {args: ["prepare", "k3s-server"], image: rancher/k3s-upgrade}
+  upgrade: {image: rancher/k3s-upgrade}
+  version: v1.34.11+k3s1
 ```
-objectset.rio.cattle.io/owner-gvk: k3s.cattle.io/v1, Kind=Addon
-source: /var/lib/rancher/k3s/server/manifests/coredns.yaml
-```
 
-so `kubectl scale` is reverted the moment k3s restarts — which is exactly what an upgrade
-does. Raise `replicas` in that file on ff-pi1 and add a `topologySpreadConstraint` (or
-anti-affinity) so the two land on different nodes. Verify with a k3s restart *before*
-trusting it under an upgrade.
+`prepare` gates the agents on the server plan, so a kubelet cannot run ahead of the API.
 
-## Prerequisites
+### Cordon, do not drain
 
-1. **Snapshot the datastore.** `k3s etcd-snapshot save` on ff-pi1 (or copy
-   `/var/lib/rancher/k3s/server/db/` if this cluster is on SQLite). Do not skip this —
-   it is the only rollback that works if an upgrade eats the datastore.
-2. **Confirm a current CNPG backup exists.** See `backup-and-restore.md`.
-3. **Check Longhorn's supported Kubernetes range** for the target version before starting.
-   Longhorn gates on this and will not tell you politely.
-4. **Check Flux and cert-manager** support the target minor.
-5. Fold in `ansible/firefly-k3s-metrics-bind.yaml` so each node restarts **once**, not
-   twice — see below.
+`cordon: true` with **no drain block**. A k3s upgrade swaps the binary and restarts the
+service; it does not stop containerd, so pods keep running through it. Draining buys
+nothing and deadlocks: this cluster has single-replica `minAvailable: 1` PDBs
+(`database/postgres-primary`, `dunmir/*`, `automation/litellm`) that can never satisfy an
+eviction, so the plan would hang on the first node holding one.
 
-## Recommended method: system-upgrade-controller
+## Before you start
 
-Rancher's system-upgrade-controller drives this node by node: it cordons, drains
-(respecting PodDisruptionBudgets — nievah has them), upgrades, uncordons, and only then
-moves on. It is the "try not to take things down" path and is what k3s itself documents.
-
-Use a **server Plan** with `concurrency: 1`, and an **agent Plan** that depends on it via
-`prepare`. Run one minor per pass: set the server Plan's version, let it finish and
-verify, then move the agent Plan, then repeat for the next minor.
-
-Manual alternative, per node, if you would rather watch each step:
+**Back up the datastore, and use `VACUUM INTO`.** firefly is on SQLite/kine, not etcd —
+`k3s etcd-snapshot save` returns "etcd datastore disabled". Do NOT use `sqlite3 .backup`:
+it restarts the copy whenever the source is written, and against a live kine datastore it
+never converges (observed stalling at 262M of 593M). `VACUUM INTO` is one consistent pass:
 
 ```bash
-# server (ff-pi1) — one minor at a time
-curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.34.11+k3s1 sh -
-# agents
-curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION=v1.34.11+k3s1 K3S_URL=... K3S_TOKEN=... sh -
+sudo sqlite3 /var/lib/rancher/k3s/server/db/state.db \
+  "VACUUM INTO '/var/lib/rancher/k3s/server/db/backups/state.db.pre-upgrade-$(date +%Y%m%d)';"
+sudo sqlite3 <that file> "PRAGMA integrity_check;"   # must print: ok
 ```
 
-## Sequence
+It took 2 seconds and produced a verified 378M file from a 593M source.
 
-For each target in `v1.34.11+k3s1`, `v1.35.8+k3s1`, `v1.36.4+k3s1`:
+**Stage the metrics drop-in first.** `/etc/rancher/k3s/config.yaml.d/10-metrics-bind.yaml`
+(see `ansible/firefly-k3s-metrics-bind.yaml`) does nothing until k3s restarts — so write it
+to every node BEFORE a pass and the upgrade restart activates it for free, instead of
+costing a second outage. Verify after with `ss -lntp | grep -E ':10249|:10257|:10259'`:
+the ports must show `*:` and not `127.0.0.1:`.
 
-1. Snapshot the datastore.
-2. Upgrade **ff-pi1** (server) and wait for the API to return.
-3. Verify before touching anything else:
+## The CoreDNS trap
+
+**Every k3s upgrade rewrites `/var/lib/rancher/k3s/server/manifests/coredns.yaml` and
+reverts `replicas: 2` back to the default 1.** This happened on both server upgrades in the
+run and will happen on every future one.
+
+It matters because CoreDNS shipped as a single replica: whichever node holds it takes
+cluster DNS to zero when drained or restarted. Re-assert the replica count after EACH
+server upgrade, before touching another node:
+
+```bash
+sudo sed -i 's/^  revisionHistoryLimit: 0$/  replicas: 2\n  revisionHistoryLimit: 0/' \
+  /var/lib/rancher/k3s/server/manifests/coredns.yaml
+```
+
+The k3s addon controller picks the edit up on its own; no restart needed. The manifest
+already carries a `topologySpreadConstraints` on `kubernetes.io/hostname` with
+`whenUnsatisfiable: DoNotSchedule`, so the two land on different nodes automatically.
+
+A durable fix means `coredns.yaml.skip` plus managing CoreDNS through Flux. Until someone
+does that, this step is manual and mandatory.
+
+The custom server block (`coredns-custom` ConfigMap, the `vcnprod.oraclevcn.com` NXDOMAIN
+guard) is a normal ConfigMap and DOES survive — it came through both upgrades and the
+CoreDNS image bump from 1.12.3 to 1.14.6 intact.
+
+## Sequence, per minor
+
+1. Snapshot the datastore (`VACUUM INTO`, verify `integrity_check`).
+2. Stage `10-metrics-bind.yaml` on every node if not already there.
+3. Patch the server Plan's `version`. Watch it: `kubectl get plan -n system-upgrade`.
+4. The API goes away for a few minutes while k3s restarts. On ff-pi1 (a Pi, with a ~600M
+   datastore) it returned `ServiceUnavailable` for around two minutes after
+   `systemctl is-active k3s` already said `active`. That is normal — watch
+   `journalctl -u k3s` for controllers starting rather than assuming a failure.
+5. **Re-assert CoreDNS `replicas: 2`.**
+6. Verify before going further:
    ```bash
-   kubectl get nodes -o wide
-   kubectl -n kube-system get pods
-   kubectl get kustomizations -A          # Flux still reconciling
-   kubectl get clusters.postgresql.cnpg.io -A
+   kubectl get nodes -o wide                       # all Ready, none SchedulingDisabled
+   kubectl get deploy -n kube-system coredns       # 2/2
+   kubectl get kustomizations -A                   # compare against the known-bad list
+   kubectl get clusters.postgresql.cnpg.io -A      # all healthy
    ```
-4. Upgrade the agents, one at a time: ff-vm1, ff-oci1, ff-oci2, then ff-pi2 **last**
-   (it holds CoreDNS — and only after CoreDNS is genuinely running 2 replicas on
-   different nodes).
-5. ff-oci3/ff-oci4 are already at 1.36.4 and are skipped until the final pass.
+7. Patch the agent Plan's `version`; it upgrades one node at a time.
 
-Agents may lag the server by up to 3 minors, so once ff-pi1 is on 1.36 the cluster is back
-inside the supported matrix even before every agent has moved. That is the point at which
-the urgency ends.
-
-## Fold in the metrics bind
-
-`ansible/firefly-k3s-metrics-bind.yaml` writes a k3s config drop-in that binds the
-scheduler, controller-manager and kube-proxy metrics off localhost, which is what
-`KubeSchedulerDown` / `KubeControllerManagerDown` / `KubeProxyDown` actually need in order
-to stop firing. Writing the drop-in does nothing until k3s restarts, so apply it to a node
-**immediately before** that node's upgrade restart and get both for one outage:
-
-```bash
-ansible-playbook -i hosts.yaml firefly-k3s-metrics-bind.yaml --limit 192.168.19.10
-# then upgrade that node
-```
+Note that `prod-defectdojo`, `prod-dependency-track`, `prod-github-usage-dashboard`,
+`prod-quarry`, `prod-renovate` and `prod-security-integrations` were already failing before
+the upgrade. Know your baseline or you will chase them.
 
 ## Rollback
 
-k3s keeps the previous binary, and the install script is idempotent, so a bad minor is
-rolled back by re-running it with the older `INSTALL_K3S_VERSION` **plus** restoring the
-datastore snapshot taken in step 1. Restoring the binary alone is not enough once the
-newer API server has written newer resource versions into the datastore.
+Re-run the install script with the older `INSTALL_K3S_VERSION` **and** restore the
+datastore snapshot. Restoring the binary alone is not enough once a newer API server has
+written newer resource versions into the datastore.
