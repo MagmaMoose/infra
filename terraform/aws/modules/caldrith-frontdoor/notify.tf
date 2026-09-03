@@ -7,12 +7,18 @@
 # below observes from outside the failure domain.
 #
 # ─────────────────────────────────────────────────────────────────────────────────────────────
-# THE ALARM BUDGET, WHICH IS TIGHT AND IS THE REASON THIS FILE HAS FIVE ALARMS AND NOT NINE.
+# THE ALARM BUDGET, WHICH IS TIGHT AND IS THE REASON THIS FILE HAS FOUR ALARMS AND NOT NINE.
 #
 # CloudWatch's always-free tier is 10 alarms, and — like every other allowance in this design —
-# it is shared across the ORGANISATION rather than per account. Nievah's front door already
-# uses 4. The five here take the organisation to 9. ONE SPARE, and an eleventh alarm costs
-# $0.10/month, which is small but is also more than this entire stack is expected to cost.
+# it is shared across the ORGANISATION rather than per account.
+#
+# THE BUDGET IS ALREADY BLOWN, AND NOT BY THIS FILE. An earlier version of this note said
+# "nievah uses 4, the five here take the organisation to 9, ONE SPARE". That counted two
+# accounts. On 2026-09-03 seven hold alarms — caldrith, nievah, brimyr, chargate, diatreme,
+# dunmir and the Root account — forecasting 13.42 against the free 10, or about $0.34/month.
+# Deleting the events DLQ alarm below took this file from five to four and the organisation to
+# ~12.4; it did not fix the overage, and nothing in THIS module can. Getting back under 10 is a
+# decision across those seven accounts, not a caldrith one.
 #
 # So the spare is not to be spent casually, and two alarms that would otherwise be obvious were
 # deliberately NOT created:
@@ -21,9 +27,9 @@
 #                        goes back on the queue and keeps ageing, so a persistent reconcile
 #                        failure trips the 15-minute age alarm long before an Errors alarm
 #                        would add anything — and much sooner than the DLQ fills (~5 hours).
-#   consumer-erroring    `events_dlq` covers it. Nothing outside this account can make an
-#                        events message fail, so a redrive there IS the consumer erroring, and
-#                        the DLQ alarm says so with the message still in hand to look at.
+#   producer-routing     `producer_errors` covers it. Since the fold the producer does its own
+#                        claiming and routing, so a routing bug raises there and is already
+#                        alarmed — and it is a 5xx to GitHub, which is the louder signal anyway.
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 
 # trivy:ignore:AVD-AWS-0095
@@ -134,27 +140,6 @@ resource "aws_cloudwatch_metric_alarm" "jobs_stale" {
   ok_actions    = [aws_sns_topic.ops.arn]
 }
 
-# Anything here is a genuine bug: draining an events message is a parse and a routing decision
-# with no network call in it, so nothing outside this account can make one fail. Five failures
-# means the consumer itself rejected it.
-resource "aws_cloudwatch_metric_alarm" "events_dlq" {
-  count = var.localstack ? 0 : 1
-
-  alarm_name          = "${var.name_prefix}-events-dlq-not-empty"
-  alarm_description   = "A delivery could not be parsed or routed by ${aws_lambda_function.consumer.function_name} and was redriven. This is a code bug, not an outage — the message is still in the DLQ; read it."
-  namespace           = "AWS/SQS"
-  metric_name         = "ApproximateNumberOfMessagesVisible"
-  statistic           = "Maximum"
-  period              = 300
-  evaluation_periods  = 1
-  threshold           = 0
-  comparison_operator = "GreaterThanThreshold"
-
-  dimensions         = { QueueName = aws_sqs_queue.events_dlq.name }
-  treat_missing_data = "notBreaching"
-  alarm_actions      = [aws_sns_topic.ops.arn]
-}
-
 # Reaching this DLQ takes ten failed receives at a 30-minute visibility timeout — roughly five
 # hours of sustained failure. So it means either a GitHub incident that outlasted the redrive
 # budget, or a job that fails deterministically (a revoked installation, a repo deleted between
@@ -252,7 +237,7 @@ resource "aws_cloudwatch_metric_alarm" "api_flood" {
 # --- THE COST GUARD -------------------------------------------------------------------------
 #
 # The brief for this stack was "free", and everything in it is inside a permanent always-free
-# allowance except the API Gateway requests and the overflow bucket. This is what turns that
+# allowance except the API Gateway requests. This is what turns that
 # from an estimate into something monitored.
 #
 # TWO BUDGETS ARE FREE PER ACCOUNT and prd-caldrith had none, so this one costs nothing. Do not

@@ -1,4 +1,4 @@
-# THREE functions, where nievah has two — and the third one is the whole point.
+# TWO functions, where nievah has two — but not the same two, and the difference is the point.
 #
 # CALDRITH RETIRES ITS KUBERNETES DEPLOYMENT. Nievah's front door ends at a queue that a
 # cluster pulls from; that is why its iam.tf mints a long-lived `aws_iam_access_key` for an
@@ -8,25 +8,36 @@
 # `reconcile` Lambda on the jobs queue instead. Nothing pulls from outside the account, so
 # there is nothing to hand a key to.
 #
-#   producer   API Gateway -> verify HMAC over the raw body -> park an oversized body ->
-#              send to events.fifo. Stdlib only.
-#   consumer   events.fifo -> claim the delivery in DynamoDB -> parse -> decide which jobs
-#              this delivery implies -> send them to jobs.fifo. Stdlib only.
+#   producer   API Gateway -> verify HMAC over the raw body -> claim the delivery in DynamoDB
+#              -> parse -> decide which jobs this delivery implies -> send them to jobs.fifo.
+#              Stdlib only.
 #   reconcile  jobs.fifo -> mint an installation token -> run the tiers against GitHub. It
 #              calls caldrith's reconcile entry points DIRECTLY, not `caldrith.worker.worker` —
 #              see THE ARQ SEAM in the reconcile block below.
 #
-# NONE OF THE THREE HANDLER MODULES EXIST YET, AND THEY ARE THE APP-SIDE DELIVERABLE THIS STACK
-# IS WAITING ON. `src/caldrith/` today holds api, audit, auth, config, reconcile and worker;
-# there is no `aws/` package and no producer.py / consumer.py / reconcile.py under one. So
-# `caldrith.aws.producer.handler`, `caldrith.aws.consumer.handler` and
-# `caldrith.aws.reconcile.handler` below name modules that have to be written in
-# MagmaMoose/caldrith and packaged by a publish workflow that does not exist either (see
-# `variable "artifact_bucket"`, which already admits the artifacts leaf is missing). Terraform
-# applies perfectly clean without them and every invocation then dies with
-# `Runtime.ImportModuleError` — which on the producer means GitHub gets a 5xx for a delivery it
-# never re-sends. Do not apply this stack before those three modules are published; this is not
-# a Terraform defect, but it is the thing a reader of this file will hit first.
+# THERE WAS A THIRD, `consumer`, ON A SECOND QUEUE, AND IT WAS DELETED ON 2026-09-03. It did
+# the claim-and-route half above, behind events.fifo. The queue cost ~259k SQS requests a month
+# in EMPTY long-poll receives alone — a Lambda event source mapping polls at
+# `scaling_config.maximum_concurrency` pollers x 3 receives a minute forever, whether anything
+# arrives or not — and it carried 7,565 deliveries in three days that produced 52 jobs. Routing
+# in the producer lets a delivery that implies nothing cost nothing. What it traded away was
+# the queue's five retries for the claim-and-send step; see caldrith's
+# .claude/decisions/0001-fold-consumer-into-producer.md before putting it back.
+#
+# THE HANDLER MODULES LIVE IN MagmaMoose/caldrith, NOT HERE, AND THE VERSIONS MUST AGREE.
+# `caldrith.aws.producer.handler` and `caldrith.aws.reconcile.handler` below name modules in
+# `src/caldrith/aws/`, packaged by that repo's publish workflow into the two zips
+# `local.edge_key` and `local.reconcile_key` point at. Terraform applies perfectly clean
+# against a version that does not exist, or against one whose handler was renamed, and every
+# invocation then dies with `Runtime.ImportModuleError` — which on the producer means GitHub
+# gets a 5xx for a delivery it never re-sends. This is not a Terraform defect, but it is the
+# thing a reader of this file will hit first.
+#
+# THE FOLD MADE THAT SKEW BITE HARDER, SO APPLY IT IN ORDER. `caldrith.aws.consumer` no longer
+# exists, and the producer now reads JOBS_QUEUE_URL / DEDUP_TABLE / ADMIN_REPO rather than
+# EVENTS_QUEUE_URL / OVERFLOW_BUCKET. Bump `artifact_version` to a zip built from a caldrith
+# revision that CONTAINS the fold, in the same apply as this file — an old zip against this
+# config is a producer reaching for an events queue that has been deleted.
 #
 # WHAT REPLACED WHAT, EXPLICITLY, so nobody goes looking for the missing half:
 #
@@ -80,10 +91,9 @@ locals {
   edge_key      = "edge/${var.artifact_version}.zip"
   reconcile_key = "edge/${var.artifact_version}-reconcile.zip"
 
-  # Named here rather than inline because queues.tf derives both visibility timeouts from
-  # them (`local.*_visibility_seconds` = 6x). Editing a timeout in one place moves the queue
-  # with it; that pairing is a correctness requirement, not bookkeeping — read the note there.
-  consumer_timeout_seconds  = 30
+  # Named here rather than inline because queues.tf derives the jobs visibility timeout from
+  # it (`local.jobs_visibility_seconds` = 6x). Editing the timeout moves the queue with it;
+  # that pairing is a correctness requirement, not bookkeeping — read the note there.
   reconcile_timeout_seconds = var.reconcile_timeout_seconds
 
   # SSM paths, not values. Every one of these is resolved by the function at cold start and
@@ -181,14 +191,6 @@ resource "aws_cloudwatch_log_group" "producer" {
 }
 
 # trivy:ignore:AVD-AWS-0017
-resource "aws_cloudwatch_log_group" "consumer" {
-  #checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
-  #checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
-  name              = "/aws/lambda/${var.name_prefix}-consumer"
-  retention_in_days = var.log_retention_days
-}
-
-# trivy:ignore:AVD-AWS-0017
 resource "aws_cloudwatch_log_group" "reconcile" {
   #checkov:skip=CKV_AWS_158:No KMS CMK for CW log groups — home lab, AES256 default is sufficient
   #checkov:skip=CKV_AWS_338:Retention set explicitly in var.log_retention_days; 1-year requirement not applicable here
@@ -211,7 +213,7 @@ resource "aws_cloudwatch_log_group" "reconcile" {
 # trivy:ignore:AVD-AWS-0066
 resource "aws_lambda_function" "producer" { # nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
   #checkov:skip=CKV_AWS_173:No KMS CMK for env vars — home lab; every secret is an SSM PATH here, never a value
-  #checkov:skip=CKV_AWS_116:DLQ handled at SQS layer (events_dlq); Lambda-level DLQ redundant
+  #checkov:skip=CKV_AWS_116:Synchronous API Gateway invocation; a Lambda DLQ applies to async invokes only
   #checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
   #checkov:skip=CKV_AWS_115:Account-level concurrency cap may be 10; any reservation fails (InvalidParameterValueException)
   #checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to AWS services and api.github.com, no VPC resources
@@ -250,8 +252,20 @@ resource "aws_lambda_function" "producer" { # nosemgrep: terraform.aws.security.
 
   environment {
     variables = {
-      EVENTS_QUEUE_URL = aws_sqs_queue.events.id
-      OVERFLOW_BUCKET  = aws_s3_bucket.overflow.id
+      # STRAIGHT TO jobs.fifo. Until 2026-09-03 this was EVENTS_QUEUE_URL and a separate
+      # consumer function drained it; that hop cost ~259k SQS requests a month in empty
+      # long-poll receives alone, to carry deliveries that produced no work 99.3% of the
+      # time. See caldrith's .claude/decisions/0001-fold-consumer-into-producer.md.
+      JOBS_QUEUE_URL = aws_sqs_queue.jobs.id
+      DEDUP_TABLE    = aws_dynamodb_table.dedup.name
+
+      # The routing decisions are made against these, here rather than one queue later.
+      # ADMIN_REPO in particular decides which repository is the config source AND which one
+      # is exempt from management — set it wrong and nothing errors, the wrong repo is simply
+      # never reconciled.
+      ADMIN_REPO         = var.admin_repo
+      CONFIG_PATH        = ".github"
+      SETTINGS_FILE_PATH = "settings.yml"
 
       # Paths. The producer reads exactly these two and cannot read the App private key — its
       # IAM policy names individual parameters rather than the path, so a `GetParametersByPath`
@@ -275,69 +289,6 @@ resource "aws_lambda_function" "producer" { # nosemgrep: terraform.aws.security.
   }
 
   depends_on = [aws_cloudwatch_log_group.producer]
-}
-
-# --- consumer --------------------------------------------------------------------------------
-#
-# Claims the delivery, parses it, and turns it into jobs. It holds NO secret at all — it needs
-# neither the webhook secret (the producer already verified, and re-verifying downstream of a
-# trust boundary proves nothing) nor the App key (it makes no GitHub calls). Its IAM role has
-# no `ssm:` statement whatsoever, which is the least-privilege claim being visible rather than
-# asserted.
-#
-# The routing it performs is `caldrith.api.webhooks`' own: `push` on the admin repo's default
-# branch -> a fan-out plus, if the settings file itself moved, an `update_admin_prs` sweep;
-# `repository` created/edited -> that repo; `pull_request` on the admin repo -> `preview_config`
-# (NOT a dry-run reconcile — the admin repo is excluded from management, so a dry run of it
-# reports "no changes" for every settings PR ever opened; see COMMON_MISTAKES); the drift
-# events -> the affected repo, or the org when there is no repository in the payload.
-#
-# IT ALSO HANDLES THE BREAK-GLASS ENVELOPE, and that is not decoration — it is the only route
-# `POST /reconcile` has. The producer's IAM policy grants `sqs:SendMessage` on events.fifo and
-# on NOTHING ELSE (iam.tf), deliberately, so an authorised manual trigger cannot be written
-# straight to jobs.fifo; it arrives here as a synthetic envelope instead. It carries no
-# `X-GitHub-Delivery`, so the producer generates the FIFO deduplication id itself (a uuid4, or
-# `manual:<epoch>` — events.fifo has `content_based_deduplication = false`), and the consumer
-# recognises the envelope and emits one `reconcile_all_installations` job. Same shape as every
-# other delivery, one write target for the internet-facing role, and the App key stays at the
-# far end.
-# trivy:ignore:AVD-AWS-0066
-resource "aws_lambda_function" "consumer" { # nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
-  #checkov:skip=CKV_AWS_173:No KMS CMK for env vars — home lab; values here are a queue URL and a table name
-  #checkov:skip=CKV_AWS_116:DLQ handled at SQS layer (jobs_dlq); Lambda-level DLQ redundant
-  #checkov:skip=CKV_AWS_272:No code-signing CA configured in this account
-  #checkov:skip=CKV_AWS_115:Account-level concurrency cap may be 10; any reservation fails (InvalidParameterValueException)
-  #checkov:skip=CKV_AWS_117:Lambda is not VPC-bound; it talks to AWS services only, no VPC resources
-  #checkov:skip=CKV_AWS_50:X-Ray tracing not enabled — cost not justified at this scale
-  function_name = "${var.name_prefix}-consumer"
-  role          = aws_iam_role.consumer.arn
-  handler       = "caldrith.aws.consumer.handler"
-  runtime       = "python3.13"
-  architectures = ["arm64"]
-
-  s3_bucket = var.artifact_bucket
-  s3_key    = local.edge_key
-
-  # Nothing is waiting on this one, so it is sized for cost rather than latency.
-  memory_size = 256
-  timeout     = local.consumer_timeout_seconds
-
-  environment {
-    variables = {
-      JOBS_QUEUE_URL  = aws_sqs_queue.jobs.id
-      DEDUP_TABLE     = aws_dynamodb_table.dedup.name
-      OVERFLOW_BUCKET = aws_s3_bucket.overflow.id
-
-      # The routing decisions above are made against these. ADMIN_REPO in particular decides
-      # which repository is the config source AND which one is exempt from management — set it
-      # wrong and nothing errors, the wrong repo is simply never reconciled.
-      ADMIN_REPO         = var.admin_repo
-      CONFIG_PATH        = ".github"
-      SETTINGS_FILE_PATH = "settings.yml"
-    }
-  }
-
-  depends_on = [aws_cloudwatch_log_group.consumer]
 }
 
 # --- reconcile -------------------------------------------------------------------------------
@@ -537,25 +488,6 @@ resource "aws_lambda_function_url" "producer" {
 # the allowance is org-wide rather than per-account, and there is no knob to slow a poller
 # down if the answer turns out to be yes. The daily free-tier message the cost-report leaf
 # posts to #finance is where this would show up first; read the SQS line there in a month.
-resource "aws_lambda_event_source_mapping" "events" {
-  event_source_arn = aws_sqs_queue.events.arn
-  function_name    = aws_lambda_function.consumer.arn
-
-  batch_size = 10
-
-  # Without this a single failing record fails the WHOLE batch, so nine healthy deliveries get
-  # redelivered because the tenth was malformed — and on a FIFO queue that stalls the message
-  # group behind it. The handler returns `batchItemFailures`; this is what makes AWS read it.
-  function_response_types = ["ReportBatchItemFailures"]
-
-  scaling_config {
-    # Parsing is milliseconds, so one or two concurrent invocations drain any realistic burst.
-    # Capping it means a redelivery storm cannot fan out into the Lambda concurrency the rest
-    # of the account shares — including the reconcile function, which is the one that matters.
-    maximum_concurrency = 2
-  }
-}
-
 # The jobs mapping, where the caps are doing real work.
 resource "aws_lambda_event_source_mapping" "jobs" {
   event_source_arn = aws_sqs_queue.jobs.arn
