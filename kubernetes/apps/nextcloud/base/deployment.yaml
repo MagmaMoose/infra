@@ -23,13 +23,28 @@ spec:
           image: linuxserver/nextcloud:version-31.0.1
           resources:
             # KRR: nextcloud's working set is ~123Mi; 759Mi was a ~6x over-reservation
-            # that dominated ff-pi1's memory-request pressure. 256Mi keeps comfortable
-            # headroom over real usage. CPU request only, no CPU limit (avoid CFS throttling).
+            # that dominated ff-pi1's memory-request pressure. The REQUEST stays at
+            # 256Mi for that reason — requests are what the scheduler reserves, so
+            # that pressure is unchanged.
+            #
+            # The LIMIT is 1Gi because serving pages is not the peak. Bootstrapping
+            # the share manager through occ needs more than 256Mi and was OOM-killed
+            # twice trying to put a password on an existing public link, leaving no
+            # way to close it from the CLI at all — the fix had to go straight to the
+            # database. Upgrades and occ:files:scan have the same shape: rare, short,
+            # and several times the steady state.
+            #
+            # This makes the pod Burstable rather than Guaranteed, so it is evicted
+            # earlier under node memory pressure. That is the right trade for a
+            # single-user file server: a restart costs a few seconds, an OOM kill
+            # mid-occ costs a half-finished operation.
+            #
+            # CPU request only, no CPU limit (avoid CFS throttling).
             requests:
               memory: "256Mi"
               cpu: "10m"
             limits:
-              memory: "256Mi"
+              memory: "1Gi"
           ports:
             - containerPort: 80
           env:
