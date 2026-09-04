@@ -12,13 +12,36 @@
 # CloudWatch's always-free tier is 10 alarms, and — like every other allowance in this design —
 # it is shared across the ORGANISATION rather than per account.
 #
-# THE BUDGET IS ALREADY BLOWN, AND NOT BY THIS FILE. An earlier version of this note said
-# "nievah uses 4, the five here take the organisation to 9, ONE SPARE". That counted two
-# accounts. On 2026-09-03 seven hold alarms — caldrith, nievah, brimyr, chargate, diatreme,
-# dunmir and the Root account — forecasting 13.42 against the free 10, or about $0.34/month.
-# Deleting the events DLQ alarm below took this file from five to four and the organisation to
-# ~12.4; it did not fix the overage, and nothing in THIS module can. Getting back under 10 is a
-# decision across those seven accounts, not a caldrith one.
+# THE BUDGET IS ALREADY BLOWN, AND NOT BY THIS FILE, AND ON 2026-09-04 IT WAS DECIDED TO LEAVE
+# IT BLOWN. An earlier version of this note said "nievah uses 4, the five here take the
+# organisation to 9, ONE SPARE". That counted two accounts. Seven hold alarms — caldrith,
+# nievah, brimyr, chargate, diatreme, dunmir and the Root account — and the live count is 21,
+# not the 13.42 the AWS free-tier report forecasts. THAT REPORT UNDERSTATES BY ~26%, because it
+# divides usage data that lags about a day by elapsed calendar days; do not size this decision
+# from it. Deleting the events DLQ alarm below took the estate to 20 and dropping
+# `diatreme-broker-throttled` takes it to 19: NINE BILLABLE, $0.90/month, $10.80/year.
+#
+# GETTING UNDER 10 WOULD MEAN DELETING NINE MORE ACROSS SEVEN ACCOUNTS — half the estate's
+# monitoring — and every alternative mechanism was priced and is WORSE:
+#
+#   a cross-account poller   GetMetricData is $0.01/1,000 metrics and is one of the three
+#                            operations explicitly EXCLUDED from CloudWatch's free 1M API
+#                            requests. 21 metrics at 5-minute cadence is $1.81/month, twice the
+#                            overage it replaces, before the seven cross-account roles, the
+#                            code, or the dead-man alarm it would itself need to be trusted.
+#                            The free variant, sqs:GetQueueAttributes, cannot return
+#                            ApproximateAgeOfOldestMessage at all — that metric exists only in
+#                            CloudWatch — so it cannot replace `jobs_stale`, the one alarm this
+#                            file calls THE ONE THAT MATTERS.
+#   composite alarms         $0.50/month EACH, and the child alarms are still billed. Negative.
+#   metric math / SEARCH     billed per metric referenced, so no saving, and it would collapse
+#                            these descriptions into "something breached".
+#
+# So the estate stays at 19 and pays $10.80 a year. Alarms that evaluate in a regional service,
+# need no code, cannot drift out of sync with what they watch, and carry a runbook in every
+# description are worth more than that. Spend the effort on the gaps instead: an alarm cannot
+# fire on a failure IN FRONT of the function, because no invocation means no datapoint and
+# `treat_missing_data = notBreaching` reads that as healthy.
 #
 # So the spare is not to be spent casually, and two alarms that would otherwise be obvious were
 # deliberately NOT created:
