@@ -8,7 +8,7 @@
 #
 # CloudWatch's free allowance is 10 alarm metrics — POOLED ACROSS THE ORGANIZATION, not granted
 # per account, because free-tier usage aggregates at the payer. Nievah's front door already uses
-# four. This uses three, for seven of ten.
+# four. This uses two, for six of ten.
 
 # trivy:ignore:AVD-AWS-0095
 resource "aws_sns_topic" "ops" {
@@ -75,8 +75,8 @@ resource "aws_iam_role_policy" "chatbot" {
 
 # --- the one that matters -------------------------------------------------------------------
 #
-# The broker raising is the only failure a consumer half-sees, and they see it as a missing
-# byline rather than an error. Everything else about this service is invisible from outside.
+# The broker raising is the only failure a consumer sees from outside, and they see it as a
+# red release run — diatreme fails hard on any Lambda error. Everything else is invisible.
 resource "aws_cloudwatch_metric_alarm" "broker_errors" {
   alarm_name          = "${var.name_prefix}-broker-erroring"
   alarm_description   = "${aws_lambda_function.broker.function_name} is raising. Every consumer's release goes red — diatreme fails hard. Check CloudWatch Logs; /healthz will look fine regardless, it answers before configuration is read. AND IF RELEASES ARE FAILING WHILE THIS ALARM IS GREEN, CHECK Throttles: Lambda excludes them from the Errors metric, and there is no throttle alarm in this account by design (see notify.tf)."
