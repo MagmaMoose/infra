@@ -260,12 +260,25 @@ variable "reconcile_max_concurrency" {
     budget guard's ACTUAL threshold, within a day rather than at month end. 5 x 512 MB halves
     the exposure and is a deliberate choice available at any time.
 
-    Minimum accepted by AWS is 2. Five is roughly two minutes to walk a 200-repo org, which
-    is fast enough for a config-as-code tool and slow enough to stay well inside GitHub's
-    concurrency guidance.
+    AND IT IS THE POLLER COUNT, WHICH IS WHY THE DEFAULT IS 2 AND NOT 5. This was 5 until
+    2026-09-03. A Lambda event source mapping runs one long-polling ReceiveMessage connection
+    per unit of maximum_concurrency, 3 receives a minute each, forever — an empty receive is
+    billed exactly like a real one. Measured in prd-caldrith over three days: 64,646 empty
+    receives on jobs.fifo to deliver 52 messages, 1,243 empty polls per real message, and 5.0
+    implied pollers against a configured 5. At 5 that is ~648k SQS requests a month; at 2 it is
+    ~259k, which is what keeps this account inside the organisation's shared 1M allowance.
+
+    THE COST OF 2 IS FAN-OUT LATENCY AND NOTHING ELSE. A full-fleet reconcile walks two repos
+    at a time rather than five, so a 200-repo org takes ~5 minutes instead of ~2. Ordinary
+    drift and push traffic never approaches either number — this queue sees ~17 messages a day
+    — so the headroom was paid for continuously and used approximately never. Raise it for a
+    genuinely large fleet, knowing each extra unit costs ~130k SQS requests a month whether or
+    not it carries work.
+
+    Minimum accepted by AWS is 2.
   EOT
   type        = number
-  default     = 5
+  default     = 2
 
   # AWS accepts 2..1000 for an event source mapping's maximum_concurrency. 1 looks like the
   # obvious way to serialise everything and is rejected — serialising is the FIFO message

@@ -7,12 +7,41 @@
 # below observes from outside the failure domain.
 #
 # ─────────────────────────────────────────────────────────────────────────────────────────────
-# THE ALARM BUDGET, WHICH IS TIGHT AND IS THE REASON THIS FILE HAS FIVE ALARMS AND NOT NINE.
+# THE ALARM BUDGET, WHICH IS TIGHT AND IS THE REASON THIS FILE HAS FOUR ALARMS AND NOT NINE.
 #
 # CloudWatch's always-free tier is 10 alarms, and — like every other allowance in this design —
-# it is shared across the ORGANISATION rather than per account. Nievah's front door already
-# uses 4. The five here take the organisation to 9. ONE SPARE, and an eleventh alarm costs
-# $0.10/month, which is small but is also more than this entire stack is expected to cost.
+# it is shared across the ORGANISATION rather than per account.
+#
+# THE BUDGET IS ALREADY BLOWN, AND NOT BY THIS FILE, AND ON 2026-09-04 IT WAS DECIDED TO LEAVE
+# IT BLOWN. An earlier version of this note said "nievah uses 4, the five here take the
+# organisation to 9, ONE SPARE". That counted two accounts. Seven hold alarms — caldrith,
+# nievah, brimyr, chargate, diatreme, dunmir and the Root account — and the live count is 21,
+# not the 13.42 the AWS free-tier report forecasts. THAT REPORT UNDERSTATES BY ~26%, because it
+# divides usage data that lags about a day by elapsed calendar days; do not size this decision
+# from it. Deleting the events DLQ alarm below took the estate to 20 and dropping
+# `diatreme-broker-throttled` takes it to 19: NINE BILLABLE, $0.90/month, $10.80/year.
+#
+# GETTING UNDER 10 WOULD MEAN DELETING NINE MORE ACROSS SEVEN ACCOUNTS — half the estate's
+# monitoring — and every alternative mechanism was priced and is WORSE:
+#
+#   a cross-account poller   GetMetricData is $0.01/1,000 metrics and is one of the three
+#                            operations explicitly EXCLUDED from CloudWatch's free 1M API
+#                            requests. 21 metrics at 5-minute cadence is $1.81/month, twice the
+#                            overage it replaces, before the seven cross-account roles, the
+#                            code, or the dead-man alarm it would itself need to be trusted.
+#                            The free variant, sqs:GetQueueAttributes, cannot return
+#                            ApproximateAgeOfOldestMessage at all — that metric exists only in
+#                            CloudWatch — so it cannot replace `jobs_stale`, the one alarm this
+#                            file calls THE ONE THAT MATTERS.
+#   composite alarms         $0.50/month EACH, and the child alarms are still billed. Negative.
+#   metric math / SEARCH     billed per metric referenced, so no saving, and it would collapse
+#                            these descriptions into "something breached".
+#
+# So the estate stays at 19 and pays $10.80 a year. Alarms that evaluate in a regional service,
+# need no code, cannot drift out of sync with what they watch, and carry a runbook in every
+# description are worth more than that. Spend the effort on the gaps instead: an alarm cannot
+# fire on a failure IN FRONT of the function, because no invocation means no datapoint and
+# `treat_missing_data = notBreaching` reads that as healthy.
 #
 # So the spare is not to be spent casually, and two alarms that would otherwise be obvious were
 # deliberately NOT created:
@@ -21,9 +50,9 @@
 #                        goes back on the queue and keeps ageing, so a persistent reconcile
 #                        failure trips the 15-minute age alarm long before an Errors alarm
 #                        would add anything — and much sooner than the DLQ fills (~5 hours).
-#   consumer-erroring    `events_dlq` covers it. Nothing outside this account can make an
-#                        events message fail, so a redrive there IS the consumer erroring, and
-#                        the DLQ alarm says so with the message still in hand to look at.
+#   producer-routing     `producer_errors` covers it. Since the fold the producer does its own
+#                        claiming and routing, so a routing bug raises there and is already
+#                        alarmed — and it is a 5xx to GitHub, which is the louder signal anyway.
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 
 # trivy:ignore:AVD-AWS-0095
@@ -134,27 +163,6 @@ resource "aws_cloudwatch_metric_alarm" "jobs_stale" {
   ok_actions    = [aws_sns_topic.ops.arn]
 }
 
-# Anything here is a genuine bug: draining an events message is a parse and a routing decision
-# with no network call in it, so nothing outside this account can make one fail. Five failures
-# means the consumer itself rejected it.
-resource "aws_cloudwatch_metric_alarm" "events_dlq" {
-  count = var.localstack ? 0 : 1
-
-  alarm_name          = "${var.name_prefix}-events-dlq-not-empty"
-  alarm_description   = "A delivery could not be parsed or routed by ${aws_lambda_function.consumer.function_name} and was redriven. This is a code bug, not an outage — the message is still in the DLQ; read it."
-  namespace           = "AWS/SQS"
-  metric_name         = "ApproximateNumberOfMessagesVisible"
-  statistic           = "Maximum"
-  period              = 300
-  evaluation_periods  = 1
-  threshold           = 0
-  comparison_operator = "GreaterThanThreshold"
-
-  dimensions         = { QueueName = aws_sqs_queue.events_dlq.name }
-  treat_missing_data = "notBreaching"
-  alarm_actions      = [aws_sns_topic.ops.arn]
-}
-
 # Reaching this DLQ takes ten failed receives at a 30-minute visibility timeout — roughly five
 # hours of sustained failure. So it means either a GitHub incident that outlasted the redrive
 # budget, or a job that fails deterministically (a revoked installation, a repo deleted between
@@ -252,7 +260,7 @@ resource "aws_cloudwatch_metric_alarm" "api_flood" {
 # --- THE COST GUARD -------------------------------------------------------------------------
 #
 # The brief for this stack was "free", and everything in it is inside a permanent always-free
-# allowance except the API Gateway requests and the overflow bucket. This is what turns that
+# allowance except the API Gateway requests. This is what turns that
 # from an estimate into something monitored.
 #
 # TWO BUDGETS ARE FREE PER ACCOUNT and prd-caldrith had none, so this one costs nothing. Do not
