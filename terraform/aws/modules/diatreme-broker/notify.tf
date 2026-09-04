@@ -8,7 +8,7 @@
 #
 # CloudWatch's free allowance is 10 alarm metrics — POOLED ACROSS THE ORGANIZATION, not granted
 # per account, because free-tier usage aggregates at the payer. Nievah's front door already uses
-# four. This uses three, for seven of ten.
+# four. This uses two, for six of ten.
 
 # trivy:ignore:AVD-AWS-0095
 resource "aws_sns_topic" "ops" {
@@ -75,11 +75,11 @@ resource "aws_iam_role_policy" "chatbot" {
 
 # --- the one that matters -------------------------------------------------------------------
 #
-# The broker raising is the only failure a consumer half-sees, and they see it as a missing
-# byline rather than an error. Everything else about this service is invisible from outside.
+# The broker raising is the only failure a consumer sees from outside, and they see it as a
+# red release run — diatreme fails hard on any Lambda error. Everything else is invisible.
 resource "aws_cloudwatch_metric_alarm" "broker_errors" {
   alarm_name          = "${var.name_prefix}-broker-erroring"
-  alarm_description   = "${aws_lambda_function.broker.function_name} is raising. PR comments across every consumer are silently falling back to github-actions[bot]. Check CloudWatch Logs — /healthz will look fine regardless, it answers before configuration is read."
+  alarm_description   = "${aws_lambda_function.broker.function_name} is raising. Every consumer's release goes red — diatreme fails hard. Check CloudWatch Logs; /healthz will look fine regardless, it answers before configuration is read. AND IF RELEASES ARE FAILING WHILE THIS ALARM IS GREEN, CHECK Throttles: Lambda excludes them from the Errors metric, and there is no throttle alarm in this account by design (see notify.tf)."
   namespace           = "AWS/Lambda"
   metric_name         = "Errors"
   statistic           = "Sum"
@@ -98,23 +98,31 @@ resource "aws_cloudwatch_metric_alarm" "broker_errors" {
   ok_actions    = [aws_sns_topic.ops.arn]
 }
 
-# The account's TOTAL Lambda concurrency is 10. Throttles here mean either a flood that got past
-# the gateway limit or another workload in this account eating the quota.
-resource "aws_cloudwatch_metric_alarm" "broker_throttled" {
-  alarm_name          = "${var.name_prefix}-broker-throttled"
-  alarm_description   = "${aws_lambda_function.broker.function_name} is being throttled — the account's concurrency quota (10) is exhausted. Token requests are failing and consumers are falling back silently."
-  namespace           = "AWS/Lambda"
-  metric_name         = "Throttles"
-  statistic           = "Sum"
-  period              = 300
-  evaluation_periods  = 1
-  threshold           = 0
-  comparison_operator = "GreaterThanThreshold"
-
-  dimensions         = { FunctionName = aws_lambda_function.broker.function_name }
-  treat_missing_data = "notBreaching"
-  alarm_actions      = [aws_sns_topic.ops.arn]
-}
+# NO THROTTLE ALARM HERE, ON PURPOSE, AND CHARGATE'S IS NOT A PRECEDENT TO COPY.
+#
+# The account's total Lambda concurrency is 10, so throttles are possible — but diatreme FAILS
+# HARD (see the leaf, and `additional_domain_names` in variables.tf): a throttled invocation is a
+# Lambda 429, the gateway turns that into a 5xx, and `request-public-app-token.sh` exits 1 on any
+# non-200. So every throttled token request is already a red X on a consumer's release, mailed to
+# the same address `aws_sns_topic_subscription.email` delivers this topic to, in the same minute.
+# The alarm announced a signal that had already arrived, and it had no `ok_actions`, so it never
+# said it cleared either.
+#
+# `front_door_busy` DOES NOT COVER THIS and it is worth writing down why, because the arithmetic
+# is not obvious: a 10-request burst plus 15s of refill is ~40 requests, which is enough to
+# exhaust a concurrency cap of 10 and throttle roughly 30 of them, while staying far under
+# `busy_alarm_requests_per_15min` (100). That alarm catches a SUSTAINED flood. The burst case is
+# caught by the red release run and by nothing else here.
+#
+# CHARGATE AND BRIMYR KEEP THEIRS, and the reason is the inverse of the reason this one goes.
+# Chargate fails SOFT — its client emits an empty token and carries on, so a throttled request is
+# a missing byline nobody notices. There the alarm is the only signal that exists. The stakes and
+# the detection-value run in opposite directions: diatreme has the worse consequence and the
+# lesser need for an alarm.
+#
+# Reinstate this if a second Lambda ever lands in this account and starts competing for the
+# quota, because then a throttle stops being a proxy for "diatreme is being hammered".
+# Deleted 2026-09-04; see the alarm-budget note in modules/caldrith-frontdoor/notify.tf.
 
 # --- the cost early-warning -----------------------------------------------------------------
 #
