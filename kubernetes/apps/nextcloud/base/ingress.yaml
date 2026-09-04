@@ -10,6 +10,23 @@ metadata:
     traefik.ingress.kubernetes.io/entrypoints: websecure
 spec:
   rules:
+    # cloud.magmamoose.com is the address Nextcloud now calls itself
+    # (overwrite.cli.url and the first trusted domain).
+    - host: cloud.magmamoose.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nextcloud
+                port:
+                  number: 8080
+    # Kept only until the new name is confirmed working. Removing it in the same
+    # change as the rename would leave a gap: cert-manager issues the new
+    # certificate over DNS-01, which is minutes, and the old certificate stops
+    # matching the moment its host leaves the tls block. Serving both means the
+    # one certificate covers both names and nothing is unreachable in between.
     - host: cloud.sargeant.co
       http:
         paths:
@@ -22,5 +39,6 @@ spec:
                   number: 8080
   tls:
     - hosts:
+        - cloud.magmamoose.com
         - cloud.sargeant.co
       secretName: nextcloud-tls
