@@ -1,0 +1,34 @@
+---
+# Chart source for the afas-declaraties release. The chart lives IN the
+# application repo (CalebSargeant/afas-declaraties, charts/afas-declaraties) and
+# is published as an OCI artifact by that repo's chart-release workflow, which
+# pushes to oci://ghcr.io/${github.repository_owner} lowercased — so
+# ghcr.io/calebsargeant/charts. There is no chart index to fetch.
+#
+# HelmRepository rather than OCIRepository, matching finance / janeway /
+# platform2: a HelmRelease pointed at an OCIRepository has to name one immutable
+# artifact revision, while this shape keeps the `chart` + semver `version` range
+# every other HelmRelease here uses, so a chart release reaches the cluster
+# without a commit in this repo.
+#
+# NAME: `ghcr-calebsargeant-charts`, deliberately NOT `calebsargeant-charts`.
+# An object of that name already exists in flux-system, owned by
+# prod-finance-source, and it points at oci://ghcr.io/MAGMAMOOSE/charts — the
+# finance repo was transferred to the MagmaMoose org, so its chart-release
+# workflow publishes there while the object name still says calebsargeant.
+# Reusing that name would make two Kustomizations fight over one object AND
+# point this release at the wrong registry namespace. A second source object
+# costs nothing and keeps this app's readiness independent of finance's.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: ghcr-calebsargeant-charts
+  namespace: flux-system
+spec:
+  type: oci
+  interval: 10m
+  url: oci://ghcr.io/calebsargeant/charts
+  # Same credential finance's chart source and deskbird-booking's ImageRepository
+  # use. Required if the chart package is private; harmless if it is public.
+  secretRef:
+    name: ghcr-pull-secret

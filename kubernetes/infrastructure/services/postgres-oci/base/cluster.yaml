@@ -129,6 +129,36 @@ spec:
         passwordSecret:
           name: janeway-db
 
+      # `afas_declaraties` — owns the `afas_declaraties` database and nothing
+      # else. Consumed by kubernetes/apps/afas-declaraties.
+      #
+      # Dedicated rather than reusing `app`, for the same reasons as `janeway`
+      # above: `app` owns dunmir's database too, so sharing it would let either
+      # application's credentials read the other's data — and this one holds an
+      # expense ledger, including which days a person was in an office. It also
+      # lets the password live in OCI Vault and be enforced from there, rather
+      # than the application needing a cross-namespace RBAC grant to read the
+      # CNPG-generated `postgres-oci-app` Secret out of this namespace.
+      #
+      # No createdb/createrole/superuser: the app migrates a database it has
+      # already been given, with plain numbered SQL. It creates no extensions.
+      #
+      # Underscored, unlike the hyphenated Kubernetes objects around it: this is
+      # a PostgreSQL identifier, and a hyphen would need quoting everywhere it
+      # appears — including in the DSN the app builds.
+      - name: afas_declaraties
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        inherit: true
+        replication: false
+        bypassrls: false
+        connectionLimit: -1
+        passwordSecret:
+          name: afas-declaraties-db
+
   monitoring:
     enablePodMonitor: true
 

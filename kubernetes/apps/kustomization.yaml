@@ -68,6 +68,13 @@ resources:
   # subscription, both now gone. Same shape as platform2: OCI-published chart,
   # not a GitRepository.
   - ./finance
+  # AFAS expense claims — classifies office/home days from the calendar, asks
+  # for approval in Slack over Socket Mode, and files the monthly claim in AFAS
+  # InSite with a headless browser. Same shape as finance: an OCI-published
+  # chart from the app's own public repo, not a GitRepository. Every
+  # employer-identifying value is an OCI Vault entry rather than a HelmRelease
+  # value, because this repo is public — see the app's externalsecret.yaml.
+  - ./afas-declaraties
   # backup
   - ./timemachine
   # miscellaneous (dashboard)
