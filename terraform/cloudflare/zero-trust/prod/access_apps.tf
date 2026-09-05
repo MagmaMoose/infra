@@ -238,6 +238,47 @@ resource "cloudflare_zero_trust_access_application" "app_launcher" {
 # Nothing to apply — there is no resource here. It is a signpost for the next
 # person who wonders why a public product surface has no Access policy.
 
+# --- self_hosted: Dün Mir docs (MkDocs on Cloudflare Pages) -----------------
+# SEPARATE hostname from the console above, and gated on purpose. The dunmir repo
+# is private and its docs/ carries operational detail — vault secret KEY names,
+# the migration and Cognito-cutover runbooks — that must not sit on the open
+# internet at dunmir-docs.pages.dev (a Pages project is world-readable by
+# default). tremvok's docs workflow enforces exactly this: `require-access: True`
+# makes it ask Cloudflare which Access apps exist and REFUSE to publish until one
+# covers the hostname. This is that app: the whole @magmamoose.com team can read
+# the docs (magma_moose_domain), nobody else can. If the docs are ever meant to be
+# public product docs (like Diatreme's), the fix is to move the operational pages
+# out of published docs/ first, then relax the gate — not to widen this policy.
+resource "cloudflare_zero_trust_access_application" "dunmir_docs" {
+  account_id                = var.account_id
+  name                      = "Dün Mir docs"
+  type                      = "self_hosted"
+  domain                    = "dunmir-docs.pages.dev"
+  tags                      = ["Magma Moose"]
+  app_launcher_visible      = true
+  auto_redirect_to_identity = false
+  session_duration          = "24h"
+
+  allowed_idps = [
+    cloudflare_zero_trust_access_identity_provider.google_workspace.id,
+    cloudflare_zero_trust_access_identity_provider.one_time_pin.id,
+    cloudflare_zero_trust_access_identity_provider.google.id,
+  ]
+}
+
+resource "cloudflare_zero_trust_access_policy" "dunmir_docs_team" {
+  account_id       = var.account_id
+  application_id   = cloudflare_zero_trust_access_application.dunmir_docs.id
+  name             = "Magma Moose team"
+  decision         = "allow"
+  precedence       = 1
+  session_duration = "24h"
+
+  include {
+    group = [cloudflare_zero_trust_access_group.magma_moose_domain.id]
+  }
+}
+
 # --- self_hosted: Zoey ------------------------------------------------------
 # Zoey — the project-intelligence dashboard (firefly cluster, behind the
 # firefly cloudflared tunnel — ingress in tunnels.tf). The app has no in-app
