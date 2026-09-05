@@ -486,6 +486,34 @@ inputs = {
     # moved to a custom domain so its deploy is self-sufficient, which makes a
     # record here not merely redundant but conflicting — do not add one back.
 
+    # ── Dün Mir's AWS API ───────────────────────────────────────────────────
+    #
+    # `api.dunmir.magmamoose.com` is TWO LABELS deep, which the note on
+    # janeway.magmamoose.com above explains the usual consequence of: the zone's
+    # Universal SSL covers one label, so a proxied two-label name fails in the TLS
+    # handshake before any HTTP happens.
+    #
+    # It does not apply here, and the reason is worth stating so nobody "fixes" it
+    # by flipping the proxy on. On the AWS topology Cloudflare terminates NOTHING:
+    # the certificate is ACM's, the record is DNS-only, and TLS is established
+    # directly with API Gateway. That is also why there is no certificate pack to
+    # buy for this name.
+    #
+    # PROXYING EITHER OF THESE WOULD BREAK IT. The validation record must resolve
+    # to ACM's own hostname for ACM to see its answer; a proxied record answers
+    # with Cloudflare's addresses and validation simply never completes, with
+    # nothing erroring — the certificate just sits in PENDING_VALIDATION until it
+    # is deleted after 72 hours.
+    {
+      # ACM's DNS-01 challenge for api.dunmir.magmamoose.com. Emitted by
+      # `terragrunt output certificate_validation_record` on the aws/dunmir
+      # platform leaf, which is phase 1 of that stack's two-phase bring-up.
+      name    = "_d42842def45377a485f3586e7fcb524f.api.dunmir.magmamoose.com"
+      type    = "CNAME"
+      value   = "_081c10879fe958a6c5ba7a79aa5dfdf8.jkddzztszm.acm-validations.aws"
+      proxied = false
+    },
+
     # NOTE: dunmir.magmamoose.com (Dün Mir Pro UI) is a Cloudflare Pages custom
     # domain — its DNS is created by the Pages "Custom domains" flow, NOT here.
     # A hand-written proxied CNAME to *.pages.dev is rejected with error 1014

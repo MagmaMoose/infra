@@ -2,7 +2,7 @@
 #
 # It exists because the leaves cannot run locally: Terragrunt's root.hcl generates a GCS
 # backend and a `google` provider that would try to reach real Google. This root supplies a
-# local backend and the LocalStack-pointed provider in `provider_override.tf`, and otherwise
+# local backend and the LocalStack-pointed provider in `localstack_provider.tf`, and otherwise
 # calls the same module source the leaves call — so what is exercised here is the real module
 # code, including the `artifact_bucket` handoff between them.
 #
@@ -47,7 +47,10 @@ variable "edge_artifact_version" {
 module "artifacts" {
   source = "../modules/artifacts"
 
-  region         = "eu-west-1"
+  # No `region` — the module has no such variable (it takes its region from the provider, and
+  # builds no ARNs by hand). It was passed anyway, which meant this root could never validate,
+  # let alone apply. That went unnoticed for the same reason the provider file went missing:
+  # nothing could run this, so nothing did.
   publisher_repo = "MagmaMoose/nievah"
 }
 

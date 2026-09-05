@@ -1,0 +1,94 @@
+# The Dün Mir proving ground: LocalStack, plus the two things LocalStack's community image
+# cannot emulate.
+#
+#   localstack  Lambda, S3, IAM, Logs, EventBridge Scheduler, STS — the AWS surface this stack
+#               actually uses.
+#   postgres    stands in for RDS, which LocalStack does not emulate at all. Same engine, same
+#               version, same schema — so the 200-odd hand-written SQL statements are genuinely
+#               exercised. Nothing about subnet groups, backups or failover is.
+#   cognito     `moto`, standing in for Cognito, which is a LocalStack Pro feature. moto mints
+#               REAL RS256 tokens against a REAL JWKS, which is the part that matters: the
+#               backend's offline verification and the browser's whole sign-in flow are
+#               exercised for real rather than mocked.
+#
+# `make -C aws dunmir-dev` runs the whole thing end to end.
+
+name: dunmir-localstack
+
+services:
+  localstack:
+    image: localstack/localstack:4
+    container_name: dunmir-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      # Named explicitly rather than left to the default, so a service this stack starts
+      # depending on fails loudly at boot instead of at the first API call.
+      #
+      # `s3control` is here for a non-obvious reason: AWS provider v6 reads a bucket's tags
+      # through the S3 Control API, not the S3 API, so `default_tags` makes every
+      # `aws_s3_bucket` apply fail with a 501 without it. The tags are how a stray resource
+      # stays attributable, so they are not optional and neither is the service.
+      SERVICES: "lambda,s3,s3control,iam,sts,logs,events,scheduler,ec2,cloudwatch,sns,ssm,kms"
+      DEBUG: "0"
+      # Lambda runs in sibling containers on the host daemon, which is why the socket is mounted
+      # below. The alternative (LAMBDA_RUNTIME_EXECUTOR=local) skips the container and with it
+      # the runtime's own import path — a package that works there can still fail on the real
+      # thing.
+      LAMBDA_RUNTIME_EXECUTOR: "docker"
+      LAMBDA_REMOVE_CONTAINERS: "1"
+      # THE LINE THAT MAKES THE DATABASE REACHABLE. Lambda containers are started by LocalStack
+      # on the default bridge network, where `postgres` does not resolve; attaching them to this
+      # compose project's network is what lets the function open a connection to the database
+      # container by name. Without it every invocation fails with a DNS error that looks like a
+      # broken DSN.
+      LAMBDA_DOCKER_NETWORK: "dunmir-localstack_default"
+      # LocalStack's GATEWAY refuses any request carrying a foreign `Origin` header with a bare
+      # 403 — its own CSRF protection, nothing to do with the application's CORS. Without this
+      # the console running on the Vite dev server cannot reach the function at all, and the
+      # failure looks exactly like the backend's CORS being misconfigured: a 403 with no
+      # `Access-Control-Allow-Origin`, from a backend that is in fact configured correctly.
+      #
+      # Only the dev server's origin is allowed, not `*`: the point is to unblock the one client
+      # that exists locally, not to turn the check off.
+      EXTRA_CORS_ALLOWED_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173" # DevSkim: ignore DS162092
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:4566/_localstack/health"] # DevSkim: ignore DS162092
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  postgres:
+    # Pinned to the same major the RDS instance runs (`engine_version = "16"` in database.tf).
+    # A local run against a different major would prove the SQL parses somewhere, not that it
+    # parses where it is going.
+    image: postgres:16-alpine
+    container_name: dunmir-postgres
+    environment:
+      POSTGRES_USER: dunmir
+      POSTGRES_PASSWORD: dunmir
+      POSTGRES_DB: dunmir
+    ports:
+      # Exposed so `smoke.py` and psql can inspect the database from the host. The function
+      # reaches it by container name on the compose network, not through this.
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dunmir"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  cognito:
+    image: motoserver/moto:latest
+    container_name: dunmir-cognito
+    ports:
+      - "5001:5000"
+    environment:
+      MOTO_PORT: "5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:5000/moto-api/')"] # DevSkim: ignore DS162092
+      interval: 3s
+      timeout: 3s
+      retries: 20
