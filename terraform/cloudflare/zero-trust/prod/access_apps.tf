@@ -239,16 +239,13 @@ resource "cloudflare_zero_trust_access_application" "app_launcher" {
 # person who wonders why a public product surface has no Access policy.
 
 # --- self_hosted: Dün Mir docs (MkDocs on Cloudflare Pages) -----------------
-# SEPARATE hostname from the console above, and gated on purpose. The dunmir repo
-# is private and its docs/ carries operational detail — vault secret KEY names,
-# the migration and Cognito-cutover runbooks — that must not sit on the open
-# internet at dunmir-docs.pages.dev (a Pages project is world-readable by
-# default). tremvok's docs workflow enforces exactly this: `require-access: True`
-# makes it ask Cloudflare which Access apps exist and REFUSE to publish until one
-# covers the hostname. This is that app: the whole @magmamoose.com team can read
-# the docs (magma_moose_domain), nobody else can. If the docs are ever meant to be
-# public product docs (like Diatreme's), the fix is to move the operational pages
-# out of published docs/ first, then relax the gate — not to widen this policy.
+# Gated on purpose: this docs site carries internal operational detail that
+# must not be world-readable (Cloudflare Pages projects are public by default).
+# tremvok's `require-access: True` makes the docs workflow refuse to publish
+# until an Access app covers the hostname. This is that app: the whole
+# @magmamoose.com team can reach the docs (magma_moose_domain), nobody else can.
+# If the docs are ever meant to be public product docs, move the internal pages
+# out of published docs/ first, then relax the gate -- not to widen this policy.
 resource "cloudflare_zero_trust_access_application" "dunmir_docs" {
   account_id                = var.account_id
   name                      = "Dün Mir docs"
