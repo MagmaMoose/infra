@@ -192,14 +192,17 @@ inputs = {
   # COLD START: this must name a version that has actually been published. Until step 3 above
   # has run at least once, no value here is correct.
   #
-  # 2.0.0 IS NOT AN OPTIONAL BUMP IN THIS CHANGE. It is the first release containing the fold
+  # 3.0.0 CARRIES BOTH EDGE CHANGES AND NEITHER IS OPTIONAL. 2.0.0 was the first release with
+  # the fold; 3.0.0 adds the terminal-404 acknowledgement, without which one deleted repository
+  # freezes an owner's whole FIFO message group for ~5 hours (MagmaMoose/caldrith#97, and it was
+  # doing exactly that in production on 2026-09-04). The fold
   # (MagmaMoose/caldrith#95), and the module edited alongside this file no longer creates
   # events.fifo or the overflow bucket. Leaving this at 1.19.1 deploys a producer that reads
   # EVENTS_QUEUE_URL and OVERFLOW_BUCKET into a stack that provides neither: it applies clean
   # and then answers 502 on every delivery GitHub will not re-send. Both objects were verified
   # present in caldrith-artifacts-483461801743 on 2026-09-03.
   # ─────────────────────────────────────────────────────────────────────────────────────────
-  artifact_version = "2.0.0"
+  artifact_version = "3.0.0"
 
   # A clean hostname for the GitHub App's webhook URL. The module requests its own REGIONAL ACM
   # certificate (see api.tf); `certificate_arn` is only for reusing one managed elsewhere.
