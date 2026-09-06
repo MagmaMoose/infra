@@ -193,9 +193,9 @@ inputs = {
   # has run at least once, no value here is correct.
   #
   # 3.0.0 CARRIES BOTH EDGE CHANGES AND NEITHER IS OPTIONAL. 2.0.0 was the first release with
-# the fold; 3.0.0 adds the terminal-404 acknowledgement, without which one deleted repository
-# freezes an owner's whole FIFO message group for ~5 hours (MagmaMoose/caldrith#97, and it was
-# doing exactly that in production on 2026-09-04). The fold
+  # the fold; 3.0.0 adds the terminal-404 acknowledgement, without which one deleted repository
+  # freezes an owner's whole FIFO message group for ~5 hours (MagmaMoose/caldrith#97, and it was
+  # doing exactly that in production on 2026-09-04). The fold
   # (MagmaMoose/caldrith#95), and the module edited alongside this file no longer creates
   # events.fifo or the overflow bucket. Leaving this at 1.19.1 deploys a producer that reads
   # EVENTS_QUEUE_URL and OVERFLOW_BUCKET into a stack that provides neither: it applies clean
