@@ -93,7 +93,7 @@ def request(
         hdrs.setdefault("Content-Type", "application/json")
     req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=60) as response:  # noqa: S310 # nosec B310 # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected - local only
+        with urllib.request.urlopen(req, timeout=60) as response:  # noqa: S310 # nosec B310 # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             payload = response.read()
     except urllib.error.HTTPError as exc:
         payload = exc.read()
@@ -110,7 +110,7 @@ def request_raw(method: str, url: str) -> tuple[int, dict, bytes]:
     """A plain fetch with no credential — for a URL that carries its own."""
     req = urllib.request.Request(url, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=60) as response:  # noqa: S310 # nosec B310 # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected - local only
+        with urllib.request.urlopen(req, timeout=60) as response:  # noqa: S310 # nosec B310 # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
             return response.status, dict(response.headers), response.read()
     except urllib.error.HTTPError as exc:
         return exc.code, dict(exc.headers), exc.read()
@@ -143,7 +143,7 @@ def aws_cli(*args: str) -> subprocess.CompletedProcess[str]:
     different account's store and reports the pool as not existing, which is a
     confusing way to be told "you did not sign this".
     """
-    return subprocess.run(  # nosec B603,B607 # noqa: S603 - test harness only, fixed command list
+    return subprocess.run(  # nosec # noqa: S603,S607 - test harness only, fixed command list
         ["aws", *args],
         capture_output=True,
         text=True,

@@ -29,7 +29,7 @@ provider "aws" {
 
   # LocalStack accepts anything; these exist because the SDK refuses to sign without them.
   access_key = "test"
-  secret_key = "test"
+  secret_key = "test" # nosemgrep: terraform.aws.security.aws-provider-static-credentials.aws-provider-static-credentials
 
   # Without these the provider would try to reach the real AWS: verify an account id it cannot
   # see, validate credentials that are not real, and resolve a partition that does not apply.
