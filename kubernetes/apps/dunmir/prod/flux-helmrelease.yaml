@@ -132,6 +132,36 @@ spec:
   # still enforced: `prod-dunmir-source` is the Kustomization that APPLIES this
   # HelmRelease, and it already dependsOn infrastructure-services, so nothing here
   # exists until both are ready.
+  # The chart's own defaults are DELIBERATELY CLOSED, so who has staff access is
+  # a diff in this repository rather than a value baked into public product code.
+  values:
+    backOffice:
+      # The cross-tenant support surface at /api/backoffice/*: every workspace in
+      # the deployment, its owner, its plan, its device count, and the handful of
+      # things support is actually asked to fix.
+      #
+      # EMPTY MEANS NOBODY. That is the OPPOSITE of the chart's
+      # SIGNUP_ALLOWED_DOMAINS, and the two must never be refactored into one
+      # helper: an unset variable that meant "no restriction" here would open a
+      # cross-tenant control panel to every signed-in customer.
+      #
+      # The address is matched against the value STORED on the users row, never
+      # the one carried on the token. Under AUTH_MODE=cognito a user can rewrite
+      # their own `email` claim, and a rejected address move still leaves the
+      # CLAIMED address on the principal — so matching the token would be a full
+      # cross-tenant compromise gated only by a Cognito pool setting.
+      adminEmails: caleb@magmamoose.com
+      # The kill switch, separate from the list on purpose: this turns the whole
+      # surface off without editing who is on it, and is the first lever to reach
+      # for if anything about it looks wrong.
+      enabled: true
+    workspaceDeletion:
+      # How long a workspace scheduled for deletion stays recoverable. It keeps
+      # working normally for the whole window and its owner can withdraw the
+      # deletion from Settings. dunmir runs EMAIL_PROVIDER=none, so the console is
+      # the ONLY channel through which a misclick can be caught — which is why
+      # this is days rather than minutes.
+      graceDays: 7
   # WHAT USED TO BE `patches:` HERE NOW LIVES IN THE CHART. The Kustomization
   # added a nodeSelector and a priorityClassName to the Deployments, the Job and
   # the (since retired) CronJob at reconcile time. Those are chart/values.yaml's
