@@ -5,7 +5,7 @@
 # postgres-oci is the documented exception this app qualifies for — the
 # always-online CNPG cluster pinned to the OCI native-cloud nodes for
 # public-facing apps. Dün Mir Pro is exactly that workload and is itself pinned
-# to `topology.sargeant.co/tier: native-cloud` (prod/dunmir-pro/
+# to `topology.sargeant.co/tier: native-cloud` (prod/dunmir/
 # flux-kustomization.yaml), so app and database are co-located on ff-oci1/ff-oci2
 # by construction. Nothing puts the home↔OCI link in the query path, and no
 # second Cluster, second PGDATA volume or second backup stream is created to
@@ -30,9 +30,9 @@
 # an app up on it.
 #
 # NAMESPACE: `database-oci`, i.e. the CLUSTER's namespace, which is why this file
-# is here and not in the dunmir-pro app repo. That repo's k8s/overlays/prod sets
-# `namespace: dunmir-pro` on everything, so a Database CR shipped there would be
-# rewritten into `dunmir-pro` — where no cluster named postgres-oci exists — and
+# is here and not in the dunmir app repo. That repo's k8s/overlays/prod sets
+# `namespace: dunmir` on everything, so a Database CR shipped there would be
+# rewritten into `dunmir` — where no cluster named postgres-oci exists — and
 # would sit un-Applied. Same split sonarqube uses: the workload in
 # its own namespace, the Database CR in the database namespace. This
 # kustomization deliberately carries no top-level `namespace:` directive, so the

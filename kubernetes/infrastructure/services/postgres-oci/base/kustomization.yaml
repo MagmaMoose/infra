@@ -5,3 +5,4 @@ resources:
   - scheduled-backup.yaml
   - externalsecret-oci-backup.yaml
   - externalsecret-janeway.yaml
+  - externalsecret-afas-declaraties.yaml

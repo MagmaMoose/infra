@@ -223,3 +223,48 @@ identity.
 **Reversal.** Destroy the four leaves and drop `cloudworkers_vcn` from firefly's network leaf.
 Nothing in firefly depends on ff-oci3 or ff-oci4 beyond their being registered nodes, so the
 cluster loses capacity and nothing else.
+
+## What was hand-built on FG1, 2026-09-01
+
+Codifying this is tracked in MagmaMoose/infra#690. `terraform/fortigate/prod` sets no
+`oci_vpn` key, so `modules/fortigate/vpn.tf` is inert and every tunnel on the unit is
+hand-configured, including the pre-existing firefly and FranklinHouse ones.
+
+Added: phase1 `cw-t1`/`cw-t2` to 158.101.193.222 and 193.123.39.248, tunnel interfaces on
+169.254.26.2/.6, phase2 with 0.0.0.0/0 selectors, and BGP neighbours 169.254.26.1/.5 in
+AS 31898. Interfaces `cw-t1`/`cw-t2` were added to the existing firewall policies 6 and 7
+rather than given their own pair, matching how the oci and jhb tunnels already share them.
+
+Three things worth knowing, each of which cost real time:
+
+**A tunnel with no firewall policy will not come up, and says so almost silently.** With
+phase1, phase2 and the interface all correct, FortiOS answered `diagnose vpn tunnel up`
+with `ignoring request to establish IPsec SA, no policy configured` and logged nothing at
+notice level. `monitor/vpn/ipsec` just reported `down` with zero bytes. The policy is not
+decoration.
+
+**`local-gw` must be pinned to the WAN address.** The live tunnels all set it; a new
+phase1 defaults to 0.0.0.0. Left unset the tunnel still did not negotiate.
+
+**The DRGs need `as-override`, and FranklinHouse is not the counter-example it appears to
+be.** Both firefly's and cloudworkers' DRGs are Oracle AS 31898, so a prefix learned from
+one and advertised to the other is dropped for AS_PATH loop. FranklinHouse's 192.168.72.x
+is present in firefly's DRG, which looks like proof the hairpin works -- it is not. That
+prefix arrives over the DRG **remote peering connection** from af-johannesburg-1, a
+different mechanism entirely with no FortiGate in the path. RPC is cross-region only, so
+it is unavailable between two eu-amsterdam-1 tenancies. `as-override` on all four OCI
+neighbours rewrites 31898 in the outbound AS_PATH and both directions then propagate;
+verified in both DRG VCN-attachment route tables.
+
+## Known limit: CHR free licence caps egress at 1 Mbit/s
+
+ff-chr3 and ff-chr4 report `level: free`, and MikroTik's free CHR licence rate-limits each
+interface to 1 Mbit/s. Measured throughput through ff-chr3 sits at ~1.2 Mbps with the CHR
+itself at 0% CPU and 795 MB free, while the CHR's OWN egress fetches 4.8 MB instantly. So
+the app subnet works but image pulls are slow: a busybox pull on ff-oci3 took over 20
+minutes where ff-oci1 completed in under 60 seconds.
+
+This is a licence tier, not a misconfiguration. MSS clamping was added to both CHRs while
+diagnosing and made no difference, which is itself the evidence that the cap rather than
+MTU is responsible. Options are a paid CHR licence, or a different egress design -- not a
+NAT gateway, which is outside Always Free and was rejected for that reason.

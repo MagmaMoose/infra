@@ -3,14 +3,14 @@
 # frontend + CNPG manifests live there under ./k8s/overlays/prod, with image
 # automation).
 #
-# RENAMED 2026-08-05: that repository was MagmaMoose/dunmir-pro. It took the
+# RENAMED 2026-08-05: that repository was MagmaMoose/dunmir. It took the
 # name `dunmir` when the open-source repo was renamed to `dunmir-oss` and
 # archived. GitHub redirects the old URL, so Flux kept reconciling and nothing
 # broke loudly — which is exactly why this is worth pinning explicitly rather
 # than leaving a redirect in the reconcile path indefinitely.
 #
 # NOT renamed with it, and still correct: the Kubernetes namespace
-# (`dunmir-pro`), the GHCR image names and the dunmir-pro-* OCI Vault keys. A
+# (`dunmir`), the GHCR image names and the dunmir-* OCI Vault keys. A
 # GitHub rename does not touch any of those.
 #
 # Not to be confused with the repo's own ./deploy/k8s tree, which is the
@@ -19,7 +19,7 @@
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
 metadata:
-  name: dunmir-pro
+  name: dunmir
   namespace: flux-system
 spec:
   interval: 10m
@@ -32,10 +32,10 @@ spec:
     # same as caldrith, nievah, diatreme-pro and zoey.
     #
     # UNLIKE caldrith, this secretRef is REQUIRED, not a
-    # consistency / rate-limit-headroom nicety: dunmir-pro is a PRIVATE
-    # repository (`gh repo view magmamoose/dunmir-pro` → visibility PRIVATE).
+    # consistency / rate-limit-headroom nicety: dunmir is a PRIVATE
+    # repository (`gh repo view magmamoose/dunmir` → visibility PRIVATE).
     # Remove or misname it and source-controller gets an anonymous 404 on
-    # clone — the GitRepository never becomes Ready, prod-dunmir-pro never
+    # clone — the GitRepository never becomes Ready, prod-dunmir never
     # gets an artifact, and nothing about the failure says "private repo".
     # Same reason diatreme-pro and zoey carry it.
     name: github-app-magmamoose

@@ -43,6 +43,18 @@ locals {
 # meaningfully (e.g. new cloud-init step). When unset (the default), the
 # extra key is omitted entirely so the hash stays stable across applies
 # and the default code path never surprises you with a fleet rebuild.
+#
+# k3s_version is DELIBERATELY NOT HASHED, and that is a safety property, not an
+# oversight. Hashing it would mean the very first apply that introduces a pin
+# replaces every VM this module manages — including ff-oci1/ff-oci2, which carry
+# the postgres-oci CNPG instances. Terraform cannot roll a kubelet in place
+# anyway: the VM is replaced wholesale, the Node object goes with it, and k3s
+# reallocates a podCIDR, which invalidates any static route pinned to the old
+# one. So a version change is applied deliberately, not as an apply side effect:
+# either re-pin and set cloud_init_rebuild_token when the node is genuinely
+# disposable, or reinstall in place on the node (uninstall + reinstall with
+# INSTALL_K3S_VERSION, WITHOUT deleting the Node object, which preserves its
+# podCIDR). Changing the pin alone affects only VMs created after it.
 resource "terraform_data" "user_data_replace_trigger" {
   for_each = var.servers
 
@@ -164,7 +176,7 @@ resource "oci_core_instance" "this" {
         echo "token fetched (len=$${#K3S_TOKEN_VALUE})"
 
         curl -sfL https://get.k3s.io | \
-          INSTALL_K3S_EXEC="${local.k3s_agent_exec[each.key]}" \
+          ${var.k3s_version == "" ? "" : "INSTALL_K3S_VERSION=\"${var.k3s_version}\" \\\n          "}INSTALL_K3S_EXEC="${local.k3s_agent_exec[each.key]}" \
           K3S_URL="${var.k3s_url}" \
           K3S_TOKEN="$K3S_TOKEN_VALUE" \
           sh -
@@ -172,7 +184,7 @@ resource "oci_core_instance" "this" {
         echo "k3s-agent service installed at $(date); will retry connection until ${var.k3s_url} is reachable"
       else
         echo "server mode: standalone k3s control plane"
-        curl -sfL https://get.k3s.io | sh -
+        curl -sfL https://get.k3s.io | ${var.k3s_version == "" ? "" : "INSTALL_K3S_VERSION=\"${var.k3s_version}\" "}sh -
         mkdir -p /home/ubuntu/.kube
         cp /etc/rancher/k3s/k3s.yaml /home/ubuntu/.kube/config
         chown -R ubuntu:ubuntu /home/ubuntu/.kube

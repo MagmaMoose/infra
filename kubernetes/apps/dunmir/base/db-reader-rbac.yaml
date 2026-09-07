@@ -1,14 +1,14 @@
-# Cross-namespace RBAC in `database-oci` that lets the dunmir-pro-namespace
-# ServiceAccount `dunmir-pro-db-reader` read the ONE Secret `postgres-oci-app` —
+# Cross-namespace RBAC in `database-oci` that lets the dunmir-namespace
+# ServiceAccount `dunmir-db-reader` read the ONE Secret `postgres-oci-app` —
 # the credential CloudNativePG generated for the postgres-oci cluster's `app`
-# owner role. Paired with the SecretStore + ExternalSecret in the dunmir-pro
+# owner role. Paired with the SecretStore + ExternalSecret in the dunmir
 # repo's k8s/base/db-credentials.yaml, whose `auth.serviceAccount` names exactly
 # this SA. Same shape as ghcr-reader-rbac.yaml next door, pointed at a different
 # namespace and a different Secret.
 #
 # This is what replaces an app-owned CNPG Cluster. The app needs a password it is
 # not allowed to invent: CNPG owns it, publishes it in `database-oci`, and
-# rotating the role there propagates to `dunmir-pro` on the ExternalSecret's next
+# rotating the role there propagates to `dunmir` on the ExternalSecret's next
 # refresh. Without this grant the mirror reports SecretSyncedError (Forbidden),
 # the `dunmir-postgres` Secret is never written, and both Deployments plus the
 # migrate Job stay Pending on a missing Secret.
@@ -27,7 +27,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: dunmir-pro-db-reader
+  name: dunmir-db-reader
   namespace: database-oci
 rules:
   - apiGroups: [""]
@@ -38,13 +38,13 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: dunmir-pro-db-reader
+  name: dunmir-db-reader
   namespace: database-oci
 subjects:
   - kind: ServiceAccount
-    name: dunmir-pro-db-reader
-    namespace: dunmir-pro
+    name: dunmir-db-reader
+    namespace: dunmir
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: dunmir-pro-db-reader
+  name: dunmir-db-reader

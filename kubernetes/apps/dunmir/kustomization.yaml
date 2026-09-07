@@ -1,8 +1,8 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 # Intentionally only references env overlays (prod, ...).
-# ./base/dunmir-pro is the app's control-plane library (GitRepository,
+# ./base/dunmir is the app's control-plane library (GitRepository,
 # image automation, namespace) — applied by the per-env Flux Kustomization
-# (see prod/dunmir-pro/flux-kustomization.yaml), not aggregated directly.
+# (see prod/dunmir/flux-kustomization.yaml), not aggregated directly.
 resources:
   - ./prod

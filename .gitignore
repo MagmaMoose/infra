@@ -118,3 +118,8 @@ build/
 .vscode/
 Thumbs.db
 Screenshot*.png
+
+# LocalStack/terragrunt build output. Untracked and regenerated, but `git add -A`
+# swept ~2,200 files of it into a commit twice, so it is ignored explicitly.
+terraform/aws/localstack-dunmir/.build/
+terraform/aws/localstack-dunmir/.outputs.json

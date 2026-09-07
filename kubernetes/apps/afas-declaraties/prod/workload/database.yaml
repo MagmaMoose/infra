@@ -1,0 +1,39 @@
+---
+# The afas_declaraties database on the SHARED postgres-oci cluster (AGENTS.md
+# and COMMON_MISTAKES #3 — do NOT create a new Cluster).
+#
+# postgres-oci in `database-oci`, NOT the `postgres` cluster in `database`, and
+# that is forced by pod placement rather than preference: this workload sits on
+# the native-cloud (arm64 OCI) tier, and the two Postgres clusters sit on
+# opposite sides of the site-to-site VPN. Measured from a pod on ff-oci1,
+# ff-oci1 -> ff-vm1 is 5.604 ms RTT against 0.081 ms to a pod-local postgres-oci
+# (see kubernetes/apps/janeway/prod/workload/database.yaml). Cloud-tier pod,
+# cloud-tier database.
+#
+# metadata.name must be RFC 1123, so it is hyphenated; spec.name is the actual
+# PostgreSQL identifier and keeps the underscore the application connects with.
+#
+# owner `afas_declaraties`, a DEDICATED login role declared in postgres-oci's
+# spec.managed.roles rather than the cluster's shared `app` role. Same reasoning
+# janeway records: `app` owns dunmir's database too, so sharing it would let
+# either application's credentials read the other's data — and this database is
+# an expense ledger. The role's password is enforced by CNPG from OCI Vault at
+# both ends, so it cannot drift.
+#
+# retain, not delete: this holds the classification history, the approval
+# digests and the submission audit trail for money that has been claimed. A
+# `prune` that removed this CR must not take the data with it. The rolling
+# 3-month calendar publish window means much of it cannot be rebuilt from source
+# either.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: afas-declaraties
+  namespace: database-oci
+spec:
+  cluster:
+    name: postgres-oci
+  name: afas_declaraties
+  owner: afas_declaraties
+  encoding: UTF8
+  databaseReclaimPolicy: retain

@@ -90,6 +90,19 @@ inputs = {
   # own IPSec tunnels to FG1/FG2 (../vpn), not over firefly's.
   k3s_url = get_env("K3S_URL", "https://192.168.19.10:6443")
 
+  # Match the firefly control plane (ff-pi1). Unpinned, the installer takes the
+  # `stable` channel as of the VM's boot date, so two nodes built from the same
+  # code months apart join on different minors: ff-oci1/ff-oci2 came up on
+  # v1.33.4+k3s1 in June 2026 and ff-oci3/ff-oci4 on v1.36.4+k3s1 on 2026-08-31,
+  # three minors AHEAD of the API server. The skew policy allows a kubelet to
+  # trail the control plane by up to three minors and never to lead it, so that
+  # second pair was unsupported from the moment it registered.
+  #
+  # This pin governs VMs created AFTER it lands; it is not in the user_data
+  # replace hash, so applying it will not rebuild the running nodes (see
+  # modules/server/main.tf). Raise it only together with the control plane.
+  k3s_version = "v1.33.4+k3s1"
+
   # A COPY of firefly's node-token, held in a vault in THIS tenancy.
   #
   # It cannot be firefly's secret OCID. The cloud-init fetches the token with

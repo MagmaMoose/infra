@@ -1,15 +1,15 @@
-# Cross-namespace RBAC in flux-system that lets the dunmir-pro-namespace
-# ServiceAccount `dunmir-pro-ghcr-reader` read the SOPS-managed `ghcr-pull-secret`
+# Cross-namespace RBAC in flux-system that lets the dunmir-namespace
+# ServiceAccount `dunmir-ghcr-reader` read the SOPS-managed `ghcr-pull-secret`
 # (which provably pulls ghcr.io/magmamoose/* — Flux's ImageRepositories scan the
-# dunmir-pro-backend and -frontend images with it). Paired with the SecretStore +
-# ExternalSecret in the dunmir-pro repo's k8s/base/ghcr-pull-secret.yaml, whose
+# dunmir-backend and -frontend images with it). Paired with the SecretStore +
+# ExternalSecret in the dunmir repo's k8s/base/ghcr-pull-secret.yaml, whose
 # `auth.jwt.serviceAccountRef` names exactly this SA. Applied (with the rest of
-# base/dunmir-pro) by the prod-dunmir-pro-source Flux Kustomization. Mirrors
+# base/dunmir) by the prod-dunmir-source Flux Kustomization. Mirrors
 # caldrith's and diatreme-pro's ghcr-reader-rbac.yaml.
 #
 # Not optional for this app. caldrith is a public repo whose GHCR
 # packages inherited public visibility, so its pull secret is belt-and-braces;
-# dunmir-pro is private, so its packages are private too and both Deployments
+# dunmir is private, so its packages are private too and both Deployments
 # ImagePullBackOff without this Secret reaching the namespace.
 #
 # Chargate/KICS suppressions (reviewed: this Role's *purpose* is to read one
@@ -20,7 +20,7 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: dunmir-pro-ghcr-reader
+  name: dunmir-ghcr-reader
   namespace: flux-system
 rules:
   - apiGroups: [""]
@@ -31,13 +31,13 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: dunmir-pro-ghcr-reader
+  name: dunmir-ghcr-reader
   namespace: flux-system
 subjects:
   - kind: ServiceAccount
-    name: dunmir-pro-ghcr-reader
-    namespace: dunmir-pro
+    name: dunmir-ghcr-reader
+    namespace: dunmir
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: dunmir-pro-ghcr-reader
+  name: dunmir-ghcr-reader
