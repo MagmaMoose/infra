@@ -65,6 +65,15 @@ inputs = {
   # docs/reference/oci-infra-improvements.md.
   internet_gateway_ip = "192.168.223.11"
 
+  # WireGuard mesh ports. 51820 is the default this module already had and is
+  # what the ff-crs1 tunnels land on (see the port note in
+  # terraform/mikrotik/wireguard-mesh/prod); 51845-51850 are the six OCI-to-OCI
+  # tunnels, whose two ends both listen on the same number.
+  wireguard_ingress_port_ranges = [
+    { min = 51820, max = 51820 },
+    { min = 51845, max = 51850 },
+  ]
+
   # Operator IPs allowed to talk to the MikroTik plaintext binary API on the
   # public IPs in the edge subnet (the routeros terraform provider needs this).
   # Loaded from OCI Vault (see local.operator_mgmt_cidrs above) so the public
@@ -111,11 +120,27 @@ inputs = {
     # The second OCI tenancy (traceysargeant) holding ff-oci3/ff-oci4. They are
     # agents of THIS cluster, so this VCN must route and admit their traffic —
     # without this entry the flannel mesh between the two OCI pairs is one-way.
-    # Traffic hairpins through FG1; there is no direct tenancy-to-tenancy link.
     # Mirrored by `firefly_vcn` in terraform/oci/cloudworkers/.../network.
+    #
+    # via = "chr", NOT the DRG. The hairpin-through-FG1 story this entry was
+    # first written for does not work and cannot be made to work with static
+    # routes alone: both tenancies' DRGs are Oracle AS 31898, so FG1 drops the
+    # far prefix on BGP AS_PATH loop detection and re-advertises nothing. The
+    # tunnels come up green and the prefix never appears — which is exactly how
+    # it presented on 2026-09-01: pods on ff-oci1/ff-oci2 timed out to pods on
+    # ff-oci3/ff-oci4 while on-prem reached both, and traceroute from ff-oci1
+    # showed the packet leaving ff-chr1's masquerade onto the public internet
+    # because this route did not exist at all (this leaf had never been applied
+    # since the entry was added in #685).
+    #
+    # The path is now ff-chr1 -> WireGuard -> ff-chr3, built by
+    # terraform/mikrotik/wireguard-mesh/prod. That leaf must be applied first:
+    # this route points at ff-chr1, and until ff-chr1 holds a WireGuard route
+    # for 192.168.240.0/24 it will bounce the packet straight back into the VCN.
     cloudworkers_vcn = {
       cidr        = "192.168.240.0/24"
-      description = "Cloudworkers OCI VCN (tracey tenancy) — ff-oci3/ff-oci4"
+      description = "Cloudworkers OCI VCN (tracey tenancy) — ff-oci3/ff-oci4, via ff-chr1 WireGuard"
+      via         = "chr"
     }
     # AWS network - uncomment when AWS VPN is configured
     # aws_af_south_1 = {

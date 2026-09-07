@@ -90,13 +90,26 @@ resource "oci_core_route_table" "edge" {
     network_entity_id = oci_core_internet_gateway.this.id
   }
 
-  # VPN routes to remote networks
+  # VPN routes to remote networks — DRG entries only.
+  #
+  # A `via = "chr"` entry cannot appear here, and not for a policy reason: the
+  # CHR's next-hop OCID is resolved by a data source that looks the address up
+  # inside oci_core_subnet.edge, and oci_core_subnet.edge takes its route table
+  # from THIS resource. Referencing the CHR here is a dependency cycle that
+  # OpenTofu rejects outright.
+  #
+  # Nothing is lost. The only things in the edge subnet are the CHRs themselves,
+  # and each already holds its own WireGuard route to the far tenancy — a route
+  # rule here would be consulted for their traffic only if they did not, and
+  # then it would point them at each other. Omitted rather than pointed at the
+  # DRG, because the DRG cannot carry these prefixes at all; a rule sending them
+  # there is a black hole that looks like configuration.
   dynamic "route_rules" {
-    for_each = var.enable_vpn ? var.remote_networks : {}
+    for_each = var.enable_vpn ? { for k, n in var.remote_networks : k => n if n.via == "drg" } : {}
     content {
       destination       = route_rules.value.cidr
       destination_type  = "CIDR_BLOCK"
-      network_entity_id = oci_core_drg.this[0].id
+      network_entity_id = local.drg_next_hop
       description       = route_rules.value.description
     }
   }
@@ -118,6 +131,28 @@ data "oci_core_private_ips" "internet_gateway" {
   }
 }
 
+# Next-hop OCID per remote network. Resolved once here rather than inline in each
+# of the four route tables below, so they cannot drift apart — a prefix routed to
+# the DRG in one subnet and to the CHR in another is an asymmetric path that
+# works for exactly the subnets you happened to test from.
+#
+# `one()` rather than `[0]`: both the data source and the DRG are count-gated, and
+# a bare [0] on an empty list errors even when the conditional would not have
+# selected that branch. The four route tables get away with `[0]` only because
+# their `dynamic` blocks are guarded by an empty for_each, which stops the body
+# being evaluated at all.
+locals {
+  chr_private_ip = one(data.oci_core_private_ips.internet_gateway)
+  chr_next_hop   = local.chr_private_ip != null ? local.chr_private_ip.private_ips[0].id : null
+  drg_next_hop   = one(oci_core_drg.this) != null ? one(oci_core_drg.this).id : null
+
+  remote_network_next_hop = {
+    for k, n in var.remote_networks : k => (
+      n.via == "chr" ? local.chr_next_hop : local.drg_next_hop
+    )
+  }
+}
+
 resource "oci_core_route_table" "app" {
   compartment_id = var.compartment_ocid
   display_name   = "rt-app-${var.environment}"
@@ -134,13 +169,13 @@ resource "oci_core_route_table" "app" {
     }
   }
 
-  # VPN routes to remote networks
+  # VPN routes to remote networks. next-hop per entry — see var.remote_networks.
   dynamic "route_rules" {
     for_each = var.enable_vpn ? var.remote_networks : {}
     content {
       destination       = route_rules.value.cidr
       destination_type  = "CIDR_BLOCK"
-      network_entity_id = oci_core_drg.this[0].id
+      network_entity_id = local.remote_network_next_hop[route_rules.key]
       description       = route_rules.value.description
     }
   }
@@ -162,13 +197,13 @@ resource "oci_core_route_table" "data" {
     }
   }
 
-  # VPN routes to remote networks
+  # VPN routes to remote networks. next-hop per entry — see var.remote_networks.
   dynamic "route_rules" {
     for_each = var.enable_vpn ? var.remote_networks : {}
     content {
       destination       = route_rules.value.cidr
       destination_type  = "CIDR_BLOCK"
-      network_entity_id = oci_core_drg.this[0].id
+      network_entity_id = local.remote_network_next_hop[route_rules.key]
       description       = route_rules.value.description
     }
   }
@@ -179,13 +214,13 @@ resource "oci_core_route_table" "spare" {
   display_name   = "rt-spare-${var.environment}"
   vcn_id         = oci_core_virtual_network.this.id
 
-  # VPN routes to remote networks
+  # VPN routes to remote networks. next-hop per entry — see var.remote_networks.
   dynamic "route_rules" {
     for_each = var.enable_vpn ? var.remote_networks : {}
     content {
       destination       = route_rules.value.cidr
       destination_type  = "CIDR_BLOCK"
-      network_entity_id = oci_core_drg.this[0].id
+      network_entity_id = local.remote_network_next_hop[route_rules.key]
       description       = route_rules.value.description
     }
   }
@@ -233,13 +268,17 @@ resource "oci_core_security_list" "edge" {
     }
   }
 
-  # WireGuard
-  ingress_security_rules {
-    protocol = "17" # UDP
-    source   = "0.0.0.0/0"
-    udp_options {
-      min = 51820
-      max = 51820
+  # WireGuard. One rule per range in var.wireguard_ingress_port_ranges — see
+  # there for why this is not just 51820.
+  dynamic "ingress_security_rules" {
+    for_each = var.wireguard_ingress_port_ranges
+    content {
+      protocol = "17" # UDP
+      source   = "0.0.0.0/0"
+      udp_options {
+        min = ingress_security_rules.value.min
+        max = ingress_security_rules.value.max
+      }
     }
   }
 
