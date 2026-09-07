@@ -46,6 +46,26 @@ locals {
       COGNITO_ISSUER          = local.cognito.issuer
       COGNITO_PUBLIC_ENDPOINT = local.cognito.endpoint
 
+      # --- federated sign-in ----------------------------------------------------------------
+      # Empty until `cognito_domain_prefix` is set, and empty is a real answer: password
+      # sign-in needs no OAuth domain, so a deployment without one simply offers no federation
+      # and the console renders no SSO buttons rather than buttons that 404.
+      COGNITO_DOMAIN = local.federates ? "https://${aws_cognito_user_pool_domain.this[0].domain}.auth.${var.region}.amazoncognito.com" : ""
+      # Derived from the `enable_*` flags rather than restated, so the backend's list and the
+      # pool's contents cannot disagree — a name here that the pool does not carry is a Cognito
+      # error page on click.
+      COGNITO_SOCIAL_PROVIDERS = join(",", local.social_providers)
+      # OFF ON THIS TOPOLOGY, AND IT IS THE TOPOLOGY'S FAULT RATHER THAN THE FEATURE'S. Letting
+      # a workspace create its own identity provider is a `cognito-idp:CreateIdentityProvider`
+      # call, and this function sits in a VPC with no NAT gateway and no interface endpoint for
+      # cognito-idp — there is no such endpoint to buy. Exactly the `BILLING_ENABLED = false`
+      # situation, for exactly the same reason. Kubernetes has egress and turns it on.
+      SSO_MANAGEMENT_ENABLED = "false"
+      # Inbound SCIM is a different direction and works fine here: the request arrives through
+      # the gateway and needs no egress at all. Cognito implements no SCIM of its own (that is
+      # IAM Identity Center), so this endpoint is first-party.
+      SCIM_ENABLED = "true"
+
       # --- object store ---------------------------------------------------------------------
       # Rebinds the control-plane core's backup store to S3 at boot (app/storage.py). Without
       # STORAGE_BACKEND=s3 the core falls back to a local directory, which on Lambda is a
@@ -254,11 +274,11 @@ locals {
   artifact_key = "${var.artifact_prefix}/${var.artifact_version}.zip"
 }
 
-  # checkov:skip=CKV_AWS_173:No KMS CMK for env vars. The secrets are environment variables already; adding a CMK adds cost (per-key monthly charge) with no additional protection against the actual threat model (config drift, not disk compromise).
-  # checkov:skip=CKV_AWS_116:No DLQ. The function is invoked synchronously — by API Gateway and by EventBridge Scheduler with a retry policy on the schedule resource — so there is no async failure path that a DLQ could catch.
-  # checkov:skip=CKV_AWS_272:No code-signing. No code-signing CA is configured in this account and this is a home-lab product; the immutable S3 key is the integrity mechanism.
-  # checkov:skip=CKV_AWS_115:No reserved concurrency. Throttling is done at the API Gateway stage (edge.tf) which is the correct place — reserving concurrency here would only add a second cap without bounding the billing spike.
-  # checkov:skip=CKV_AWS_50:X-Ray tracing not enabled. Not cost-justified at this scale and adds per-trace charges.
+# checkov:skip=CKV_AWS_173:No KMS CMK for env vars. The secrets are environment variables already; adding a CMK adds cost (per-key monthly charge) with no additional protection against the actual threat model (config drift, not disk compromise).
+# checkov:skip=CKV_AWS_116:No DLQ. The function is invoked synchronously — by API Gateway and by EventBridge Scheduler with a retry policy on the schedule resource — so there is no async failure path that a DLQ could catch.
+# checkov:skip=CKV_AWS_272:No code-signing. No code-signing CA is configured in this account and this is a home-lab product; the immutable S3 key is the integrity mechanism.
+# checkov:skip=CKV_AWS_115:No reserved concurrency. Throttling is done at the API Gateway stage (edge.tf) which is the correct place — reserving concurrency here would only add a second cap without bounding the billing spike.
+# checkov:skip=CKV_AWS_50:X-Ray tracing not enabled. Not cost-justified at this scale and adds per-trace charges.
 resource "aws_lambda_function" "api" {
   function_name = "${local.name}-api"
   role          = aws_iam_role.lambda.arn
@@ -354,7 +374,7 @@ resource "aws_lambda_function" "api" {
 # at all — so the cap always applied and the setting bought nothing. Payload limits are now
 # enforced by the application instead (MAX_REQUEST_BYTES), where the caller gets a 413 that
 # says what happened.
-  # checkov:skip=CKV_AWS_258:AuthType NONE is deliberate and safe here. This resource is created only when var.localstack=true (count = var.localstack ? 1 : 0), so it never exists on AWS — nothing outside the local machine can reach a LocalStack container. The comment above the resource explains this in full.
+# checkov:skip=CKV_AWS_258:AuthType NONE is deliberate and safe here. This resource is created only when var.localstack=true (count = var.localstack ? 1 : 0), so it never exists on AWS — nothing outside the local machine can reach a LocalStack container. The comment above the resource explains this in full.
 resource "aws_lambda_function_url" "local" {
   count = var.localstack ? 1 : 0
 
