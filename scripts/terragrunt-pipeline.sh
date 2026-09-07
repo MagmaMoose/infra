@@ -23,10 +23,26 @@ TF_DIR="$REPO_ROOT/terraform"
 # copies each unit's terragrunt.hcl into
 # .terragrunt-cache/<hash>/<hash>/, so a naive find returns every leaf twice and
 # CI plans phantom stacks that vanish when the cache is cleared.
+#
+# terraform/oci/cloudworkers/** is excluded until that tenancy is bootstrapped.
+# Those leaves target a SECOND OCI tenancy (traceysargeant) and deliberately
+# refuse to parse until it is real: each asserts OCI_CW_TENANCY_OCID and
+# OCI_CW_COMPARTMENT_OCID with HCL regex(), and the edge/server leaves also
+# assert OCI_CW_CHR_IMAGE_OCID and OCI_CW_K3S_TOKEN_SECRET_OCID, neither of
+# which exists yet (the CHR image has to be imported into that tenancy, and the
+# k3s node-token has to be copied into a vault there). Discovering them now
+# would hard-fail the plan job on every PR and, because `apply` is gated on
+# `needs.plan.result`, would block applies for every firefly stack too.
+#
+# TO RE-ENABLE: complete the bootstrap in
+# .claude/decisions/2026-08-31-second-oci-tenancy-cloudworkers.md, add the
+# OCI_CW_* secrets plus a ~/.oci/config for the parse-time vault lookups, then
+# delete the -not -path line below.
 discover_all() {
   find "$TF_DIR" -name terragrunt.hcl \
     -not -path '*/.terragrunt-cache/*' \
     -not -path "$TF_DIR/terragrunt.hcl" \
+    -not -path "$TF_DIR/oci/cloudworkers/*" \
     -print0 \
   | xargs -0 -n1 dirname \
   | sed "s|^$REPO_ROOT/||" \
@@ -44,7 +60,10 @@ discover_changed() {
 
   # Anything touching the root include, a shared module, or the pipeline itself
   # invalidates every leaf — cheaper to replan all than to reason about which.
-  if grep -qE '^terraform/(root\.hcl|terragrunt\.hcl)$|^terraform/modules/|^scripts/terragrunt-pipeline\.sh$|^\.github/workflows/terragrunt\.yml$' "$changed_file"; then
+  # Modules live at terraform/<provider>/modules/ (e.g. terraform/oci/modules/),
+  # NOT terraform/modules/ — that path has never existed, so the original
+  # pattern matched nothing and shared-module edits triggered zero replans.
+  if grep -qE '^terraform/(root\.hcl|terragrunt\.hcl)$|^terraform/([a-z0-9-]+/)?modules/|^scripts/terragrunt-pipeline\.sh$|^\.github/workflows/terragrunt\.yml$' "$changed_file"; then
     discover_all
     return
   fi

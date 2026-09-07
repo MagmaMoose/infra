@@ -12,12 +12,17 @@ data "oci_identity_availability_domains" "ads" {
 # is a one-off cutover: the ephemeral is released and a new reserved IP is
 # allocated, so the public IP value WILL change at that apply (DNS catches
 # up via cloudflare/dns/prod's dependency on this module's outputs).
+#
+# `display_name` falls back to the historical "<environment>-mikrotik-chr-<key>"
+# whenever fault_domains[*].node_name is unset, so the firefly edge leaf keeps
+# its prod-mikrotik-chr-fd1 / -fd2 names and plans no change; the cloudworkers
+# leaf sets node_name to get ff-chr3 / ff-chr4.
 resource "oci_core_instance" "this" {
   for_each = var.fault_domains
 
   availability_domain = data.oci_identity_availability_domains.ads.availability_domains[0].name
   compartment_id      = var.compartment_ocid
-  display_name        = "${var.environment}-mikrotik-chr-${each.key}"
+  display_name        = each.value.node_name != "" ? each.value.node_name : "${var.environment}-mikrotik-chr-${each.key}"
   shape               = var.shape
   fault_domain        = "FAULT-DOMAIN-${each.value.fault_domain + 1}"
 

@@ -1,0 +1,48 @@
+# OCI's DHCP hands every instance a `vcnprod.oraclevcn.com` search domain, and kubelet
+# copies the node's resolv.conf search list into every pod on that node. That zone is
+# VCN-private: it resolves from inside the OCI resolver only, and CoreDNS runs on-prem
+# (ff-pi2), so `forward . /etc/resolv.conf` sends the query to an upstream that cannot
+# answer it and gets back SERVFAIL.
+#
+# SERVFAIL is not a soft "no". BOTH glibc and musl treat it as fatal and ABANDON the
+# whole search sequence — glibc returns EAI_AGAIN, musl just fails — so the resolver
+# never reaches the bare name it was actually asked for. One unanswerable search entry
+# therefore broke EVERY lookup, internal and external, on ff-oci3/ff-oci4:
+#
+#   github.com.cluster.local           -> NXDOMAIN  (fine, resolver continues)
+#   github.com.vcnprod.oraclevcn.com   -> SERVFAIL  (resolver gives up here)
+#
+# Symptoms it produced: nievah "Could not resolve host: github.com" on git clone,
+# planner "[Errno -3] Temporary failure in name resolution", n8n crashlooping 219 times
+# on getaddrinfo for postgres-rw, recyclarr and the defectdojo-sync jobs failing.
+# Pods with ndots:1 (nievah) only failed INTERMITTENTLY, which is why this looked like
+# a flaky network rather than a config bug.
+#
+# Answering the zone authoritatively with NXDOMAIN turns the fatal answer into the
+# ordinary "not here" that resolvers are built to walk past. We lose nothing: CoreDNS
+# is on-prem and could never reach the OCI resolver for this zone anyway.
+#
+# This is the durable half of the fix — it holds even when a node is rebuilt and OCI
+# DHCP re-adds the search domain. The other half (stopping the domain being injected at
+# all) is ansible/firefly-oci-resolv-search.yaml.
+#
+# CoreDNS mounts this ConfigMap at /etc/coredns/custom (optional: true) and the k3s
+# Corefile ends with `import /etc/coredns/custom/*.server`, so a `.server` key is
+# picked up by the `reload` plugin within ~30s with no restart. An invalid block is
+# rejected by reload and the previous config keeps serving — which matters, because
+# CoreDNS is still a single replica.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: coredns-custom
+data:
+  oraclevcn.server: |
+    vcnprod.oraclevcn.com:53 {
+        errors
+        template ANY ANY {
+            rcode NXDOMAIN
+        }
+    }

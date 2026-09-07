@@ -84,6 +84,17 @@ variable "servers" {
   }
 }
 
+variable "k3s_version" {
+  description = "Exact k3s version to install (e.g. v1.33.4+k3s1). Empty installs whatever the `stable` channel serves ON THE DAY THE VM BOOTS, which is how ff-oci3/ff-oci4 landed on v1.36.4+k3s1 against a v1.33.4 control plane on 2026-08-31 — three minors AHEAD, which the Kubernetes skew policy does not allow in that direction (a kubelet may trail the API server, never lead it). Always pin."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.k3s_version == "" || can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+\\+k3s[0-9]+$", var.k3s_version))
+    error_message = "k3s_version must look like v1.33.4+k3s1 (or be empty to track the stable channel)."
+  }
+}
+
 variable "k3s_url" {
   description = "URL of the existing k3s server to join as an agent (e.g. https://192.168.19.10:6443). Empty disables agent mode (server-mode install instead). Must be set together with k3s_token_secret_ocid."
   type        = string

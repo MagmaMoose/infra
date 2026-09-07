@@ -35,7 +35,19 @@ inputs = {
   # Use app subnet from network module
   subnet_id                 = dependency.network.outputs.app_subnet_id
   network_security_group_id = dependency.network.outputs.network_security_group_id
-  ssh_public_key_path       = "${get_repo_root()}/ansible/keys/id_rsa.pub"
+  # WAS ansible/keys/id_rsa.pub — a 2048-bit RSA key commented `user@example.com`,
+  # committed to this repo, whose private half is held nowhere we can find. On
+  # ff-oci3/ff-oci4 it was the ONLY authorized key, so those two nodes could not be
+  # reached at all: the real key is added by a later ansible step, and they were never
+  # in the inventory for it to run against. ff-oci1 had both, which is why only half
+  # the fleet looked fine.
+  #
+  # PLAN BEFORE YOU APPLY. metadata["ssh_authorized_keys"] is NOT in the module's
+  # ignore_changes (only source_id and user_data are), so whether this lands in place
+  # or REPLACES the instances is the provider's call, not ours. Read the plan. The
+  # running nodes already have the correct key installed out of band, so there is no
+  # access reason to rush this apply.
+  ssh_public_key_path       = "${get_repo_root()}/ansible/keys/sargeant_oci.pub"
   vcn_id                    = dependency.network.outputs.vcn_id
 
   # Ubuntu 22.04 for ARM
@@ -62,4 +74,13 @@ inputs = {
   # group + policy that grants that read.
   k3s_url               = get_env("K3S_URL", "https://192.168.19.10:6443")
   k3s_token_secret_ocid = "ocid1.vaultsecret.oc1.eu-amsterdam-1.amaaaaaa4ebs56aam3bqx2dsmdg6wrdjvdhc6mcgnqil766lofkbv6nlujoa"
+
+  # Match the firefly control plane (ff-pi1). Unpinned, the installer resolves
+  # the `stable` channel at boot, so a rebuild of these VMs today would join on a
+  # different minor than the one they were built with — which is exactly how the
+  # second OCI environment ended up three minors ahead of the API server. See the
+  # sibling cloudworkers leaf for the full account. Governs new VMs only: it is
+  # not in the user_data replace hash, so this does not rebuild ff-oci1/ff-oci2
+  # (they carry the postgres-oci instances). Raise it with the control plane.
+  k3s_version = "v1.33.4+k3s1"
 }

@@ -1,0 +1,237 @@
+# KICS 3e2d3b2f "hardcoded secret key" is a false positive: `existingSecret` is
+# a Kubernetes Secret NAME (a reference to the ExternalSecret-managed object in
+# externalsecret.yaml) — no credential value is present in source.
+# kics-scan disable=3e2d3b2f-c22a-4df1-9cc6-a7a0aebb0c99
+#
+# afas-declaraties — classifies office/home days from the calendar, asks for
+# approval in Slack, and files the monthly expense claim in AFAS InSite.
+#
+# One image, four workloads: `slackd` as a Deployment holding the Slack Socket
+# Mode WebSocket, and three CronJobs (classify, digest, build). Chart values
+# carry the schedules and entrypoints; only the firefly-specific deploy config
+# is here.
+#
+# NOTHING EMPLOYER-IDENTIFYING BELONGS IN THIS FILE. The repo is public. The
+# InSite host, the 1Password vault/item names and the Slack channel/approver ids
+# are all projected from OCI Vault by externalsecret.yaml — see the note at the
+# top of that file for why identifying values are treated as secrets here.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: afas-declaraties
+  namespace: afas-declaraties
+spec:
+  interval: 30m
+  releaseName: afas-declaraties
+  chart:
+    spec:
+      chart: afas-declaraties
+      # A range inside the 0.x series rather than an exact pin: pre-1.0 a minor
+      # bump is allowed to break, so 0.2.0 should be a deliberate decision here
+      # rather than something Flux picks up on its own.
+      #
+      # >=0.1.0 assumes the app repo's chart-release workflow packages with the
+      # release tag. If it follows finance's pipeline exactly, semantic-release
+      # cuts v0.0.1 and the published chart is 0.0.1 regardless of the version
+      # in Chart.yaml — in which case this range matches nothing and must be
+      # widened to ">=0.0.1 <0.2.0". Check the first published tag.
+      # pyproject.toml carries version 1.0.0 and semantic-release tags from it,
+      # so the first published chart is 1.x. A 0.x range matches nothing and the
+      # HelmRelease simply never installs.
+      version: ">=1.0.0 <2.0.0"
+      sourceRef:
+        kind: HelmRepository
+        name: ghcr-calebsargeant-charts
+        namespace: flux-system
+      interval: 10m
+  install:
+    remediation:
+      retries: 3
+    timeout: 10m
+  upgrade:
+    remediation:
+      retries: 3
+      # Keep a failed upgrade's state rather than rolling back. If the chart
+      # ships a schema-migration hook it runs before the workloads, and a
+      # rollback would leave the database ahead of the image with nothing
+      # recording that it happened. Same choice finance makes.
+      remediateLastFailure: false
+    timeout: 10m
+
+  # Priority class via a postRenderer, NOT chart values.
+  #
+  # A values key the chart does not render is accepted silently by Helm, which
+  # leaves the workload at priority 0 while the manifest claims otherwise
+  # (COMMON_MISTAKES #18; the same trap github-timesheet documents). Patching
+  # the rendered output cannot be ignored.
+  #
+  # A kustomize patch target that matches NOTHING also fails silently
+  # (COMMON_MISTAKES #17), so if the chart ever renames or drops a workload
+  # kind, re-render and diff rather than trusting that this still applies:
+  #   flux build helmrelease afas-declaraties -n afas-declaraties |
+  #     grep -c priorityClassName        # expect 4: slackd + 3 CronJobs
+  #
+  # `low` for the CronJobs: batch work, restartable, and `low` carries
+  # preemptionPolicy: Never so a monthly claim job can never evict a service.
+  # `medium` for slackd: a normal workload, evictable under genuine pressure —
+  # its loss stops approvals until it reschedules, and nothing else fails with
+  # it. Neither is `high`: nothing depends on this app.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+            patch: |
+              - op: add
+                path: /spec/template/spec/priorityClassName
+                value: medium
+          - target:
+              kind: CronJob
+            patch: |
+              - op: add
+                path: /spec/jobTemplate/spec/template/spec/priorityClassName
+                value: low
+
+  values:
+    image:
+      repository: ghcr.io/calebsargeant/afas-declaraties
+      # tag deliberately unset: the chart falls back to .Chart.AppVersion, and
+      # the app repo publishes chart and image from one tag, so the semver range
+      # above already tracks the image. That is why base/ carries no
+      # ImageRepository/ImagePolicy.
+      pullPolicy: IfNotPresent
+    imagePullSecrets:
+      - name: ghcr-pull-secret
+
+    # Native-cloud tier: the arm64 OCI VMs. Pinned here rather than with a
+    # placement.sargeant.co label because that label on a HelmRelease is inert —
+    # the Kyverno placement policies match Deployment/StatefulSet/DaemonSet/
+    # CronJob, never a HelmRelease. This is what
+    # .github/actions/placement-label-guard checks for.
+    #
+    # TWO PRECONDITIONS, both of which have bitten this cluster before:
+    #  1. ARCH. Every node behind this label is arm64. The image must publish a
+    #     linux/arm64 manifest, and so must the Playwright/Chromium layer inside
+    #     it — a Chromium that only ships amd64 presents as a pod that pulls
+    #     fine and then exits immediately.
+    #  2. CAPACITY. The tier was measured at ~30m unreserved CPU across ff-oci1
+    #     + ff-oci2 on 2026-08-06. ff-oci3/ff-oci4 have since joined (they were
+    #     uncordoned 2026-09-01 once the CHR licences were fixed), which is what
+    #     makes a browser job's 250m request placeable at all. If the build job
+    #     sits Pending, this is why, and it has nothing to do with the code.
+    nodeSelector:
+      topology.sargeant.co/tier: native-cloud
+
+    # Every credential AND every employer-identifying value comes from the
+    # ExternalSecret in workload/externalsecret.yaml, referenced by name.
+    #
+    # The chart's own ExternalSecret stays OFF, for the same two reasons
+    # platform2 and github-timesheet turn theirs off: DATABASE_URL has to be
+    # TEMPLATED from the CNPG role password plus the cluster-local host, which a
+    # flat vault-key map cannot do; and keeping the vault key names out of the
+    # chart keeps the app repo (also public) free of them.
+    existingSecret: afas-declaraties-env
+    externalSecret:
+      enabled: false
+
+    # Non-secret configuration only. Anything here is world-readable.
+    config:
+      logLevel: info
+      tz: Europe/Amsterdam
+      # DRY_RUN GATES THE PATH THAT SPENDS REAL MONEY — the build job drives the
+      # InSite portal and files a claim. It is "true" in the chart's own
+      # values.yaml and stays "true" here until a full cycle has been watched end
+      # to end: a classify run, a digest, a build that produces a draft, and an
+      # approval that round-trips through Slack.
+      #
+      # Flipping it to "false" is a deliberate, reviewable one-line change, and
+      # it should not be made in the same PR that first deploys this.
+      dryRun: "true"
+
+    # The Slack Socket Mode listener. Exactly one replica and no Service — the
+    # chart hard-codes both, because Slack load-balances events across an app's
+    # open sockets, so a second replica silently receives half the button clicks
+    # and the other half go to a pod that does not know about them. Socket Mode
+    # dials out, so there is nothing to expose.
+    slackd:
+      enabled: true
+      # An idle WebSocket plus a small asyncio loop. Memory request == limit per
+      # the house shape; no CPU limit, because CPU is compressible and a limit
+      # here buys throttled acks rather than protection — and Slack's
+      # interaction budget is 3 seconds.
+      resources:
+        requests:
+          cpu: 50m
+          memory: 192Mi
+        limits:
+          memory: 192Mi
+
+    jobs:
+      # Nightly. Reads the calendar feed and classifies each day. No browser, no
+      # money, safe to re-run.
+      classify:
+        # classify drives Outlook Web through Playwright, so it is a browser job:
+        # it mounts a 512Mi memory-backed /dev/shm, which counts against the
+        # container limit. 256Mi OOMKilled it on every run.
+        enabled: true
+        schedule: "30 23 * * *"
+        timeZone: Europe/Amsterdam
+        activeDeadlineSeconds: 900
+        resources:
+          requests:
+            cpu: 100m
+            memory: 768Mi
+          limits:
+            memory: 2Gi
+
+      # Fridays. Posts the week's classification to Slack with the correction
+      # modal. No browser.
+      digest:
+        enabled: true
+        schedule: "0 16 * * 5"
+        timeZone: Europe/Amsterdam
+        activeDeadlineSeconds: 600
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 256Mi
+
+      # The 28th of the month. THIS is the browser job and the money job: it
+      # drives a headless Chromium through a corporate SSO login and builds the
+      # claim in AFAS InSite.
+      #
+      # The chart fixes concurrencyPolicy: Forbid, backoffLimit: 0 and
+      # startingDeadlineSeconds: 600 for every job, and backoffLimit: 0 is not a
+      # tuning choice — retrying re-drives an Entra login and risks locking the
+      # account out. A failed run must be looked at, never retried automatically.
+      #
+      # timeZone matters more than usual here: "the 28th at 06:00" has to stay
+      # the 28th at 06:00 across the DST change, and the claim period is defined
+      # in local time.
+      build:
+        enabled: true
+        schedule: "0 6 28 * *"
+        timeZone: Europe/Amsterdam
+        # 25 minutes: an SSO login plus a form-fill per claim line, with room
+        # for a slow portal. Short enough that a hung run is killed the same
+        # morning rather than holding the concurrency lock until next month.
+        activeDeadlineSeconds: 1500
+        # Chromium sizing, and this is an ESTIMATE — correct it from KRR after
+        # the first few real runs rather than treating it as measured.
+        #
+        # The limit is deliberately well above the request, which is the one
+        # place this repo departs from its own request == limit shape (see
+        # COMMON_MISTAKES #13/#14): /dev/shm is a memory-backed emptyDir and
+        # counts against the container's memory limit, so the limit has to cover
+        # the shm sizeLimit PLUS the browser's working set, while the request
+        # should stay honest for scheduling on a tier with little headroom. A
+        # limit set at the measured average here is a deferred OOM that would
+        # kill a run mid-claim.
+        resources:
+          requests:
+            cpu: 250m
+            memory: 768Mi
+          limits:
+            memory: 2Gi

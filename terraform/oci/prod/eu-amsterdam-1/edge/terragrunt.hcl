@@ -36,7 +36,7 @@ inputs = {
   # Use edge subnet from network module
   subnet_id                 = dependency.network.outputs.edge_subnet_id
   network_security_group_id = dependency.network.outputs.network_security_group_id
-  ssh_public_key_path       = "${get_repo_root()}/ansible/keys/id_rsa.pub"
+  ssh_public_key_path       = "${get_repo_root()}/ansible/keys/sargeant_oci.pub"
   vcn_id                    = dependency.network.outputs.vcn_id
 
   # MikroTik CHR image from object storage

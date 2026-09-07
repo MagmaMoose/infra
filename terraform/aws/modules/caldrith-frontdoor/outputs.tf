@@ -68,11 +68,6 @@ output "api_endpoint" {
 
 # --- the moving parts, for debugging and for the console ------------------------------------
 
-output "events_queue_url" {
-  description = "Verified deliveries awaiting routing. Should be empty; a backlog here means the consumer is stuck."
-  value       = aws_sqs_queue.events.id
-}
-
 output "jobs_queue_url" {
   description = "Reconcile work awaiting a run. A backlog here is what `caldrith-jobs-not-being-reconciled` alarms on."
   value       = aws_sqs_queue.jobs.id
@@ -86,11 +81,6 @@ output "dedup_table" {
 output "entitlement_table" {
   description = "Whether an account may be reconciled. Hash key `pk` = ent#<registration>#<account>, lowercased. Durable: no TTL (its `expires_at` is read, not a delete instruction) and PITR on. The reconcile function has GetItem and nothing else; rows are written by billing, or by hand with `aws dynamodb put-item`."
   value       = aws_dynamodb_table.entitlements.name
-}
-
-output "overflow_bucket" {
-  description = "Where bodies over SQS's 256 KB limit are parked for one day."
-  value       = aws_s3_bucket.overflow.id
 }
 
 output "reconcile_function_name" {

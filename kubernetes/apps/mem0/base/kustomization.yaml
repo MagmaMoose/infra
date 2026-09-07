@@ -2,29 +2,43 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 # The manifest library, applied by the per-env Flux Kustomization
 # (prod/mem0/flux-kustomization.yaml). Resources span two namespaces — the CNPG
-# Database + bootstrap Job live in `database` (with the shared cluster), the mem0
-# server + secret + ingress in `automation` (with litellm/hermes) — so no namespace
-# is set here; each resource carries its own metadata.namespace.
+# Databases + bootstrap Job live in `database` (with the shared cluster), the mem0
+# server + secret + ingress + NetworkPolicy in `automation` (with litellm/hermes) — so no
+# namespace is set here; each resource carries its own metadata.namespace.
 resources:
-  - database.yaml
+  # Two files rather than one two-document file: the repo's file-quality hook parses
+  # each YAML with a single-document loader and rejects a multi-doc manifest outright.
+  - database.yaml       # agent_memory — the pgvector store
+  - database-app.yaml   # mem0_app     — the server's auth/user/api-key schema
   - extension-job.yaml
   - externalsecret.yaml
   - deployment.yaml
   - service.yaml
   - ingress.yaml
-# REQUIRED, not a preference: the upstream mem0/mem0-api-server image (digest-pinned in
-# dockerfiles/mem0-server/Dockerfile, and therefore ghcr.io/magmamoose/mem0-server
-# too) publishes a manifest index containing linux/arm64 ONLY — no amd64. ff-vm1 is the
-# single amd64 node, so an unpinned mem0 that lands there fails the pull outright ("no
-# matching manifest for linux/amd64"). native-cloud = ff-oci1/ff-oci2, both arm64, and
-# keeps this always-on service off the CPU-request-saturated ff-vm1 as a bonus.
-# If mem0 ever ships amd64, this can widen — but it must never be simply deleted.
+  - networkpolicy.yaml
+# Placement: ON-PREM, i.e. ff-vm1 — the same node as the CNPG `postgres` primary, and the
+# same LAN as the rest of the cluster's storage.
+#
+# This used to be `cloud` (ff-oci1/ff-oci2), and NOT as a preference: the old image layered
+# on `mem0/mem0-api-server`, whose manifest index contains linux/arm64 and nothing else, so
+# amd64 ff-vm1 could not run it at all. The consequence was that the fleet's memory service
+# sat on the far side of the site-to-site VPN from its own database and paid a tunnel
+# round-trip per query — an architectural cost imposed by a base image's build matrix.
+# dockerfiles/mem0-server now builds from upstream source on multi-arch python:3.12-slim,
+# which is what makes this line changeable.
+#
+# `place-on-prem` applies BOTH `node-role.kubernetes.io/worker` and
+# `topology.sargeant.co/tier: on-prem`, and only ff-vm1 carries both — checked against live
+# labels, not against the comment (COMMON_MISTAKES #22): `topology.sargeant.co/tier=on-prem`
+# ALONE is a SET (ff-pi1, ff-pi2, ff-vm1), so the two-key selector is doing real work here.
+# Capacity checked the same way: ff-vm1 is 8 CPU / 28 GiB allocatable at ~54% CPU and ~70%
+# memory requested, so the old "97% / 99%" warning in that policy's own comment is stale.
 labels:
-  # Placement tier — consumed by the Kyverno `place-cloud` ClusterPolicy, which
-  # adds the nodeSelector at admission. Replaces components/node-selectors/native-cloud.
+  # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which adds the
+  # nodeSelector at admission.
   # includeSelectors/includeTemplates false: these fields are immutable on a live
   # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
   - pairs:
-      placement.sargeant.co/tier: cloud
+      placement.sargeant.co/tier: on-prem
     includeSelectors: false
     includeTemplates: false

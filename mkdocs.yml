@@ -46,7 +46,6 @@ nav:
       - Gluetun Setup: guides/gluetun-setup.md
       - LiteLLM Clients: guides/litellm-clients.md
       - Warp Setup: guides/warp-setup.md
-      - Single-Hook Implementation: guides/single-hook-implementation.md
   - Operations:
       - AppSec and Dev Tooling: operations/appsec-dev-tooling.md
       - Delivery & Automation: operations/delivery-and-automation.md
@@ -63,6 +62,7 @@ nav:
       - NFS Setup: operations/nfs-setup.md
       - Troubleshooting: operations/troubleshooting.md
       - Kubernetes Restructure Plan: operations/kubernetes-restructure-plan.md
+      - k3s Version Upgrade: operations/k3s-version-upgrade.md
   - Reference:
       - Cluster Topology: reference/cluster-topology.md
       - Terraform (AWS): reference/terraform-aws.md
@@ -75,6 +75,7 @@ nav:
       - Terraform (OCI): reference/terraform-oci.md
       - Terraform Modules: reference/terraform-modules.md
       - Terraform OCI VPN: reference/terraform-oci-vpn.md
+      - WireGuard Mesh: reference/wireguard-mesh.md
       - OCI Infra Improvements: reference/oci-infra-improvements.md
       - OCI VRRP HA Design: reference/oci-vrrp-ha-design.md
       - Cloudflare ZTNA Improvements: reference/cloudflare-ztna-improvements.md

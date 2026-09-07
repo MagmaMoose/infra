@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# The workload for prod, applied by the `prod-afas-declaraties` Flux
+# Kustomization (see ../flux-kustomization.yaml). Each resource carries its own
+# metadata.namespace — the CNPG Database lives in `database-oci`, everything
+# else in `afas-declaraties` — so there is deliberately no `namespace:`
+# directive here; adding one would move the Database CR off the cluster's
+# namespace and it would never be reconciled.
+resources:
+  - database.yaml
+  - externalsecret.yaml
+  - helmrelease.yaml

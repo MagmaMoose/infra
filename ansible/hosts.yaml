@@ -21,8 +21,12 @@ all:
     # at /etc/rancher/k3s/k3s.yaml, so anything invoking `k3s kubectl` has to target
     # firefly_cluster_server.
     #
-    # The OCI pair is reached over the site-to-site link on 192.168.223.0/24 and runs
-    # the stock Ubuntu cloud image, so it logs in as `ubuntu`, not `caleb`.
+    # The OCI nodes are reached over the site-to-site link and run the stock Ubuntu
+    # cloud image, so they log in as `ubuntu`, not `caleb`. They span TWO subnets:
+    # 192.168.223.0/24 (ff-oci1/2) and 192.168.240.0/24 (ff-oci3/4). Any new subnet
+    # must also be added to the allowlist in
+    # kubernetes/apps/node-tuning/base/oci-firewall-daemonset.yaml, or the new nodes
+    # are firewalled off from the rest of the data plane.
     firefly_cluster:
       children:
         firefly_cluster_server:
@@ -42,6 +46,11 @@ all:
       vars:
         ansible_ssh_private_key_file: ~/.ssh/id_rsa
       hosts:
+        192.168.19.11: # ff-pi2 — arm64 on-prem system node (runs CoreDNS)
+          k3s_node_name: ff-pi2
+          k3s_role: system
+          k3s_tier: on-prem
+          ansible_ssh_user: caleb
         192.168.19.13: # ff-vm1 — amd64 on-prem worker (Proxmox guest)
           k3s_node_name: ff-vm1
           k3s_role: worker
@@ -54,6 +63,16 @@ all:
           ansible_ssh_user: ubuntu
         192.168.223.72: # ff-oci2 — arm64 OCI Ampere
           k3s_node_name: ff-oci2
+          k3s_role: worker
+          k3s_tier: native-cloud
+          ansible_ssh_user: ubuntu
+        192.168.240.71: # ff-oci3 — amd64 OCI, 192.168.240.0/24
+          k3s_node_name: ff-oci3
+          k3s_role: worker
+          k3s_tier: native-cloud
+          ansible_ssh_user: ubuntu
+        192.168.240.72: # ff-oci4 — amd64 OCI, 192.168.240.0/24
+          k3s_node_name: ff-oci4
           k3s_role: worker
           k3s_tier: native-cloud
           ansible_ssh_user: ubuntu

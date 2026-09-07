@@ -41,6 +41,19 @@ data:
       default: claude-sonnet-4-6
       base_url: http://litellm.automation.svc.cluster.local:8080/v1
       api_mode: chat_completions
+      # MUST be stated here. The OPENAI_API_KEY env is NOT a fallback for a
+      # custom provider: upstream gates that fallback on the base_url being an
+      # authoritative OpenAI host, deliberately, so a key meant for OpenAI is
+      # never posted to an arbitrary one. Ours points at the in-cluster LiteLLM,
+      # so the gate correctly refuses and the resolver falls through to its
+      # placeholder literal `no-key-required` — which LiteLLM rejects with
+      # "Virtual Key expected ... expected to start with 'sk-'".
+      #
+      # That failure surfaced only once Slack could actually deliver a message:
+      # the model call is the first thing past the gateway, and nothing before
+      # it had ever reached one. `${VAR}` is expanded recursively across the
+      # whole config at load, so this resolves the same way the MCP headers do.
+      api_key: ${OPENAI_API_KEY}
 
     memory:
       memory_enabled: true
@@ -65,6 +78,34 @@ data:
         transport: streamable-http
         headers:
           Authorization: "Bearer ${N8N_MCP_AUTH_TOKEN}"
+      # Do NOT add HolmesGPT as a direct mcp_servers entry. holmesgpt's
+      # NetworkPolicy blocks inbound connections from the automation namespace, so a
+      # direct entry produces a confusing refused connection rather than a useful
+      # error. HolmesGPT investigations reach Hermes through the nievah MCP below.
+      #
+      # Nievah's own MCP: the documentation index across every indexed repo, the
+      # read verbs (repo policy, work status, pending questions), the write verbs
+      # (review a pull request, plan an issue, approve a plan, answer a
+      # clarification), and a cluster investigation that reaches HolmesGPT. This is
+      # what makes "Nievah, open a PR for X" in Slack reach the agent rather than
+      # just the model.
+      #
+      # Reached east-west on the ClusterIP. The public hostname for that service is
+      # the GitHub webhook receiver and is deliberately NOT used from in-cluster.
+      #
+      # Asking here grants nothing extra: every write verb goes onto the same queue
+      # a webhook would and is re-gated by the worker against the deny-by-default
+      # allowlist, so a request made in Slack cannot reach a repository that
+      # assigning an issue could not.
+      #
+      # The bearer is the SAME vault entry the nievah namespace reads, on purpose —
+      # the endpoint compares one shared token, so a second copy would be a second
+      # thing to rotate and a silent 401 the day only one of them was.
+      nievah:
+        url: http://nievah.nievah.svc.cluster.local:8000/mcp  # DevSkim: ignore DS137138 - in-cluster ClusterIP, no external exposure
+        transport: streamable-http
+        headers:
+          Authorization: "Bearer ${NIEVAH_MCP_TOKEN}"
 
     dashboard:
       host: 0.0.0.0

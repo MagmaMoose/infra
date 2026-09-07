@@ -1,0 +1,19 @@
+---
+# Additive to the env Chargate injects (MagmaMoose/chargate, docs/setup.md).
+
+# kingfisher's "Postgres URL with hardcoded password" matches any postgresql connection
+# string URL and cannot tell a resolved credential from a template placeholder. Every
+# ExternalSecret in this repo builds DATABASE_URL with `{{ .dbPassword }}` in the
+# password position, substituted by external-secrets from OCI Vault at apply time.
+# Nothing secret is committed; the literal in source is the template.
+#
+# Scoped to kingfisher and to ExternalSecret manifests. Every other secret scanner
+# (betterleaks, secretlint) still reads these files, and kingfisher still reads
+# everything else — so a real credential pasted anywhere, including into one of
+# these files as a plain value rather than a template, is still caught by two tools.
+#
+# Repo-wide rather than per-file on purpose: the identical line exists in
+# github-contributions, github-timesheet, github-usage-dashboard and quarry, so a
+# single-file exclude would only ever clear the PR in front of you — the same
+# argument .trivyignore makes for KSV-0040.
+REPOSITORY_KINGFISHER_FILTER_REGEX_EXCLUDE: '(kubernetes/apps/.*/externalsecret\.yaml)'

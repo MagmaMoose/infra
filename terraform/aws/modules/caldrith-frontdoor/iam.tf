@@ -32,21 +32,24 @@
 # against `manual-trigger-token` and the reconcile function, which holds the key, does the
 # resolution.
 #
-# AND IT GETS THERE VIA events.fifo, NOT BY WRITING TO jobs.fifo. That distinction is the whole
-# reason this note is here rather than one line shorter. `data.aws_iam_policy_document.producer`
-# below grants `sqs:SendMessage` on `aws_sqs_queue.events` and on nothing else, so a producer
-# that tried to enqueue a `reconcile_all_installations` job directly would get AccessDenied — on
-# the one path that is only ever exercised during an incident, which is the worst possible place
-# to discover a policy gap. Widening the grant to jobs.fifo is the obvious repair and it is the
-# wrong one: it would hand the internet-facing role write access to the queue the App-key
-# function drains, which is exactly the separation this file exists to keep.
+# THE PRODUCER NOW WRITES TO jobs.fifo DIRECTLY, AND UNTIL 2026-09-03 THIS PARAGRAPH SAID THE
+# OPPOSITE. The old grant was `sqs:SendMessage` on events.fifo and nothing else, so a producer
+# that tried to enqueue a `reconcile_all_installations` job got AccessDenied, and the manual
+# trigger travelled as a synthetic envelope that a separate `consumer` function turned into the
+# job. That was a real boundary and it is worth being honest about losing it.
 #
-# So the manual trigger is a SYNTHETIC ENVELOPE on events.fifo, and the consumer turns it into
-# the job. It carries no `X-GitHub-Delivery`, so the producer generates the FIFO deduplication
-# id itself — a uuid4, or `manual:<epoch>`; events.fifo has `content_based_deduplication = false`
-# — and it needs no DynamoDB claim, because there is no redelivering sender to deduplicate
-# against. Exactly the same shape as the webhook path, one write target for the edge, and the
-# key never moves toward it. See the consumer block in lambda.tf for the other half.
+# WHY IT WENT: the queue behind it cost ~80% of this account's SQS usage in EMPTY long-poll
+# receives, to carry deliveries that routed to nothing 99.3% of the time (queues.tf has the
+# measurements). And the boundary was thinner than it read — a compromise of this function also
+# holds `manual-trigger-token`, so it could already reach `reconcile_all_installations` through
+# events.fifo. The indirection made that one hop longer, not impossible.
+#
+# WHAT DID NOT MOVE, AND MUST NOT: points 1-3 above. The producer still holds NAMED parameters
+# and never the path, still cannot read `private-key`, and still receives paths rather than
+# values. A compromise of the edge forges deliveries and triggers reconciles of repositories
+# Caldrith already manages; it does not become Caldrith. That is the property this file exists
+# to keep, and the fold does not touch it. Recorded in caldrith's
+# .claude/decisions/0001-fold-consumer-into-producer.md.
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 #
 # AND WHAT IS NOT HERE AT ALL: there is no `aws_iam_user`, no `aws_iam_access_key` and no
@@ -55,7 +58,7 @@
 # access key is the least-bad option there. Caldrith has no cluster to hand a key to. That
 # credential was the largest unbounded surface in the design it inherited: it never expires, it
 # is stored outside AWS, Terraform holds it in state, and a leak is permanent until somebody
-# notices. Deleting the consumer deleted the credential. Do not reintroduce either half.
+# notices. Retiring the cluster deleted the credential. Do not reintroduce either half.
 
 locals {
   # NOT terraform.workspace: Terragrunt runs every leaf in the "default" workspace, so that
@@ -91,7 +94,7 @@ locals {
   #
   #   <slug>'s webhook-secret ARN  -> producer ONLY.
   #   <slug>'s app-id + private-key ARNs -> reconcile ONLY.
-  #   the consumer gets nothing new, because it needs no secret at all.
+  #   the reconcile role needs the App credentials and never a webhook secret.
   #
   # STILL PER-PARAMETER, STILL NEVER A `/*` PATH ARN — and a slug directory is exactly where
   # that temptation reappears. `/caldrith/prod/<slug>/*` looks safe now that each registration
@@ -151,18 +154,36 @@ resource "aws_iam_role" "producer" {
 }
 
 data "aws_iam_policy_document" "producer" {
+  # jobs.fifo DIRECTLY, WHICH THIS FILE USED TO ARGUE AGAINST AT LENGTH. Until 2026-09-03 the
+  # grant was `sqs:SendMessage` on events.fifo and nothing else, and the header above still
+  # explains what that bought: a producer that tried to enqueue a `reconcile_all_installations`
+  # job got AccessDenied, and the break-glass trigger had to travel as a synthetic envelope a
+  # separate consumer function turned into a job.
+  #
+  # The queue is gone (queues.tf says why — 80% of this account's SQS usage was empty polling
+  # for a hop that routed 99.3% of deliveries to nothing), so the boundary went with it. It was
+  # thinner than it read: anyone holding code execution here also holds the manual-trigger
+  # token, and could already reach `reconcile_all_installations` THROUGH events.fifo. Recorded
+  # rather than quietly dropped — caldrith's
+  # .claude/decisions/0001-fold-consumer-into-producer.md.
+  #
+  # WHAT DID NOT CHANGE IS THE ONE THAT MATTERS: this role still cannot read the App private
+  # key, so a compromise forges deliveries and triggers reconciles, and does not become
+  # Caldrith. See the ReadEdgeSecrets statement below and the header at the top of this file.
   statement {
-    sid       = "SendToEvents"
+    sid       = "SendToJobs"
     actions   = ["sqs:SendMessage"]
-    resources = [aws_sqs_queue.events.arn]
+    resources = [aws_sqs_queue.jobs.arn]
   }
 
-  # PutObject only. The producer parks an oversized body and never reads one back — the
-  # consumer does that — so a compromised edge cannot exfiltrate the deliveries it parked.
+  # PutItem only, so the durable delivery claim can be written and never read back. A
+  # conditional write needs no `GetItem` — that is the whole reason the claim is a conditional
+  # PutItem rather than a check-then-write, and a handler written the other way would get
+  # AccessDenied here and would deserve to.
   statement {
-    sid       = "ParkOverflow"
-    actions   = ["s3:PutObject"]
-    resources = ["${aws_s3_bucket.overflow.arn}/overflow/*"]
+    sid       = "ClaimDelivery"
+    actions   = ["dynamodb:PutItem"]
+    resources = [aws_dynamodb_table.dedup.arn]
   }
 
   # Named parameters. NOT the path — see the locals block above, and note that
@@ -205,86 +226,6 @@ resource "aws_iam_role_policy" "producer" {
 
 resource "aws_iam_role_policy_attachment" "producer_logs" {
   role       = aws_iam_role.producer.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
-}
-
-# --- consumer ---------------------------------------------------------------------------
-#
-# NO `ssm:` STATEMENT AT ALL, and that is the point rather than an omission. The consumer needs
-# no secret: the producer already verified the signature, and re-verifying downstream of a
-# trust boundary proves nothing it does not already know; and it makes no GitHub calls, so it
-# has no use for the App key. A role with no secret access is the strongest statement available
-# about what a component can leak.
-
-resource "aws_iam_role" "consumer" {
-  name               = "${var.name_prefix}-consumer"
-  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
-}
-
-data "aws_iam_policy_document" "consumer" {
-  statement {
-    sid = "DrainEvents"
-    actions = [
-      "sqs:ReceiveMessage",
-      "sqs:DeleteMessage",
-      "sqs:GetQueueAttributes",
-      "sqs:ChangeMessageVisibility",
-    ]
-    resources = [aws_sqs_queue.events.arn]
-  }
-
-  statement {
-    sid       = "SendToJobs"
-    actions   = ["sqs:SendMessage"]
-    resources = [aws_sqs_queue.jobs.arn]
-  }
-
-  # PutItem only — no GetItem, no Query, no Scan. The dedup claim is a CONDITIONAL WRITE and
-  # never a read, so the narrower grant is also the complete one. A handler written to "check
-  # then write" would need GetItem, would get AccessDenied, and would deserve to:
-  # check-then-write is not atomic and two concurrent deliveries of the same id would both pass
-  # the check.
-  #
-  # THE CONDITION IS NOT `attribute_not_exists(pk)` ALONE, AND THE DIFFERENCE IS A DROPPED
-  # DELIVERY. The consumer claims the delivery and THEN sends jobs. If it dies between the two —
-  # an SQS SendMessage throttle, the 30s timeout, a partially-sent batch — SQS redelivers the
-  # same events message, the plain conditional write now fails, and a handler that reads
-  # "already claimed" as "duplicate, skip" drops the delivery having produced ZERO jobs. GitHub
-  # POSTs each delivery once and never re-sends it, so that is permanent loss, and PutItem-only
-  # means the handler cannot distinguish its own previous attempt from a genuine duplicate.
-  #
-  # SO THE CLAIM CARRIES A CLAIM ID and the condition is
-  # `attribute_not_exists(pk) OR claim_id = :me`, with `:me` the SQS messageId — which is stable
-  # across every receive of the same message. A retry re-acquires its own claim and proceeds; a
-  # genuinely different delivery of the same id is still rejected. That is still one conditional
-  # PutItem, which is why this policy needs no widening. (The alternative is to claim AFTER the
-  # jobs are sent — at-least-once, which the reconcile layer's idempotency tolerates by design.
-  # Either is defensible; what is not is claim-first with a bare existence check.)
-  statement {
-    sid       = "ClaimDelivery"
-    actions   = ["dynamodb:PutItem"]
-    resources = [aws_dynamodb_table.dedup.arn]
-  }
-
-  # GetObject only, and only under the one prefix. The consumer reads back a body the producer
-  # parked because it exceeded SQS's 256 KB limit; it never writes one, and it never deletes
-  # one — expiry is the lifecycle rule's job (storage.tf), which cannot be talked out of it by
-  # a compromised function.
-  statement {
-    sid       = "ReadOverflow"
-    actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.overflow.arn}/overflow/*"]
-  }
-}
-
-resource "aws_iam_role_policy" "consumer" {
-  name   = "${var.name_prefix}-consumer"
-  role   = aws_iam_role.consumer.id
-  policy = data.aws_iam_policy_document.consumer.json
-}
-
-resource "aws_iam_role_policy_attachment" "consumer_logs" {
-  role       = aws_iam_role.consumer.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
@@ -386,15 +327,15 @@ data "aws_iam_policy_document" "reconcile" {
   }
 
   # NO STATEMENT ON `aws_dynamodb_table.dedup`, which is the distinction the line above must
-  # not be allowed to blur. The delivery claim is the CONSUMER's and was made before this job
+  # not be allowed to blur. The delivery claim is the PRODUCER's and was made before this job
   # existed; two roles writing claims to one table is how a claim gets re-issued and a
   # delivery processed twice. This role's DynamoDB access is the entitlements table and
   # nothing else.
   #
   # And no S3 statement. A job message is a small descriptor — `{job, installation_id, owner,
-  # repo}` — so this function never touches an overflow body. If a job message ever needs to
-  # carry a payload large enough to overflow, that is a signal the consumer is deciding too
-  # little, not that this role needs S3.
+  # repo}` — so this function never needs a body at all. If a job message ever grew big
+  # enough to need one, that is a signal the producer is deciding too little, not that this
+  # role needs S3.
 }
 
 resource "aws_iam_role_policy" "reconcile" {

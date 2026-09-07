@@ -447,8 +447,27 @@ spec:
                 memory: 256Mi
               limits:
                 # No CPU limit (repo convention). Headroom for the agent plus the
-                # checked-out job itself; the heavy container work happens in dind.
-                memory: 2Gi
+                # checked-out job itself.
+                #
+                # 4Gi, RAISED FROM 2Gi, because "the heavy container work happens in
+                # dind" is not true of every job and 2Gi was sized on that assumption.
+                # `pre-commit run --all-files` builds its hook environments -- a Node
+                # toolchain for prettier and a Python one for ruff -- and runs them
+                # over the whole tree IN THE RUNNER CONTAINER, never touching dind.
+                #
+                # Measured on MagmaMoose/dunmir CI run 33552505171: the job's earlier
+                # steps all succeed, the `pre-commit run --all-files` step ends with an
+                # EMPTY conclusion, and the pod is OOMKilled with exit 137. Three
+                # runners died that way inside twenty minutes while two workflows
+                # queued behind maxRunners: 2. The same command passes locally at rc=0
+                # on the same commit with a clean tree, so it is the ceiling, not the
+                # hooks.
+                #
+                # Scheduling is unchanged: requests stay at 256Mi and limits are not
+                # reservations. Worst case adds 2Gi per runner across at most two
+                # runners, against nodes that were at 39% (ff-oci1) and under 10%
+                # (ff-oci3/ff-oci4) when this was measured.
+                memory: 4Gi
             volumeMounts:
               - name: work
                 mountPath: /home/runner/_work

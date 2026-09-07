@@ -17,15 +17,24 @@ resources:
   # front, which makes it a deletion rather than a migration.
   - ./litellm
   # PARKED — fleet-shared memory (mem0 on shared CNPG pgvector, via LiteLLM). The Database
-  # CR + pgvector bootstrap Job are safe to reconcile early; the mem0 pod ImagePullBackOffs
-  # if the image is missing or private.
-  #   [done] ghcr.io/magmamoose/mem0-server:latest is built (linux/arm64) and PUBLIC —
-  #          the org package inherited this public repo's visibility, verified with an
-  #          anonymous manifest GET returning 200.
-  #   [TODO] `kubectl rollout restart deployment/litellm -n automation` so the new
-  #          text-embedding-3-small / gpt-4o-mini entries load. Without it mem0 starts
-  #          but its first embedding call fails "model not found". LiteLLM is replicas:1
-  #          on ff-vm1 (CPU-request saturated), so do this when that node has headroom.
+  # CRs + pgvector bootstrap Job are safe to reconcile early; the mem0 pod fails closed if
+  # the image or the vault entries are missing.
+  #   [done] ghcr.io/magmamoose/mem0-server:latest is built and PUBLIC — the org package
+  #          inherited this public repo's visibility, verified with an anonymous manifest
+  #          GET returning 200. Now MULTI-ARCH (amd64+arm64): the image is built from
+  #          upstream source instead of the arm64-only mem0/mem0-api-server, which is what
+  #          lets the Deployment sit on-prem beside its Postgres.
+  #   [done] LiteLLM has the text-embedding-3-small / gpt-4o-mini entries loaded — the
+  #          entries have been in the ConfigMap since 2026-08-03 and both litellm pods
+  #          restarted 2026-08-22, after it. (LiteLLM reads its YAML at startup only, so
+  #          this was a real prerequisite; it is simply already satisfied.)
+  #   [PENDING] Two OCI Vault entries, both absent today (checked: the vault holds 162
+  #          secrets, none matching mem0-*). Without them the ExternalSecret never
+  #          populates and the pod cannot start — deliberately, since the alternative is
+  #          the fleet's memory running unauthenticated:
+  #             mem0-admin-api-key   the X-API-Key every caller presents
+  #             mem0-jwt-secret      required at import even though the JWT flow is unused
+  #          Generate each with `openssl rand -base64 48`.
   # Then uncomment. See kubernetes/apps/mem0/README.md.
   # - ./mem0
   - ./n8n
@@ -36,13 +45,18 @@ resources:
   # needs github-app-magmamoose for read access, not just rate-limit headroom.
   # Migrated off Cloudflare Workers (Workers Free caps CPU at 10ms; Pro's PBKDF2
   # login costs ~190ms), so the cluster is now the only place it runs.
-  - ./dunmir-pro
+  - ./dunmir
   - ./github-contributions
   - ./github-timesheet
   - ./github-usage-dashboard
   - ./nievah
   # OpenHands V1 autonomous-coding engine; selected explicitly by Nievah's harness config.
   - ./openhands
+  # Quarry — consolidates github-timesheet and github-contributions into one
+  # engine with three reports (Uren, Throughput, Billing). Both of the apps it
+  # supersedes are still listed above and still running; retiring them is a
+  # separate decision, and their OCI Vault entries are now read by Quarry too.
+  - ./quarry
   # tengen-systems products (private repo; OCI-published charts, not a GitRepository)
   #
   # janeway splits the two: the CHART comes from MagmaMoose/charts (public, same
@@ -54,6 +68,13 @@ resources:
   # subscription, both now gone. Same shape as platform2: OCI-published chart,
   # not a GitRepository.
   - ./finance
+  # AFAS expense claims — classifies office/home days from the calendar, asks
+  # for approval in Slack over Socket Mode, and files the monthly claim in AFAS
+  # InSite with a headless browser. Same shape as finance: an OCI-published
+  # chart from the app's own public repo, not a GitRepository. Every
+  # employer-identifying value is an OCI Vault entry rather than a HelmRelease
+  # value, because this repo is public — see the app's externalsecret.yaml.
+  - ./afas-declaraties
   # backup
   - ./timemachine
   # miscellaneous (dashboard)
@@ -84,11 +105,16 @@ resources:
   - ./krr
   - ./kube-prometheus-stack
   - ./loki
+  # Daily OCI spend across BOTH tenancies (firefly + cloudworkers) in one Slack message.
+  # Sits here rather than under a finops heading because it is a scheduled report in the
+  # observability namespace, same as krr.
+  - ./oci-cost-report
   - ./thanos-compactor
   - ./thanos-query
   - ./thanos-store
   # platform (node-level tuning)
   - ./node-tuning
+  - ./system-upgrade-controller
   # progressive delivery
   - ./flagger
   # identity (SSO)

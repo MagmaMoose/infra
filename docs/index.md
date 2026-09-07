@@ -98,7 +98,7 @@ Share storage across Linux clients with integrated NFS server configuration. [Le
 Automated server updates with intelligent Slack notifications via GitHub Actions. [Learn more](operations/auto-update.md)
 
 ### 🎯 Pre-commit Hooks
-Single-hook validation system for comprehensive code quality checks. [Learn more](guides/single-hook-implementation.md)
+Workstation-global hooks covering linting, security scanning and SHA pinning. [Learn more](contributing/development.md#pre-commit)
 
 ### ☁️ Cloud Infrastructure
 Terraform modules for managing cloud resources on multiple providers. [Learn more](reference/terraform-modules.md)

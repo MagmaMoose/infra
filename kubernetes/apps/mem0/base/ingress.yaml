@@ -8,8 +8,13 @@ metadata:
   annotations:
     # LAN-only host (mem0.sargeant.co -> firefly.sargeant.co -> Traefik LB on a private
     # 192.168.x IP), so the cert uses the DNS-01 issuer — HTTP-01 can't reach a private
-    # IP. NOT published to the public Cloudflare tunnel: this holds the fleet's memory
-    # and (v1) runs with AUTH_DISABLED, so it stays on the LAN. Same pattern as hermes/litellm.
+    # IP. NOT published to the public Cloudflare tunnel: this holds the fleet's memory,
+    # so it stays on the LAN. Same pattern as hermes/litellm.
+    #
+    # The server now authenticates (ADMIN_API_KEY, presented as `X-API-Key`), so this is
+    # no longer the only thing standing in front of it — but LAN-only remains the posture.
+    # Traefik reaches the pod through networkpolicy.yaml, which must keep allowing
+    # kube-system for this host to resolve to anything.
     cert-manager.io/cluster-issuer: letsencrypt-dns
     kubernetes.io/ingress.class: traefik
     traefik.ingress.kubernetes.io/router.entrypoints: websecure

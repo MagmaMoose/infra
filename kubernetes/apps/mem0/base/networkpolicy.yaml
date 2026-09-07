@@ -1,0 +1,65 @@
+---
+# Ingress control for the fleet's durable memory.
+#
+# WHY: mem0 aggregates memory across Claude Code, Hermes, OpenHands and HolmesGPT. Until the
+# server gained an auth layer, reaching it WAS the authorisation — and a ClusterIP service is
+# reachable by every pod in all ~46 namespaces. The ADMIN_API_KEY now in deployment.yaml is the
+# real control; this policy is the second one, so a leaked key is not also a cluster-wide read
+# of everything the fleet has ever remembered.
+#
+# ONE OBJECT, NOT TWO — and that differs from kubernetes/apps/holmesgpt/base/networkpolicy.yaml
+# on purpose. Holmes owns its whole namespace, so a `podSelector: {}` default-deny there costs
+# nothing. mem0 is a tenant of the SHARED `automation` namespace (atlantis, browserless, hermes,
+# litellm, n8n, n8n-mcp), so the same default-deny would cut ingress to all six. A single policy
+# selecting `app: mem0` is enough: in Kubernetes, a pod selected by ANY ingress policy is
+# default-deny for ingress, and pods selected by none are unaffected.
+#
+# Egress is deliberately NOT restricted. mem0's egress is Postgres, LiteLLM and DNS, and an
+# egress policy that misses one presents as a hang rather than an error. Ingress is what the
+# issue asked for; add egress separately, with the pod running, so a mistake is visible.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-mem0-callers
+  namespace: automation
+  labels:
+    app: mem0
+spec:
+  podSelector:
+    matchLabels:
+      app: mem0
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # The agent fleet, one namespace each. `namespaceSelector` matches on
+        # `kubernetes.io/metadata.name`, which the API server sets on every namespace and no
+        # pod can forge — unlike a hand-applied label, which any namespace owner could copy.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: nievah
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openhands
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: holmesgpt
+        # hermes is a neighbour in `automation`. A bare podSelector means "this namespace",
+        # so this admits hermes WITHOUT admitting atlantis, browserless, n8n or n8n-mcp.
+        - podSelector:
+            matchLabels:
+              app: hermes
+        # Traefik, which is how mem0.sargeant.co (LAN-only ingress) reaches the pod — that
+        # is the path Claude Code on the laptop uses. k3s ships Traefik as a bundled
+        # HelmChart in kube-system; the connection arriving here has the Traefik pod as its
+        # source, so the ingress host is dead without this rule.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        # Container port. NetworkPolicy is enforced at the pod, after kube-proxy has already
+        # rewritten the destination, so a rule written against a Service port matches nothing
+        # and denies everything. Here they happen to both be 8000 — do not read that as the
+        # Service port being what matters.
+        - port: 8000
+          protocol: TCP

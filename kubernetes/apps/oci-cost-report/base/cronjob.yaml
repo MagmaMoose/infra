@@ -1,0 +1,179 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  # WHY A CRONJOB AND NOT OCI FUNCTIONS. Functions is the OCI-native answer and it is the
+  # wrong one for this. It would add a whole runtime: an OCIR repository, a container build
+  # in CI, an application + function + dynamic group + policy in Terraform — for one script
+  # that runs once a day. The cluster already runs scheduled Python on a mounted ConfigMap
+  # (streaming-sync, security-integrations), already reads the Slack bot token out of OCI
+  # Vault through the `oci-vault` ClusterSecretStore, and already mounts OCI API signing
+  # credentials into a pod (atlantis). And a Function can only live in ONE tenancy, so the
+  # cross-tenancy credential problem would survive the move unchanged — with a build
+  # pipeline bolted on top of it.
+  name: oci-cost-report
+  # `observability` because that is where the other Slack-reporting CronJob lives (krr),
+  # and the namespace is owned by infrastructure/configs — nothing to create here.
+  # ResourceQuota/LimitRange are namespace-scoped policies owned elsewhere (house
+  # convention, same as security-integrations).
+  # kics-scan ignore-line
+  namespace: observability
+  annotations:
+    checkov.io/skip1: CKV_K8S_15=IfNotPresent is the house convention; image is tagged and pulled only when absent, not on every CronJob run
+    checkov.io/skip2: CKV_K8S_11=CPU limits are unset estate-wide by design; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited.
+    checkov.io/skip3: CKV_K8S_35=SLACK_BOT_TOKEN is the only secret env-var; OCI credentials are already volume-mounted. Single opaque value, no sub-keys — secretKeyRef is the right shape here.
+    checkov.io/skip4: CKV_K8S_43=Pinned tag with IfNotPresent is the house convention; Renovate keeps the tag current
+spec:
+  # 07:30 UTC. OCI writes usage rows with a lag, so an 00:30 run would routinely find
+  # yesterday missing and print an unknown as a zero. The script says so out loud when it
+  # happens (`no rows for yesterday yet`), but the schedule should not provoke it daily.
+  schedule: "30 7 * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # One retry. The failure modes are a Slack blip or an OCI 5xx, both of which a single
+      # retry fixes; a credential problem is not fixed by retrying and should surface fast.
+      backoffLimit: 1
+      activeDeadlineSeconds: 600
+      template:
+        metadata:
+          labels:
+            app: oci-cost-report
+          annotations:
+            container.apparmor.security.beta.kubernetes.io/report: runtime/default
+        spec:
+          restartPolicy: Never
+          # Talks to two OCI endpoints and Slack. Never to the Kubernetes API.
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            # High fixed UID/GID (>10000); the container runs `python` directly, so it
+            # needs no image-baked user. fsGroup is what makes the 0440 secret volumes
+            # readable — kubelet chgrps the tmpfs mount to it, and without it a non-root
+            # process cannot open a root-owned 0440 file.
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: report
+              # Stock python, no pip install: the script is stdlib-only, RSA request
+              # signing included (see report.py). That is what keeps this image viable on
+              # the arm64 `cloud` tier without pulling architecture-specific wheels over
+              # the network on every run. Tag + IfNotPresent is the house convention.
+              # kics-scan ignore-line
+              image: python:3.12-slim
+              # kics-scan ignore-line
+              imagePullPolicy: IfNotPresent
+              command: ["python", "/app/report.py"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+                seccompProfile:
+                  type: RuntimeDefault
+              env:
+                # readOnlyRootFilesystem: don't write .pyc, keep temp on the emptyDir.
+                - name: PYTHONDONTWRITEBYTECODE
+                  value: "1"
+                - name: PYTHONUNBUFFERED
+                  value: "1"
+                - name: TMPDIR
+                  value: /tmp
+                # #finance — same channel the AWS cost report posts into, so the two
+                # accounts' spend lands in one place.
+                - name: SLACK_CHANNEL
+                  value: "C08BHHDGC0K"
+                # The tenancy list lives here rather than in the script so thresholds are
+                # edited where a human looks for them, and so adding a third tenancy is a
+                # manifest change plus a vault entry, with no code change at all.
+                #
+                # `warn`/`alert` are compared against MONTH-TO-DATE, not yesterday: a
+                # near-zero tenancy can register a fraction of a cent on a single day from
+                # rounding and mean nothing by it, and an alert that cries wolf is worse
+                # than no alert.
+                #
+                #   firefly      measured €2.42 for the whole of Aug 2026 (Object Storage
+                #                is ~99% of it). warn at roughly double the run rate,
+                #                alert at ~6x — anything that big is a new resource.
+                #   cloudworkers PROVISIONAL. It was Always Free until a payment method was
+                #                added, and the HSM-protected KMS key created by the vpn
+                #                leaf is the one item known to sit outside the free
+                #                allowance. Its real monthly figure has not been observed
+                #                yet, so these are a first guess: recalibrate from the
+                #                first full month of reports rather than trusting them.
+                - name: OCI_TENANCIES
+                  value: |
+                    [
+                      {"name": "firefly",      "config": "/oci/firefly/config",      "warn": "5.00", "alert": "15.00"},
+                      {"name": "cloudworkers", "config": "/oci/cloudworkers/config", "warn": "0.50", "alert": "5.00"}
+                    ]
+                - name: SLACK_BOT_TOKEN
+                  valueFrom:
+                    # secretKeyRef is the secure K8s pattern for secret injection.
+                    # kics-scan ignore-line
+                    secretKeyRef:
+                      name: oci-cost-report
+                      key: slack-bot-token
+              volumeMounts:
+                - name: script
+                  mountPath: /app
+                  readOnly: true
+                - name: oci-firefly
+                  mountPath: /oci/firefly
+                  readOnly: true
+                - name: oci-cloudworkers
+                  mountPath: /oci/cloudworkers
+                  readOnly: true
+                # Writable scratch for readOnlyRootFilesystem.
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                # CPU limit omitted by house convention (throttling a 5-second batch job
+                # hurts more than it helps). Memory limit is generous for what this is:
+                # the whole working set is a few hundred JSON rows.
+                # kics-scan ignore-line
+                limits:
+                  memory: 192Mi
+          volumes:
+            - name: script
+              configMap:
+                name: oci-cost-report-script
+                defaultMode: 0555
+            - name: oci-firefly
+              secret:
+                secretName: oci-cost-report
+                # 0440, not 0400: the file is root-owned and the process is 10001, so
+                # group-readable + fsGroup is what makes it openable (same as atlantis).
+                defaultMode: 0440
+                items:
+                  - key: firefly-config
+                    path: config
+                  - key: firefly-key.pem
+                    path: key.pem
+            # SEPARATE SECRET, AND OPTIONAL, ON PURPOSE. external-secrets fails an
+            # ExternalSecret as a whole when any one remoteRef is missing, so putting the
+            # cloudworkers credential in the same object as the Slack token would mean
+            # that until someone uploads `cloudworkers-oci-cli` to the vault, NOTHING is
+            # reported — not even firefly. Split + optional gives the intended behaviour
+            # instead: the job runs, reports firefly, and says plainly that cloudworkers
+            # could not be read.
+            - name: oci-cloudworkers
+              secret:
+                secretName: oci-cost-report-cloudworkers
+                optional: true
+                defaultMode: 0440
+                items:
+                  - key: config
+                    path: config
+                  - key: key.pem
+                    path: key.pem
+            - name: tmp
+              emptyDir: {}

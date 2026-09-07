@@ -260,17 +260,12 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "firefly" {
       service  = "http://dependency-track-api-server.security.svc.cluster.local:8080"
       origin_request {}
     }
-    # Legacy aliases kept during the hostname move to magmamoose.com.
-    ingress_rule {
-      hostname = "dependency-track.sargeant.co"
-      service  = "http://dependency-track-frontend.security.svc.cluster.local:8080"
-      origin_request {}
-    }
-    ingress_rule {
-      hostname = "dependency-track-api.sargeant.co"
-      service  = "http://dependency-track-api-server.security.svc.cluster.local:8080"
-      origin_request {}
-    }
+    # The legacy dependency-track{,-api}.sargeant.co aliases were REMOVED here.
+    # They pointed at the same two Services as the magmamoose.com hostnames, so
+    # they silently bypassed any Cloudflare Access app scoped to the
+    # magmamoose.com name — a duplicate hostname on the same tunnel is an
+    # unauthenticated side door. Paired with the CNAME removal in
+    # terraform/cloudflare/dns/prod/terragrunt.hcl. The hostname move is long done.
 
     # git-pull-request-dashboard — static SPA, fronted by oauth2-proxy
     # (Google SSO, @magmamoose.com). The GitHub PAT is still entered client-side.
@@ -442,7 +437,14 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "firefly" {
     # which the tunnel passes through without a proxy-body-size ceiling.
     ingress_rule {
       hostname = "api.dunmir.magmamoose.com"
-      service  = "http://dunmir-backend.dunmir-pro.svc.cluster.local:8000"
+      # APPLY ORDER MATTERS. This is the live path for api.dunmir.magmamoose.com:
+      # cloudflared connects straight to the Service, bypassing the Ingress. The
+      # namespace moved dunmir-pro -> dunmir with the Helm cutover, and applying
+      # this BEFORE the new namespace is serving points the tunnel at a Service
+      # that does not exist yet, which is a hard outage on the API and on every
+      # agent check-in. Bring the new namespace up, confirm a pod is Ready, then
+      # apply this.
+      service  = "http://dunmir-backend.dunmir.svc.cluster.local:8000"
       origin_request {}
     }
 

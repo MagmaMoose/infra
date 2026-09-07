@@ -60,3 +60,136 @@
 KSV-0040
 KSV0040
 AVD-KSV-0040
+
+# KSV-0011 — "container should set resources.limits.cpu".
+#
+# Suppressed because this estate deliberately does not set CPU limits, so the
+# rule is one the repo has decided against rather than one it is failing to meet.
+# A CPU limit throttles through the CFS quota even while the container sits under
+# the ceiling, which shows up as latency rather than as a shortage, and the
+# workloads it would bite hardest here are the proxies and connectors on the
+# request path. The Kyverno `default-limitrange` policy
+# (kubernetes/apps/kyverno-policies/base/clusterpolicy-default-limitrange.yaml)
+# encodes the same decision: it generates a defaultRequest in every namespace and
+# deliberately no default limit — "it exists to make unset impossible, not to
+# size anything".
+#
+# MEMORY limits are still expected and still enforced; memory is the resource
+# where an unbounded container takes a node down with it, and CPU is not.
+KSV-0011
+KSV0011
+AVD-KSV-0011
+
+# KSV-0125 — "container uses an image from an untrusted registry".
+#
+# Suppressed because the rule's idea of "trusted" does not match this estate. It
+# scores against a fixed allowlist that does not include Docker Hub, and this
+# cluster runs vendor images from Docker Hub throughout by design —
+# cloudflare/cloudflared, valkey/valkey, busybox, n8nio/n8n. Those are the
+# vendors' own builds of their own software; the alternative the rule implies is
+# mirroring each into ghcr, which relocates a copy without changing who produced
+# the artifact or who could tamper with it upstream.
+#
+# What actually mitigates this is pinning, which is a separate rule (KSV-0013,
+# left ON) plus Renovate keeping the pins current. An image pinned to an exact
+# tag from the vendor is a smaller risk than a floating tag on a mirror we run.
+KSV-0125
+KSV0125
+AVD-KSV-0125
+
+# DS-0026 — "no HEALTHCHECK instruction in Dockerfile".
+#
+# Suppressed because it is inapplicable in a Kubernetes environment. Kubernetes
+# completely ignores Docker HEALTHCHECK; pod health is managed by the Deployment's
+# readinessProbe and livenessProbe. Satisfying DS-0026 by adding HEALTHCHECK would
+# require adding curl or wget to every image, widening the attack surface with no
+# operational benefit — the HEALTHCHECK would never be evaluated in production.
+# KICS counterpart (b03a748a-542d-44f4-bb86-9199ab4fd2d5) is suppressed inline in
+# each affected Dockerfile via `# kics-scan disable=`.
+DS-0026
+AVD-DS-0026
+
+# KSV-0113 — "role should not have access to manage secrets".
+#
+# Suppressed because the rule scores the verb, not the scope. The Role it fires on
+# (kubernetes/apps/*/base/ghcr-reader-rbac.yaml) grants `get` on ONE secret named
+# by `resourceNames: ["ghcr-pull-secret"]`, to one ServiceAccount, so the app can
+# pull its own image. It cannot list, watch, create or read anything else, and
+# "manage" overstates a single-object read by some distance.
+#
+# The pattern is repo-wide, not one app's: caldrith, nievah, github-contributions,
+# github-timesheet and quarry all carry the identical Role, because ghcr-pull-secret
+# is SOPS-only in flux-system and has to be mirrored per namespace. A per-file
+# suppression would therefore fix only the PR in front of you and fail the next one
+# — the same reasoning as KSV-0040 above.
+KSV-0113
+KSV0113
+AVD-KSV-0113
+
+# KSV-0109 — "ConfigMap stores secrets in key(s) or value(s)".
+#
+# Suppressed on oci-cost-report-script because the rule is matching Python
+# function parameter names (`token`, `def post_to_slack(token`) in the embedded
+# script, not actual credential material. The real Slack token lives in the
+# `oci-cost-report` Secret and is injected via secretKeyRef; the ConfigMap
+# contains only code.
+KSV-0109
+KSV0109
+AVD-KSV-0109
+
+# KSV-01010 — "ConfigMap stores sensitive contents in key(s) or value(s)".
+#
+# Same root cause as KSV-0109: the rule matches Python identifier patterns
+# (`key=lambda`, `get = lambda key`, `key=lambda kv`) inside the oci-cost-report
+# script ConfigMap. These are sorting lambda expressions and parameter names,
+# not credential material. The ConfigMap stores a Python script, not a secret.
+KSV-01010
+KSV01010
+AVD-KSV-01010
+
+# DS173237 — "Do not store tokens or keys in source code" at
+# kubernetes/apps/oci-cost-report/base/configmap-script.yaml:112.
+#
+# Suppressed because the matched content is not a credential. Line 112 is
+# `_SHA256_DIGEST_INFO = bytes.fromhex("3031300d060960864801650304020105000420")`,
+# a standard DER-encoded SHA-256 DigestInfo header used for hand-rolled PKCS#1
+# RSA signing (see the module docstring). It is a public cryptographic constant,
+# not a key. The constant is also annotated inline with `# pragma: allowlist
+# secret` as a belt-and-suspenders suppression for scanners that read that hint.
+DS173237
+DS-173237
+AVD-DS-173237
+
+# KSV-0023 — "do not specify hostPath volumes".
+#
+# Suppressed for system-upgrade-controller specifically. The controller mounts
+# /etc/ssl, /etc/pki, and /etc/ca-certificates from the host as read-only. It
+# needs the node's own CA bundle to validate TLS on the Kubernetes API connection
+# during k3s upgrade job execution — a ConfigMap-based substitute would carry the
+# cluster CA but not node-level CAs added by the OCI DHCP domain or out-of-band
+# certificate management. All three mounts are declared readOnly: true.
+#
+# This entry is repo-wide because Trivy does not produce a SARIF `suppressions`
+# array for inline `# trivy:ignore:` comments in Kubernetes YAML — the only
+# mechanism that makes Chargate count a result as suppressed. A per-file fix is
+# therefore not possible; only .trivyignore reaches the gate.
+KSV-0023
+KSV0023
+AVD-KSV-0023
+
+# KSV-0048 — "role/clusterrole should not have access to high-risk verbs".
+#
+# Suppressed for system-upgrade-controller. The Role (system-upgrade namespace)
+# holds create/delete/patch/update on batch/jobs — required to create and clean
+# up the Job objects that execute the k3s binary swap on each node. The drainer
+# ClusterRole holds pod eviction and delete (to drain workloads before upgrading)
+# and read-only access to statefulsets/daemonsets/replicasets (to identify
+# controller-managed pods that will reschedule after eviction). These are the
+# minimum verbs an upgrade controller needs; narrowing them further breaks the
+# drain or the job lifecycle.
+#
+# Same caveat as KSV-0023: inline trivy:ignore is a no-op for Kubernetes YAML in
+# Chargate's SARIF pipeline, so this must live here.
+KSV-0048
+KSV0048
+AVD-KSV-0048

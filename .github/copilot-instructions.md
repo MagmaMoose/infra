@@ -63,7 +63,7 @@ This is a monolithic infrastructure-as-code repository managing a home lab envir
 ## Testing and Validation
 
 ### Pre-commit Hooks
-- Pre-commit hooks are configured in `.pre-commit-config.yaml`
+- Pre-commit hooks are workstation-global (`core.hooksPath=~/.git-hooks`, config `~/.pre-commit-config.yaml`). This repo has no `.pre-commit-config.yaml`.
 - Always run pre-commit checks before committing changes
 - Fix any linting or formatting issues
 
@@ -141,7 +141,7 @@ terragrunt run-all apply
 
 ### Running Pre-commit Checks
 ```bash
-pre-commit run --all-files
+pre-commit run --config ~/.pre-commit-config.yaml --all-files
 ```
 
 ## Notes
