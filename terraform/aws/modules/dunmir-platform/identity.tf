@@ -183,6 +183,52 @@ resource "aws_cognito_user_pool_client" "console" {
   # Revoking a refresh token is what makes "sign out everywhere" true rather than decorative —
   # the console calls GlobalSignOut, and without this the token stays valid until it expires.
   enable_token_revocation = true
+
+  # --- federated sign-in ------------------------------------------------------
+  #
+  # The authorization-code grant, and ONLY that grant. `implicit` would return the
+  # tokens in the URL fragment, which puts them in browser history and in every
+  # `Referer` the next page sends; the code flow with PKCE keeps them in a POST
+  # body. The client is still public (`generate_secret = false` above, unchanged
+  # and load-bearing) — PKCE is what replaces the secret, and it is enforced by
+  # the console rather than by a setting here.
+  #
+  # `[]` when there is no domain, because these fields are meaningless without one
+  # and setting them anyway makes an apply look like it did something.
+  allowed_oauth_flows                  = local.federates ? ["code"] : []
+  allowed_oauth_scopes                 = local.federates ? ["openid", "email", "profile"] : []
+  allowed_oauth_flows_user_pool_client = local.federates
+
+  # BYTE FOR BYTE what the console's route is and what the backend derives for
+  # COGNITO_REDIRECT_URI. Cognito compares the string: a trailing slash, or http
+  # where the console serves https, answers `redirect_mismatch` on Cognito's OWN
+  # error page — which never reaches the SPA, so nothing logs it and the operator
+  # sees an Amazon error at the end of an otherwise successful sign-in.
+  callback_urls = local.federates ? [local.console_callback] : []
+  logout_urls   = local.federates ? [local.console_logout] : []
+
+  # The built-in providers this client may use. COGNITO is always present: it is
+  # how the pool's own password accounts sign in, and dropping it disables the
+  # ordinary sign-in form for everybody.
+  supported_identity_providers = local.federates ? concat(["COGNITO"], local.social_providers) : null
+
+  lifecycle {
+    # THE APPLICATION WRITES THIS LIST TOO, AND TERRAFORM MUST NOT FIGHT IT.
+    #
+    # A customer creating their own SAML connection in the console causes the
+    # backend to call UpdateUserPoolClient and add an `sso_…` provider here. That
+    # is not drift to be corrected: it is the feature working. Without this
+    # ignore, the next apply removes every customer's provider from the client —
+    # the providers themselves survive, so nothing looks deleted, but every
+    # federated sign-in starts failing at the authorize step and the plan that
+    # did it reads as a no-op change to an unrelated stack.
+    #
+    # The consequence to know: adding a SOCIAL provider (the `enable_*` flags) no
+    # longer reaches the client through Terraform once this list has been written
+    # by the application. Run the reconcile command in the `sso_reconcile_hint`
+    # output, or add it in the console, after enabling one.
+    ignore_changes = [supported_identity_providers]
+  }
 }
 
 # The pool's public signing keys, read ONCE at apply time and passed to the function as

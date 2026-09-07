@@ -164,3 +164,100 @@ output "console_env" {
     ]))
   }
 }
+
+# --------------------------------------------------------------------------- #
+# Federated sign-in
+# --------------------------------------------------------------------------- #
+
+output "cognito_domain" {
+  description = <<-EOT
+    The pool's OAuth origin, or "" when this deployment does not federate.
+
+    Goes to the backend as `COGNITO_DOMAIN` and to the console's CSP as a `connect-src` entry.
+    Those two must agree: the SPA navigates to `/oauth2/authorize` (a top-level navigation, which
+    connect-src does not govern) and then FETCHES `/oauth2/token`, so a missing CSP entry fails
+    at the very last step — after the operator has already authenticated at their provider — with
+    a bare TypeError that names neither CSP nor Cognito.
+  EOT
+  value       = local.federates ? "https://${aws_cognito_user_pool_domain.this[0].domain}.auth.${var.region}.amazoncognito.com" : ""
+}
+
+output "cognito_idp_response_url" {
+  description = <<-EOT
+    The redirect URI to register with Google, Microsoft and Amazon.
+
+    Every one of their consoles asks for it under a slightly different name — "Authorised
+    redirect URI", "Redirect URI (Web)", "Allowed Return URL" — and all three mean this. A
+    mismatch is refused by the PROVIDER, not by Cognito, so the error appears on their page in
+    their wording and looks like nothing this system produced.
+  EOT
+  value       = local.federates ? "https://${aws_cognito_user_pool_domain.this[0].domain}.auth.${var.region}.amazoncognito.com/oauth2/idpresponse" : ""
+}
+
+output "cognito_saml_acs_url" {
+  description = <<-EOT
+    Cognito's assertion consumer service: where a CUSTOMER's SAML identity provider POSTs.
+
+    One URL for the whole pool rather than one per connection — Cognito routes an assertion by
+    the RelayState it issued, not by the endpoint. The console shows this to the customer
+    alongside the entity id, so it is here for support conversations rather than for a variable.
+  EOT
+  value       = local.federates ? "https://${aws_cognito_user_pool_domain.this[0].domain}.auth.${var.region}.amazoncognito.com/saml2/idpresponse" : ""
+}
+
+output "cognito_saml_entity_id" {
+  description = "The SAML audience Cognito presents to a customer's identity provider."
+  value       = local.creates_pool ? "urn:amazon:cognito:sp:${aws_cognito_user_pool.this[0].id}" : ""
+}
+
+output "cognito_social_providers" {
+  description = <<-EOT
+    What to set `COGNITO_SOCIAL_PROVIDERS` to on the backend.
+
+    These names travel verbatim in the browser's `identity_provider=` parameter, so the backend's
+    list has to be the pool's list: naming one that does not exist is a Cognito error page on
+    click, and omitting one that does means a button nobody ever sees.
+  EOT
+  value       = join(",", local.social_providers)
+}
+
+output "sso_manager_user_name" {
+  description = <<-EOT
+    The IAM user whose credential lets the console create a customer's identity provider.
+
+    Mint the key by hand — Terraform deliberately does not, because `aws_iam_access_key` writes
+    the secret into the state file:
+
+        aws iam create-access-key --user-name "$(terragrunt output -raw sso_manager_user_name)"
+
+    Then put both halves in OCI Vault as `dunmir-pro-cognito-admin-access-key-id` and
+    `dunmir-pro-cognito-admin-secret-access-key`, add them to the ExternalSecret, and only then
+    set `SSO_MANAGEMENT_ENABLED=true`. In that order: the ExternalSecret has no per-key
+    "optional", so a remoteRef for a secret that does not exist yet fails the WHOLE Secret and
+    every pod with it.
+  EOT
+  value       = local.federates && var.create_sso_manager_user ? aws_iam_user.sso_manager[0].name : ""
+}
+
+output "sso_reconcile_hint" {
+  description = <<-EOT
+    How to add a newly enabled social provider to the app client.
+
+    Terraform stops managing `supported_identity_providers` once the application has written to
+    it (see the `ignore_changes` in identity.tf, and why removing that would strip every
+    customer's connection on the next apply). So enabling one of the `enable_*` flags creates the
+    provider but does not reach the client, and the button then answers with a Cognito error that
+    says the provider is not supported by this client.
+
+    This is the one command that closes the gap. It re-sends the client's whole configuration —
+    Cognito's update is a full replace, so a partial one would blank the callback URLs.
+  EOT
+  value = local.federates ? join(" ", [
+    "aws cognito-idp describe-user-pool-client",
+    "--user-pool-id ${aws_cognito_user_pool.this[0].id}",
+    "--client-id ${aws_cognito_user_pool_client.console[0].id}",
+    "--query UserPoolClient --output json > client.json &&",
+    "jq '.SupportedIdentityProviders = [\"COGNITO\"${join("", [for p in local.social_providers : ",\"${p}\""])}] | del(.CreationDate,.LastModifiedDate,.ClientSecret)' client.json > update.json &&",
+    "aws cognito-idp update-user-pool-client --cli-input-json file://update.json",
+  ]) : ""
+}

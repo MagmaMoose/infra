@@ -193,6 +193,57 @@ inputs = {
   # workspace.
   signup_allowed_domains = ""
 
+  # ── federated sign-in ───────────────────────────────────────────────────────────────────────
+  #
+  # The pool's OAuth domain, which is what makes federation possible at all: a SAML assertion is
+  # POSTed to Cognito's `/saml2/idpresponse` and an OIDC code is exchanged at its
+  # `/oauth2/token`, and neither endpoint exists without one. Password sign-in is unaffected —
+  # it drives the pool's unauthenticated API from our own screens and needs no domain.
+  #
+  # THE PREFIX IS GLOBALLY UNIQUE ACROSS ALL OF AWS, like a bucket name. It is also load-bearing
+  # in two other repositories: `frontend/public/_headers` names
+  # `https://dunmir-prod.auth.eu-west-1.amazoncognito.com` in `connect-src` (CI asserts it) and
+  # `chart/templates/backend.yaml` sets the same string as `COGNITO_DOMAIN`. Changing it here
+  # alone leaves the redirect working and the token exchange failing with a bare TypeError,
+  # after the operator has already authenticated at their provider.
+  cognito_domain_prefix = "dunmir-prod"
+
+  # ── social providers ────────────────────────────────────────────────────────────────────────
+  #
+  # ALL FALSE UNTIL THE SECRETS ARE IN SSM. This apply creates the parameters with a placeholder
+  # and never writes them again; a provider built from a placeholder is one AWS accepts and
+  # Google rejects, which fails at the identity provider with nothing on our side to see.
+  #
+  #   1. apply as-is — the domain and the parameters exist;
+  #   2. register `$(terragrunt output -raw cognito_idp_response_url)` as the redirect URI with
+  #      each provider, and put the client id/secret in with
+  #      `aws ssm put-parameter --name /dunmir-prod/federation/google-client-id --value … --type SecureString --overwrite`;
+  #   3. flip the flag and apply again;
+  #   4. set COGNITO_SOCIAL_PROVIDERS on the backend to
+  #      `$(terragrunt output -raw cognito_social_providers)`.
+  #
+  # Step 3 creates the provider but does NOT reach the app client, because Terraform stops
+  # managing `supported_identity_providers` once the application has written to it (see the
+  # `ignore_changes` in identity.tf — without it, an apply strips every customer's own
+  # connection). The `sso_reconcile_hint` output is the one command that closes that gap.
+  enable_google_signin    = false
+  enable_microsoft_signin = false
+  enable_amazon_signin    = false
+  # APPLE NEEDS A PAID APPLE DEVELOPER ACCOUNT for the Services ID and the .p8 key. There is no
+  # free path, and private-relay addresses (`@privaterelay.appleid.com`) can never match a
+  # workspace's verified domain — so an Apple sign-in always founds a personal workspace. Left
+  # off deliberately rather than for want of a credential.
+  enable_apple_signin = false
+
+  # The IAM user whose key lets the CONSOLE create a customer's own identity provider. Needed by
+  # the Kubernetes deployment, which has egress but no AWS identity to assume; not by the Lambda
+  # here, where `SSO_MANAGEMENT_ENABLED` is off because a function in a VPC with no NAT cannot
+  # reach cognito-idp at all.
+  #
+  # Terraform creates the user and the policy and NOT the access key — `aws_iam_access_key`
+  # writes the secret into state. Mint it by hand afterwards; `sso_manager_user_name` says how.
+  create_sso_manager_user = true
+
   # ── where the alarms and the budget go ──────────────────────────────────────────────────────
   #
   # The budget is $1, not a sensible operating budget: the whole premise is that this stack is

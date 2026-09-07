@@ -569,3 +569,111 @@ variable "sweep_target_url" {
     error_message = "sweep_target_url must be https:// — the request carries the admin bearer token."
   }
 }
+
+# --------------------------------------------------------------------------- #
+# Federated sign-in
+# --------------------------------------------------------------------------- #
+
+variable "cognito_domain_prefix" {
+  description = <<-EOT
+    The pool's OAuth domain prefix, giving `https://<prefix>.auth.<region>.amazoncognito.com`.
+
+    EMPTY MEANS NO FEDERATION AT ALL, and that is the safe default rather than an oversight.
+    Password sign-in needs no domain — the console drives the pool's unauthenticated API from
+    its own screens — but a SAML assertion is POSTed to Cognito's `/saml2/idpresponse` and an
+    OIDC code is exchanged at its `/oauth2/token`, and both exist only on a domain. So this
+    value is the switch for the whole feature, on both sides: the console hides every SSO
+    affordance when the backend reports no domain.
+
+    THE PREFIX IS GLOBALLY UNIQUE ACROSS ALL OF AWS, like an S3 bucket name. A taken one fails
+    the apply with `InvalidParameterException: Domain already associated with another user
+    pool`, which is clear enough but arrives late.
+
+    Not a custom domain, deliberately: one needs an ACM certificate in us-east-1 (not this
+    region), an A record at the parent, and — for a two-label name under magmamoose.com — its
+    own Cloudflare certificate pack. Four moving parts for a hostname that is on screen for the
+    length of one 302, because `identity_provider=` makes Cognito redirect straight through
+    without painting a page.
+  EOT
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.cognito_domain_prefix == "" || can(regex("^[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$", var.cognito_domain_prefix))
+    error_message = "cognito_domain_prefix must be lowercase letters, digits and hyphens, not starting or ending with a hyphen."
+  }
+}
+
+variable "enable_google_signin" {
+  description = <<-EOT
+    Create the Google identity provider.
+
+    SET THE SSM PARAMETERS FIRST. `/<name>/federation/google-client-id` and `-client-secret` are
+    created by this module with a placeholder and are never written again (`ignore_changes`), so
+    turning this on before putting the real values in creates a provider AWS accepts and Google
+    rejects — a button that fails at the identity provider with nothing on our side to see.
+
+    The Google Cloud OAuth client needs `https://<prefix>.auth.<region>.amazoncognito.com/oauth2/idpresponse`
+    as an authorised redirect URI. It is in the `cognito_idp_response_url` output.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "enable_microsoft_signin" {
+  description = <<-EOT
+    Create the Microsoft identity provider — PERSONAL Microsoft accounts, as a generic OIDC
+    provider against the `consumers` authority.
+
+    NOT a customer's workforce Entra tenant. That is their own SAML or OIDC connection, created
+    by them in the console and scoped to a domain they have proved in DNS; conflating the two
+    would mean anyone with a Microsoft account could sign in as a member of any workspace.
+
+    Cognito ships built-in providers for Google, Facebook, Amazon and Apple, and no Microsoft
+    one — hence OIDC. The redirect URI to register in the Entra app registration is the
+    `cognito_idp_response_url` output.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "enable_amazon_signin" {
+  description = "Create the Login with Amazon identity provider. Set its SSM parameters first."
+  type        = bool
+  default     = false
+}
+
+variable "enable_apple_signin" {
+  description = <<-EOT
+    Create the Sign in with Apple identity provider.
+
+    NEEDS A PAID APPLE DEVELOPER ACCOUNT ($99/year) for the Services ID, the team ID and the .p8
+    signing key. There is no free path, which is why this is off and the other three are the
+    ones the console offers.
+
+    One consequence worth deciding on before enabling it: Apple's private relay hands the user an
+    `@privaterelay.appleid.com` address, which can never match a workspace's verified domain — so
+    an Apple sign-in always founds a personal workspace and never joins a company one.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "create_sso_manager_user" {
+  description = <<-EOT
+    Create the IAM user whose credential lets the CONSOLE create a customer's own identity
+    provider (`cognito-idp:CreateIdentityProvider` and friends, scoped to this pool's ARN).
+
+    Needed by the Kubernetes topology, which has egress but no AWS identity to assume. NOT needed
+    by the Lambda topology: `SSO_MANAGEMENT_ENABLED` is off there because a function in a VPC
+    with no NAT gateway cannot reach cognito-idp at all, and it has an execution role in any
+    case.
+
+    NO ACCESS KEY IS CREATED. `aws_iam_access_key` would write the secret into the state file.
+    Mint it by hand and put it straight into OCI Vault:
+
+        aws iam create-access-key --user-name "$(terragrunt output -raw sso_manager_user_name)"
+  EOT
+  type        = bool
+  default     = false
+}
