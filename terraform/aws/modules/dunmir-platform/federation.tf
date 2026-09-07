@@ -95,8 +95,8 @@ locals {
   } : {}
 }
 
-# checkov:skip=CKV_AWS_337:No KMS CMK on these parameters. SecureString already encrypts with the AWS-managed key; a CMK bills per key per month and defends against a threat (someone with ssm:GetParameter but not kms:Decrypt) that does not exist here — the only principal that reads them is this Terraform run.
 resource "aws_ssm_parameter" "federation" {
+  # checkov:skip=CKV_AWS_337:No KMS CMK on these parameters. SecureString already encrypts with the AWS-managed key; a CMK bills per key per month and defends against a threat (someone with ssm:GetParameter but not kms:Decrypt) that does not exist here — the only principal that reads them is this Terraform run.
   for_each = local.provider_secrets
 
   name        = "/${local.name}/federation/${replace(each.key, "_", "-")}"
