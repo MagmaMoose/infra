@@ -44,6 +44,7 @@ locals {
 # put a credential that authenticates `/internal/sweep` and every `/v1/admin/*` route into a
 # state file, which is the one place it must not be.
 resource "aws_ssm_parameter" "sweep_admin_token" {
+  # checkov:skip=CKV_AWS_337:No KMS CMK for SSM parameter. The value is a bearer token for an internal endpoint; the AWS-managed key is sufficient and a CMK adds a per-key monthly charge.
   count = local.creates_http_sweep ? 1 : 0
 
   name        = "/${local.name}/sweep/admin-token"
@@ -223,6 +224,7 @@ resource "aws_iam_role_policy" "sweep_poker" {
 }
 
 resource "aws_scheduler_schedule" "sweep_http" {
+  # checkov:skip=CKV_AWS_297:No CMK for EventBridge Scheduler. A CMK bills per key per month; the schedule payload carries no secrets.
   count = local.creates_http_sweep ? 1 : 0
 
   name        = "${local.name}-sweep-http"

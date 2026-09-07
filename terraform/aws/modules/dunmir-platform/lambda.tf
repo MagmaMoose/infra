@@ -274,12 +274,13 @@ locals {
   artifact_key = "${var.artifact_prefix}/${var.artifact_version}.zip"
 }
 
-# checkov:skip=CKV_AWS_173:No KMS CMK for env vars. The secrets are environment variables already; adding a CMK adds cost (per-key monthly charge) with no additional protection against the actual threat model (config drift, not disk compromise).
-# checkov:skip=CKV_AWS_116:No DLQ. The function is invoked synchronously — by API Gateway and by EventBridge Scheduler with a retry policy on the schedule resource — so there is no async failure path that a DLQ could catch.
-# checkov:skip=CKV_AWS_272:No code-signing. No code-signing CA is configured in this account and this is a home-lab product; the immutable S3 key is the integrity mechanism.
-# checkov:skip=CKV_AWS_115:No reserved concurrency. Throttling is done at the API Gateway stage (edge.tf) which is the correct place — reserving concurrency here would only add a second cap without bounding the billing spike.
-# checkov:skip=CKV_AWS_50:X-Ray tracing not enabled. Not cost-justified at this scale and adds per-trace charges.
-resource "aws_lambda_function" "api" {
+# trivy:ignore:AVD-AWS-0066
+resource "aws_lambda_function" "api" { # nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active
+  # checkov:skip=CKV_AWS_173:No KMS CMK for env vars. The secrets are environment variables already; adding a CMK adds cost (per-key monthly charge) with no additional protection against the actual threat model (config drift, not disk compromise).
+  # checkov:skip=CKV_AWS_116:No DLQ. The function is invoked synchronously — by API Gateway and by EventBridge Scheduler with a retry policy on the schedule resource — so there is no async failure path that a DLQ could catch.
+  # checkov:skip=CKV_AWS_272:No code-signing. No code-signing CA is configured in this account and this is a home-lab product; the immutable S3 key is the integrity mechanism.
+  # checkov:skip=CKV_AWS_115:No reserved concurrency. Throttling is done at the API Gateway stage (edge.tf) which is the correct place — reserving concurrency here would only add a second cap without bounding the billing spike.
+  # checkov:skip=CKV_AWS_50:X-Ray tracing not enabled. Not cost-justified at this scale and adds per-trace charges.
   function_name = "${local.name}-api"
   role          = aws_iam_role.lambda.arn
 
@@ -374,8 +375,8 @@ resource "aws_lambda_function" "api" {
 # at all — so the cap always applied and the setting bought nothing. Payload limits are now
 # enforced by the application instead (MAX_REQUEST_BYTES), where the caller gets a 413 that
 # says what happened.
-# checkov:skip=CKV_AWS_258:AuthType NONE is deliberate and safe here. This resource is created only when var.localstack=true (count = var.localstack ? 1 : 0), so it never exists on AWS — nothing outside the local machine can reach a LocalStack container. The comment above the resource explains this in full.
 resource "aws_lambda_function_url" "local" {
+  # checkov:skip=CKV_AWS_258:AuthType NONE is deliberate and safe here. This resource is created only when var.localstack=true (count = var.localstack ? 1 : 0), so it never exists on AWS — nothing outside the local machine can reach a LocalStack container. The comment above the resource explains this in full.
   count = var.localstack ? 1 : 0
 
   function_name      = aws_lambda_function.api.function_name

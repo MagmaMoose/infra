@@ -143,7 +143,7 @@ def aws_cli(*args: str) -> subprocess.CompletedProcess[str]:
     different account's store and reports the pool as not existing, which is a
     confusing way to be told "you did not sign this".
     """
-    return subprocess.run(  # noqa: S603 # nosec B603,B607 - test harness only, fixed command list
+    return subprocess.run(  # nosec B603,B607 # noqa: S603 - test harness only, fixed command list
         ["aws", *args],
         capture_output=True,
         text=True,
