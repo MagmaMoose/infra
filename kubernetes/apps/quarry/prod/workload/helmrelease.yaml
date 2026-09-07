@@ -57,7 +57,7 @@ spec:
       # v0.0.1 is a placeholder until the repo publishes its first release tag --
       # until then the pod ImagePullBackOffs, which is the visible, correct state
       # for "the image does not exist yet".
-      tag: v0.0.7 # {"$imagepolicy": "flux-system:quarry:tag"}
+      tag: v0.0.8 # {"$imagepolicy": "flux-system:quarry:tag"}
       pullPolicy: IfNotPresent
       pullSecrets:
         - name: ghcr-pull-secret
