@@ -35,7 +35,7 @@ inputs = {
   region              = local.region_vars.locals.region
   compartment_ocid    = get_env("OCI_COMPARTMENT_OCID", "")
   environment         = local.environment_vars.locals.environment
-  ssh_public_key_path = "${get_repo_root()}/ansible/keys/id_rsa.pub"
+  ssh_public_key_path = "${get_repo_root()}/ansible/keys/sargeant_oci.pub"
 
   # VCN CIDR - using 192.168.223.0/24 split into 4x /26 subnets
   vcn_cidr_blocks = ["192.168.223.0/24"]

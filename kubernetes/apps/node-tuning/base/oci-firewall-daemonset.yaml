@@ -65,7 +65,12 @@ spec:
             - -c
             - |
               set -eu
-              for c in 10.42.0.0/16 10.43.0.0/16 192.168.19.0/24 192.168.223.0/24; do
+              # EVERY node subnet must be listed. The list is the allowlist: a node whose
+              # subnet is missing has its VXLAN and kubelet traffic DROPped by every OTHER
+              # OCI node, and by its own peers in the same new subnet. 192.168.240.0/24
+              # (ff-oci3/ff-oci4) was added to the cluster without being added here.
+              # Adding an OCI subnet? Add it on this line in the SAME change.
+              for c in 10.42.0.0/16 10.43.0.0/16 192.168.19.0/24 192.168.223.0/24 192.168.240.0/24; do
                 iptables -C INPUT -s "$c" -j ACCEPT 2>/dev/null || iptables -I INPUT 1 -s "$c" -j ACCEPT
               done
               netfilter-persistent save 2>/dev/null || { mkdir -p /etc/iptables; iptables-save > /etc/iptables/rules.v4; }
