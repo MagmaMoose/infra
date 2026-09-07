@@ -1,0 +1,112 @@
+---
+# Stops OCI DHCP injecting a VCN-private search domain into the OCI nodes' resolv.conf.
+#
+# WHY THIS EXISTS: OCI's DHCP hands every instance a `vcnprod.oraclevcn.com` search
+# domain. kubelet copies the node's resolv.conf search list into every pod scheduled on
+# that node, so the domain ends up in the search path of workloads that have nothing to
+# do with OCI. It is a VCN-private zone — only the OCI resolver can answer it — and
+# CoreDNS runs on-prem on ff-pi2, so it forwards the query to an upstream that cannot
+# answer and gets SERVFAIL back.
+#
+# SERVFAIL is not a soft "no". glibc and musl BOTH treat it as fatal and abandon the whole
+# search sequence rather than moving to the next entry, so the resolver never tries the
+# bare name it was asked for. One unanswerable search entry therefore broke every lookup,
+# internal and external, on any pod running on ff-oci3/ff-oci4:
+#
+#   github.com.cluster.local           -> NXDOMAIN  (fine, resolver continues)
+#   github.com.vcnprod.oraclevcn.com   -> SERVFAIL  (resolver gives up here)
+#
+# It presented as an intermittent network fault, not a config bug, because pods that set
+# ndots:1 (nievah) try the bare name FIRST and only fall into the poisoned search list
+# when that first attempt misses. Pods on the ndots:5 default (n8n, recyclarr, dunmir)
+# failed every single time.
+#
+# THIS PLAYBOOK IS THE SECOND HALF OF THE FIX, AND IT IS NOT THE URGENT HALF.
+# kubernetes/apps/node-tuning/base/coredns-oraclevcn-nxdomain.yaml already answers the
+# zone authoritatively with NXDOMAIN, which resolves the symptom cluster-wide and keeps
+# working even when a node is rebuilt and DHCP re-adds the domain. This playbook removes
+# the cause, so the search list on an OCI node matches ff-oci1/ff-oci2, which never
+# carried the domain. Run it when convenient, not under pressure.
+#
+# RISK: `netplan apply` re-applies interface configuration on a host you are reaching
+# OVER that interface. A dhcp4-overrides change should not drop the link, but "should
+# not" is doing real work in that sentence on a node behind a site-to-site tunnel. Run it
+# ONE NODE AT A TIME with --limit, and check the node is back before moving on. Nothing
+# here is urgent enough to justify doing all four at once.
+#
+#   ansible-playbook -i hosts.yaml firefly-oci-resolv-search.yaml --check --diff
+#   ansible-playbook -i hosts.yaml firefly-oci-resolv-search.yaml --limit 192.168.240.71
+- name: Stop OCI DHCP supplying a VCN-private search domain
+  hosts: firefly_cluster_agents
+  gather_facts: true
+  become: true
+  vars:
+    dropin_path: /etc/netplan/99-no-dhcp-search-domains.yaml
+  tasks:
+    # Only the OCI tier gets a search domain from DHCP; the on-prem nodes get
+    # `sargeant.co`, which resolves and is therefore harmless.
+    - name: Skip non-OCI nodes
+      ansible.builtin.meta: end_host
+      when: (k3s_tier | default('')) != 'native-cloud'
+
+    - name: Refuse to run without a discovered default interface
+      ansible.builtin.assert:
+        that:
+          - ansible_default_ipv4 is defined
+          - ansible_default_ipv4.interface is defined
+        fail_msg: >-
+          No default IPv4 interface discovered, so the netplan override cannot be
+          targeted at the right device. Investigate before forcing this.
+
+    - name: Netplan drop-in — ignore DHCP-supplied search domains
+      ansible.builtin.copy:
+        dest: "{{ dropin_path }}"
+        owner: root
+        group: root
+        mode: "0600"
+        content: |
+          # Managed by ansible/firefly-oci-resolv-search.yaml — do not edit by hand.
+          # `use-domains: false` keeps the DHCP-supplied domain out of the resolver
+          # search list. The address, routes and DNS servers still come from DHCP.
+          network:
+            version: 2
+            ethernets:
+              {{ ansible_default_ipv4.interface }}:
+                dhcp4-overrides:
+                  use-domains: false
+      register: netplan_dropin
+
+    - name: Apply the netplan change
+      ansible.builtin.command: netplan apply
+      when: netplan_dropin is changed
+      changed_when: true
+
+    # netplan apply is asynchronous where systemd-resolved is in play, so re-read the
+    # file rather than trusting the command's exit code.
+    - name: Re-read resolv.conf
+      ansible.builtin.slurp:
+        src: /etc/resolv.conf
+      register: resolvconf
+      when: netplan_dropin is changed
+
+    - name: Confirm the VCN search domain is gone
+      ansible.builtin.assert:
+        that:
+          - "'oraclevcn.com' not in (resolvconf.content | b64decode)"
+        success_msg: "Search list is clean — pods scheduled here will inherit it on next start."
+        fail_msg: >-
+          `vcnprod.oraclevcn.com` is STILL in /etc/resolv.conf. netplan is likely not the
+          source on this node (check systemd-resolved, cloud-init, or a dhclient hook)
+          before rerunning. The CoreDNS NXDOMAIN guard is still protecting the cluster,
+          so this is not an outage — do not start improvising on a live node.
+      when: netplan_dropin is changed
+
+    # Existing pods keep the resolv.conf they were created with, so the node only really
+    # matches its new config once they restart.
+    - name: Note that running pods keep their old search list
+      ansible.builtin.debug:
+        msg: >-
+          Pods already running on {{ k3s_node_name | default(inventory_hostname) }} keep
+          the search list they started with. They pick this up when rescheduled; the
+          CoreDNS guard covers them until then.
+      when: netplan_dropin is changed

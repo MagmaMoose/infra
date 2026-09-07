@@ -1,6 +1,7 @@
 ---
 # postgres-oci — a SECOND CloudNativePG cluster, pinned to the OCI native-cloud
-# worker tier (ff-oci1, ff-oci2). Deliberate, documented exception to the
+# worker tier (ff-oci1/ff-oci2, plus ff-oci3/ff-oci4 in the second OCI
+# environment since 2026-09-01). Deliberate, documented exception to the
 # "one shared postgres" rule (COMMON_MISTAKES #3): this is a separate failure
 # domain for always-online, public-facing workloads (e.g. GitHub-App backends),
 # with its own credentials and backup namespace. The shared `postgres` cluster
@@ -14,10 +15,24 @@ metadata:
   name: postgres-oci
   namespace: database-oci
 spec:
-  # Two instances, one per OCI node (see affinity below). A primary + 1 hot
-  # standby with Postgres streaming replication — node-local storage is fine
+  # Four instances, one per OCI node (see affinity below). A primary + 3 hot
+  # standbys with Postgres streaming replication — node-local storage is fine
   # because CNPG replicates at the database layer.
-  instances: 2
+  #
+  # Was 2 (ff-oci1/ff-oci2 only) while the second OCI environment had no usable
+  # path. The CHR WireGuard mesh plus paid CHR licences made ff-oci3/ff-oci4
+  # reachable AND fast on 2026-09-01 (5MB pod-to-pod in 0.34-0.76s, down from
+  # 57s on the free 1 Mbit/s licence), so the cluster now spans both.
+  #
+  # TRADEOFF, know it before a node dies: `podAntiAffinityType: required` on
+  # hostname with 4 instances and exactly 4 eligible nodes leaves ZERO
+  # scheduling headroom. Lose or cordon one OCI node and the displaced instance
+  # stays Pending until that node returns — there is nowhere else it is allowed
+  # to land. The cluster keeps serving on the surviving 3, so this is a
+  # degraded-capacity condition rather than an outage, but it will NOT self-heal
+  # onto a fifth node because there isn't one. Drop to 3 instances if you would
+  # rather have a spare slot than a replica per node.
+  instances: 4
 
   # `critical` (100000), set here for the same reason the affinity below is: a CNPG
   # Cluster is not a Deployment/StatefulSet, so the Kyverno assign-priority-class
@@ -30,8 +45,8 @@ spec:
   # Pin to the OCI tier. CRITICAL: a CNPG Cluster is NOT a Deployment/StatefulSet,
   # so the kustomize node-selectors component does NOT reach it — placement MUST
   # be set here in spec.affinity. nodeSelector keeps every instance on an OCI
-  # node; required pod anti-affinity on hostname spreads the two instances across
-  # ff-oci1 and ff-oci2 (no two replicas on the same node).
+  # node; required pod anti-affinity on hostname spreads the four instances one
+  # per node across ff-oci1..ff-oci4 (no two replicas on the same node).
   affinity:
     nodeSelector:
       topology.sargeant.co/tier: native-cloud

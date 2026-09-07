@@ -54,7 +54,19 @@ inputs = {
   # Use app subnet from network module
   subnet_id                 = dependency.network.outputs.app_subnet_id
   network_security_group_id = dependency.network.outputs.network_security_group_id
-  ssh_public_key_path       = "${get_repo_root()}/ansible/keys/id_rsa.pub"
+  # WAS ansible/keys/id_rsa.pub — a 2048-bit RSA key commented `user@example.com`,
+  # committed to this repo, whose private half is held nowhere we can find. On
+  # ff-oci3/ff-oci4 it was the ONLY authorized key, so those two nodes could not be
+  # reached at all: the real key is added by a later ansible step, and they were never
+  # in the inventory for it to run against. ff-oci1 had both, which is why only half
+  # the fleet looked fine.
+  #
+  # PLAN BEFORE YOU APPLY. metadata["ssh_authorized_keys"] is NOT in the module's
+  # ignore_changes (only source_id and user_data are), so whether this lands in place
+  # or REPLACES the instances is the provider's call, not ours. Read the plan. The
+  # running nodes already have the correct key installed out of band, so there is no
+  # access reason to rush this apply.
+  ssh_public_key_path       = "${get_repo_root()}/ansible/keys/sargeant_oci.pub"
   vcn_id                    = dependency.network.outputs.vcn_id
 
   # Canonical-Ubuntu-24.04-Minimal-aarch64-2025.01.31-1. Same OCID as firefly's
