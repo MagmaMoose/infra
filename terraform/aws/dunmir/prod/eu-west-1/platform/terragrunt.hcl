@@ -210,7 +210,7 @@ inputs = {
 
   # ── social providers ────────────────────────────────────────────────────────────────────────
   #
-  # ALL FALSE UNTIL THE SECRETS ARE IN SSM. This apply creates the parameters with a placeholder
+  # See per-provider comments below. This apply creates the parameters with a placeholder
   # and never writes them again; a provider built from a placeholder is one AWS accepts and
   # Google rejects, which fails at the identity provider with nothing on our side to see.
   #
