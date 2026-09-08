@@ -17,3 +17,14 @@
 # single-file exclude would only ever clear the PR in front of you — the same
 # argument .trivyignore makes for KSV-0040.
 REPOSITORY_KINGFISHER_FILTER_REGEX_EXCLUDE: '(kubernetes/apps/.*/externalsecret\.yaml)'
+
+# kingfisher's "Postgres URL with hardcoded password" also fires on the LocalStack test
+# roots (terraform/aws/localstack*). Those roots use the fixed well-known credentials
+# that LocalStack and the compose Postgres accept from anyone — they are never applied
+# to a real AWS account (file header says so, backend is local). No real secret is
+# committed.
+#
+# REPOSITORY_KINGFISHER_EXCLUDED_DIRECTORIES is not forwarded to kingfisher as --exclude;
+# only the global EXCLUDED_DIRECTORIES is. ARGUMENTS appends directly to the kingfisher
+# command line, bypassing that gap. betterleaks and secretlint still scan these directories.
+REPOSITORY_KINGFISHER_ARGUMENTS: '--exclude terraform/aws/localstack --exclude terraform/aws/localstack-dunmir'
