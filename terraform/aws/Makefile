@@ -146,8 +146,12 @@ dunmir-destroy:
 dunmir-migrate:
 	aws --endpoint-url=$(AWS_ENDPOINT_URL) lambda invoke \
 	  --function-name $$(cd $(DM) && $(TFBIN) output -raw function_name) \
-	  --cli-binary-format raw-in-base64-out --payload '{"task":"migrate"}' /dev/null >/dev/null
-	@echo "schema applied"
+	  --cli-binary-format raw-in-base64-out --payload '{"task":"migrate"}' \
+	  /tmp/dunmir-migrate.json > /tmp/dunmir-migrate-meta.json
+	@jq -e 'has("FunctionError") | not' /tmp/dunmir-migrate-meta.json \
+	  && jq -e '.ok == true' /tmp/dunmir-migrate.json \
+	  && echo "schema applied" \
+	  || { echo "migration FAILED -- see /tmp/dunmir-migrate.json and /tmp/dunmir-migrate-meta.json" >&2; exit 1; }
 
 smoke_dunmir_deps = $(DM)/.outputs.json
 dunmir-smoke:
