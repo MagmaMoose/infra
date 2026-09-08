@@ -7,17 +7,28 @@
 # password position, substituted by external-secrets from OCI Vault at apply time.
 # Nothing secret is committed; the literal in source is the template.
 #
-# The localstack* roots under terraform/aws/ use fixed well-known test credentials that
-# LocalStack and their compose Postgres containers accept from anyone. These roots are
-# never applied to a real AWS account (their header says so and their backend is local).
-# No real secret is committed there either.
-#
-# Scoped to kingfisher only. Every other secret scanner (betterleaks, secretlint) still
-# reads these files, and kingfisher still reads everything else — so a real credential
-# pasted anywhere outside these paths is still caught by two tools.
+# Scoped to kingfisher and to ExternalSecret manifests. Every other secret scanner
+# (betterleaks, secretlint) still reads these files, and kingfisher still reads
+# everything else — so a real credential pasted anywhere, including into one of
+# these files as a plain value rather than a template, is still caught by two tools.
 #
 # Repo-wide rather than per-file on purpose: the identical line exists in
 # github-contributions, github-timesheet, github-usage-dashboard and quarry, so a
 # single-file exclude would only ever clear the PR in front of you — the same
 # argument .trivyignore makes for KSV-0040.
-REPOSITORY_KINGFISHER_FILTER_REGEX_EXCLUDE: '(kubernetes/apps/.*/externalsecret\.yaml|terraform/aws/localstack[^/]*)'
+REPOSITORY_KINGFISHER_FILTER_REGEX_EXCLUDE: '(kubernetes/apps/.*/externalsecret\.yaml)'
+
+# kingfisher's "Postgres URL with hardcoded password" also fires on the LocalStack test
+# roots (terraform/aws/localstack*). Those roots use the fixed well-known credentials
+# that LocalStack and the compose Postgres accept from anyone — they are never applied
+# to a real AWS account (file header says so, backend is local). No real secret is
+# committed.
+#
+# Forwarded to kingfisher as --exclude flags (via FORWARD_EXCLUDED_DIRECTORIES),
+# so the paths are absent from kingfisher's raw SARIF and therefore invisible to
+# chargate's net-new comparison. betterleaks and secretlint still scan these directories
+# — kingfisher is the only scanner that cannot distinguish a test credential from a real
+# one in a URL-shaped field.
+REPOSITORY_KINGFISHER_EXCLUDED_DIRECTORIES:
+  - terraform/aws/localstack
+  - terraform/aws/localstack-dunmir
