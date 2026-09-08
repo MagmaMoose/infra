@@ -24,11 +24,7 @@ REPOSITORY_KINGFISHER_FILTER_REGEX_EXCLUDE: '(kubernetes/apps/.*/externalsecret\
 # to a real AWS account (file header says so, backend is local). No real secret is
 # committed.
 #
-# Forwarded to kingfisher as --exclude flags (via FORWARD_EXCLUDED_DIRECTORIES),
-# so the paths are absent from kingfisher's raw SARIF and therefore invisible to
-# chargate's net-new comparison. betterleaks and secretlint still scan these directories
-# — kingfisher is the only scanner that cannot distinguish a test credential from a real
-# one in a URL-shaped field.
-REPOSITORY_KINGFISHER_EXCLUDED_DIRECTORIES:
-  - terraform/aws/localstack
-  - terraform/aws/localstack-dunmir
+# REPOSITORY_KINGFISHER_EXCLUDED_DIRECTORIES is not forwarded to kingfisher as --exclude;
+# only the global EXCLUDED_DIRECTORIES is. ARGUMENTS appends directly to the kingfisher
+# command line, bypassing that gap. betterleaks and secretlint still scan these directories.
+REPOSITORY_KINGFISHER_ARGUMENTS: '--exclude terraform/aws/localstack --exclude terraform/aws/localstack-dunmir'
