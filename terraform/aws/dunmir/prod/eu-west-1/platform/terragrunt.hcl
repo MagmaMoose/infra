@@ -210,7 +210,7 @@ inputs = {
 
   # ── social providers ────────────────────────────────────────────────────────────────────────
   #
-  # ALL FALSE UNTIL THE SECRETS ARE IN SSM. This apply creates the parameters with a placeholder
+  # See per-provider comments below. This apply creates the parameters with a placeholder
   # and never writes them again; a provider built from a placeholder is one AWS accepts and
   # Google rejects, which fails at the identity provider with nothing on our side to see.
   #
@@ -226,7 +226,12 @@ inputs = {
   # managing `supported_identity_providers` once the application has written to it (see the
   # `ignore_changes` in identity.tf — without it, an apply strips every customer's own
   # connection). The `sso_reconcile_hint` output is the one command that closes that gap.
-  enable_google_signin    = false
+  # GOOGLE IS ON. Its two SSM parameters were filled in on 2026-09-08 and the
+  # redirect URI is registered at Google; the other two providers stay off until
+  # theirs are, because a provider built from the placeholder value is one AWS
+  # accepts and the provider rejects — which fails at their end, on their page,
+  # in their wording.
+  enable_google_signin    = true
   enable_microsoft_signin = false
   enable_amazon_signin    = false
   # APPLE NEEDS A PAID APPLE DEVELOPER ACCOUNT for the Services ID and the .p8 key. There is no
