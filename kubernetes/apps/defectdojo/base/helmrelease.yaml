@@ -115,7 +115,7 @@ spec:
         resources:
           requests:
             cpu: 10m
-            memory: 768Mi
+            memory: 800Mi
           limits:
             memory: 2Gi
       nginx:
