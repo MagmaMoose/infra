@@ -131,7 +131,7 @@ data:
             for t in (proj.get("tags") or [])
         ]
         repo = next(
-            (t.split(":", 1)[1] for t in tags if t.lower().startswith("repo:") and ":" in t),
+            (t.split(":", 1)[1].split("/")[-1] for t in tags if t.lower().startswith("repo:") and ":" in t),
             None,
         )
         name = proj.get("name") or ""
