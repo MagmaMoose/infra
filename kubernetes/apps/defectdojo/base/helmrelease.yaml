@@ -122,8 +122,15 @@ spec:
         - name: DD_UWSGI_NUM_THREADS
           value: "2"
         # Accept the internal host too (chart derives ALLOWED_HOSTS from `host`).
+        # The in-cluster service DNS is NOT optional here: anything calling DefectDojo
+        # over the Service rather than the ingress sends that name as the Host header,
+        # and Django answers `400 DisallowedHost` to every such request. dt-defectdojo-sync
+        # hit exactly this — it posted to defectdojo-django.security.svc.cluster.local,
+        # got 400 on all 38 projects, and still exited 0, so the CronJob showed Complete
+        # while syncing nothing for as long as it has existed. Short forms included
+        # because a caller may use any of them.
         - name: DD_ALLOWED_HOSTS
-          value: "defectdojo.magmamoose.com,defectdojo.sargeant.local,localhost"
+          value: "defectdojo.magmamoose.com,defectdojo.sargeant.local,localhost,defectdojo-django,defectdojo-django.security,defectdojo-django.security.svc,defectdojo-django.security.svc.cluster.local"
         - name: DD_CSRF_TRUSTED_ORIGINS
           value: "https://defectdojo.magmamoose.com,https://defectdojo.sargeant.local"
 
