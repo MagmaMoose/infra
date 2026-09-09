@@ -11,13 +11,6 @@ spec:
   # up TEN SECONDS before Kubernetes would, and only on the slow boots: exactly the
   # ones where Dependency-Track is mirroring vulnerability data at startup.
   #
-  # The failure then compounds. Helm tries to roll back, finds no deployed release
-  # in its history (every entry is 'failed'), and stalls with MissingRollbackTarget,
-  # which Flux cannot self-heal. This release sat Failed from 2026-08-04 until it was
-  # noticed on 2026-09-09, and because prod-security-integrations depends on
-  # prod-dependency-track being healthy, NOTHING in either could be applied for five
-  # weeks — including the fixes that were supposed to land there.
-  #
   # 15m is deliberate margin over the 310s probe budget, not a tuned value: a
   # timeout that merely beats the current boot time would re-break the moment a
   # mirror runs long.
