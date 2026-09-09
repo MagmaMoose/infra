@@ -96,17 +96,28 @@ spec:
       uwsgi:
         autoscaling:
           enabled: false
-        # DefectDojo's Django baseline is ~445Mi at idle with 2 uwsgi processes,
-        # so the old 512Mi limit OOM-killed uwsgi the instant the post-login
-        # dashboard (`/`) loaded — surfacing as a 502 from the in-pod nginx.
-        # ff-vm1 has ~10Gi free; give real headroom. No CPU limit (house
-        # convention: CPU requests only — limits cause false CFS-throttle alerts).
+        # Memory here has been raised twice, both times after an OOM, and the
+        # failure is never obviously "out of memory":
+        #   512Mi -> 1Gi: the Django baseline was ~445Mi at idle with 2 uwsgi
+        #     processes, so loading the post-login dashboard (`/`) OOM-killed
+        #     uwsgi and surfaced as a 502 from the in-pod nginx.
+        #   1Gi -> 2Gi: idle has since grown to ~786Mi as the finding count grew,
+        #     leaving no room for a reimport. uwsgi was OOMKilled 22 times in three
+        #     days (exit 137), which failed the readiness and liveness probes, which
+        #     made `helm upgrade --wait` time out, which stalled the HelmRelease with
+        #     RetriesExceeded, which left prod-security-integrations blocked on an
+        #     unhealthy dependency. Nothing in that chain says "memory".
+        # Idle is the wrong thing to size against: an import holds the whole report
+        # in memory, so the limit has to cover the peak, not the baseline. The oci
+        # nodes sit at 40-60% memory, so this is headroom that exists.
+        # No CPU limit (house convention: CPU requests only — limits cause false
+        # CFS-throttle alerts).
         resources:
           requests:
             cpu: 10m
-            memory: 512Mi
+            memory: 768Mi
           limits:
-            memory: 1Gi
+            memory: 2Gi
       nginx:
         resources:
           requests:
