@@ -21,10 +21,6 @@ metadata:
     # python:3.13-alpine is kept current by Renovate; pinning a digest adds
     # churn for a scheduled in-cluster task on a home-lab account.
     checkov.io/skip3: CKV_K8S_43=python:3.13-alpine kept current by Renovate; digest pinning not warranted for this home-lab scheduled task.
-    # http:// is correct for this address: the dependency-track-api-server Service
-    # is an in-cluster endpoint and TLS is not configured for pod-to-pod traffic
-    # within the cluster.
-    checkov.io/skip4: DS137138=http:// is correct for the in-cluster dependency-track-api-server service; TLS not configured for pod-to-pod traffic.
 spec:
   # :15 past, to stay clear of dt-defectdojo-sync at :00.
   schedule: "15 * * * *"
@@ -59,7 +55,7 @@ spec:
               command: ["python", "/scripts/reconcile.py"]
               env:
                 - name: DT_URL
-                  value: http://dependency-track-api-server.security.svc.cluster.local:8080
+                  value: http://dependency-track-api-server.security.svc.cluster.local:8080  # DevSkim: ignore DS137138 - in-cluster svc, TLS not configured for pod-to-pod traffic
                 - name: DT_API_KEY
                   valueFrom:
                     secretKeyRef:
