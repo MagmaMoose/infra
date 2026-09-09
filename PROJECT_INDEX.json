@@ -1,6 +1,6 @@
 {
-  "generated": "2026-09-02T00:00:00Z",
-  "summary": "Monolithic infrastructure-as-code repo for a Raspberry Pi home lab plus multi-cloud (GCP/OCI/Cloudflare). Terragrunt-wrapped Terraform provisions cloud, Ansible bootstraps systems, FluxCD reconciles TWO k3s clusters: 'firefly' (Pi + OCI nodes) and 'franklinhouse' (6 VMs on a 3-node Proxmox cluster, folded in from calebsargeant/infra-v2 on 2026-08-13).",
+  "generated": "2026-09-09T00:00:00Z",
+  "summary": "Monolithic infrastructure-as-code repo for a Raspberry Pi home lab plus multi-cloud (GCP/OCI/Cloudflare/AWS). Terragrunt-wrapped Terraform provisions cloud, Ansible bootstraps systems, FluxCD reconciles TWO k3s clusters: 'firefly' (Pi + OCI nodes) and 'franklinhouse' (6 VMs on a 3-node Proxmox cluster, folded in from calebsargeant/infra-v2 on 2026-08-13).",
   "entrypoints": [
     "kubernetes/clusters/firefly/kustomization.yaml",
     "kubernetes/clusters/firefly/flux-system/",
@@ -82,6 +82,7 @@
       "path": "kubernetes/apps/",
       "purpose": "Per-app manifests. Each app has base/<app>/ (kustomize manifests) + prod/<app>/ (Flux Kustomization CR). NOTE: every app in kubernetes/apps/kustomization.yaml is firefly's. access-control is franklinhouse-only and absent from that aggregator; github-runner has a separate franklinhouse-prod/ sibling that franklinhouse references directly.",
       "apps": [
+        "afas-declaraties",
         "atlantis",
         "authentik",
         "bazarr",
@@ -91,7 +92,7 @@
         "defectdojo",
         "dependency-track",
         "deskbird-booking",
-        "dunmir-pro",
+        "dunmir",
         "excalidraw",
         "falco",
         "finance",
@@ -114,6 +115,7 @@
         "kyverno-policies",
         "litellm",
         "loki",
+        "mem0",
         "n8n",
         "n8n-mcp",
         "nextcloud",
@@ -137,6 +139,7 @@
         "sonarr",
         "streaming-sync",
         "syncthing",
+        "system-upgrade-controller",
         "thanos-compactor",
         "thanos-query",
         "thanos-store",
@@ -144,6 +147,7 @@
         "trivy-operator",
         "wordpress"
       ],
+      "notes": "access-control is franklinhouse-only and absent from kubernetes/apps/kustomization.yaml. mem0 directory exists but is commented out of kustomization.yaml (pending OCI Vault entries mem0-admin-api-key and mem0-jwt-secret).",
       "depends_on": [
         "kubernetes-components",
         "kubernetes-infrastructure"
@@ -205,7 +209,7 @@
       "purpose": "Custom container images built from this repo",
       "images": [
         "atlantis-firefly",
-        "git-pull-request-dashboard",
+        "mem0-server",
         "n8n",
         "openfortivpn",
         "wordpress-postgres"
@@ -227,6 +231,7 @@
         "brimyr/ (brimyr-broker, artifacts leaves; own provider.hcl)",
         "chargate/ (chargate-broker, artifacts leaves; own provider.hcl)",
         "diatreme/ (diatreme-broker, artifacts leaves; own provider.hcl)",
+        "dunmir/ (platform, artifacts leaves in eu-west-1; own provider.hcl + environment.hcl)",
         "prod/ (nievah-frontdoor, caldrith-frontdoor, caldrith-artifacts, cost-report, artifacts — default account)"
       ],
       "shared_modules": [
@@ -235,9 +240,10 @@
         "modules/cost-report",
         "modules/caldrith-frontdoor",
         "modules/chargate-broker",
-        "modules/diatreme-broker"
+        "modules/diatreme-broker",
+        "modules/dunmir-platform"
       ],
-      "notes": "brimyr-broker reuses the chargate-broker module (parameterised on oidc_audience). localstack/ is NOT a Terragrunt leaf — run 'docker compose up -d' then 'terraform apply' inside it for local smoke tests.",
+      "notes": "brimyr-broker reuses the chargate-broker module (parameterised on oidc_audience). localstack/ and localstack-dunmir/ are NOT Terragrunt leaves — run 'docker compose up -d' then 'terraform apply' inside each for local smoke tests.",
       "depends_on": [
         "terraform-cloudflare"
       ]
