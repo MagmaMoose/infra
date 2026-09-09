@@ -130,7 +130,7 @@ spec:
         # while syncing nothing for as long as it has existed. Short forms included
         # because a caller may use any of them.
         - name: DD_ALLOWED_HOSTS
-          value: "defectdojo.magmamoose.com,defectdojo.sargeant.local,localhost,defectdojo-django,defectdojo-django.security,defectdojo-django.security.svc,defectdojo-django.security.svc.cluster.local"
+          value: "defectdojo.magmamoose.com,defectdojo.sargeant.local,localhost,defectdojo-django,defectdojo-django.security,defectdojo-django.security.svc,defectdojo-django.security.svc.cluster.local" # DevSkim: ignore DS162092 — localhost is a valid ALLOWED_HOSTS entry for Django health probes, not debug code
         - name: DD_CSRF_TRUSTED_ORIGINS
           value: "https://defectdojo.magmamoose.com,https://defectdojo.sargeant.local"
 
