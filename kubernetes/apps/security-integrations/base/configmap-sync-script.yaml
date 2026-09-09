@@ -30,6 +30,7 @@ data:
     import json
     import logging
     import os
+    import re
     import sys
 
     logging.basicConfig(level=logging.INFO, format="dt-sync: %(message)s")
@@ -109,6 +110,45 @@ data:
         return token.key
 
 
+    def dd_target(proj):
+        """(DefectDojo product, Test title) for a Dependency-Track project.
+
+        One product per REPO, not per Dependency-Track project. A repo produces two
+        kinds of SBOM that Dependency-Track must keep apart, because they are
+        different component sets: Chargate's source dependencies
+        (`MagmaMoose/draventis`) and Diatreme's assembled image
+        (`magmamoose/draventis (image)`). DefectDojo has no such constraint, and
+        splitting one repo across two products means neither view is the repo's real
+        risk.
+
+        Prefers a `repo:<name>` tag on the project, which the uploaders set. Falls
+        back to deriving the name, so this works on projects uploaded before tagging
+        existed and keeps working if a tag is ever missing: an ugly product name is
+        much better than a wrong one.
+        """
+        tags = [
+            (t.get("name") if isinstance(t, dict) else t) or ""
+            for t in (proj.get("tags") or [])
+        ]
+        repo = next(
+            (t.split(":", 1)[1].split("/")[-1] for t in tags if t.lower().startswith("repo:") and ":" in t),
+            None,
+        )
+        name = proj.get("name") or ""
+        is_image = name.rstrip().endswith("(image)")
+        if not repo:
+            repo = re.sub(r"\s*\(image\)$", "", name).split("/")[-1]
+        # The title carries the project name AND version, because both can repeat
+        # within one product. A repo building several images (dunmir-agent /
+        # -backend / -frontend) needs one Test per image, and an image project keeps
+        # one Dependency-Track version per release, so the version has to be in there
+        # too. Leave either out and `close_old_findings` makes the imports close each
+        # other's findings, which looks exactly like the vulnerabilities being fixed.
+        kind = "image" if is_image else "source"
+        version = proj.get("version") or "-"
+        return repo.strip().lower(), f"Dependency-Track ({kind}): {name} @ {version}"
+
+
     def dt_projects():
         out, page, size = [], 1, 100
         while True:
@@ -137,12 +177,20 @@ data:
         return resp.content
 
 
-    def dd_reimport(token, product_name, fpf_bytes):
+    def dd_reimport(token, product_name, fpf_bytes, test_title):
         data = {
             "scan_type": "Dependency Track Finding Packaging Format (FPF) Export",
             "product_type_name": PRODUCT_TYPE,
             "product_name": product_name,
             "engagement_name": ENGAGEMENT,
+            # DefectDojo resolves a Test by (engagement, scan_type, test_title), and
+            # `close_old_findings` closes everything in that Test which the new report
+            # does not contain. Several Dependency-Track projects now map to ONE
+            # product, so without a distinct title per project they would share a Test
+            # and each import would close the previous one's findings — the source scan
+            # wiping the image scan every hour, and back. The title is the thing that
+            # keeps them apart.
+            "test_title": test_title,
             "auto_create_context": "true",
             "active": "true",
             "close_old_findings": "true",
@@ -230,8 +278,9 @@ data:
             if not name or not uuid:
                 continue
             try:
-                dd_reimport(token, name, dt_export_fpf(uuid))
-                log.info("[%s] imported into DefectDojo", label)
+                product, test_title = dd_target(proj)
+                dd_reimport(token, product, dt_export_fpf(uuid), test_title)
+                log.info("[%s] imported into DefectDojo product %r", label, product)
                 if targets and name not in pushed_products and (MAX_ISSUES - issues) > 0:
                     pushed_products.add(name)
                     repo = resolve_repo(name, targets)
