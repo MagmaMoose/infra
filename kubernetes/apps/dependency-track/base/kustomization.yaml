@@ -3,7 +3,10 @@ kind: Kustomization
 # No top-level `namespace:` — the app runs in `security`, but the CNPG Database
 # CR lives in `database`; each resource carries its own metadata.namespace.
 resources:
+  - configmap-config-reconcile.yaml
+  - cronjob-config-reconcile.yaml
   - database.yaml
+  - externalsecret-config.yaml
   - externalsecret-db.yaml
   - externalsecret-oidc.yaml
   - externalsecret-secretkey.yaml

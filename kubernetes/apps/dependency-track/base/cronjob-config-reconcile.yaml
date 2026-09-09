@@ -1,0 +1,71 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  # Re-applies the analyzer config in configmap-config-reconcile.yaml.
+  #
+  # A CronJob rather than an init container because these settings go in over the
+  # REST API, which needs the API server already running — an init container runs
+  # before it exists. A schedule also makes this self-healing: a change made by
+  # hand in Administration is reverted at the top of the next hour, so the
+  # ConfigMap stays the honest source of truth.
+  name: dependency-track-config-reconcile
+  namespace: security
+spec:
+  # :15 past, to stay clear of dt-defectdojo-sync at :00.
+  schedule: "15 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels:
+            app: dependency-track-config-reconcile
+        spec:
+          restartPolicy: Never
+          nodeSelector:
+            node-role.kubernetes.io/worker: ""
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+          containers:
+            - name: reconcile
+              # Stdlib-only script (urllib + json), so any Python image will do.
+              image: python:3.13-alpine
+              imagePullPolicy: IfNotPresent
+              command: ["python", "/scripts/reconcile.py"]
+              env:
+                - name: DT_URL
+                  value: http://dependency-track-api-server.security.svc.cluster.local:8080
+                - name: DT_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: dependency-track-config
+                      key: DT_API_KEY
+              volumeMounts:
+                - name: config
+                  mountPath: /scripts
+                  readOnly: true
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: config
+              configMap:
+                name: dependency-track-config-reconcile
+                defaultMode: 0555
