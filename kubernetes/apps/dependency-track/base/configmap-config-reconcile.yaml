@@ -1,0 +1,163 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # Declarative source of truth for Dependency-Track's vulnerability sources.
+  #
+  # These settings live in Dependency-Track's DATABASE, not in the Helm chart, and
+  # the only way in is the REST API or the Administration UI. That makes them the
+  # one part of this stack that a rebuild silently loses, and it is not a
+  # theoretical risk: the server ran for months with OSV and GitHub Advisories off
+  # and nobody could tell, because Dependency-Track reports "0 vulnerabilities" for
+  # a project it cannot match just as happily as for a clean one.
+  #
+  # `desired.json` below is the whole contract. Edit that, not the UI: the CronJob
+  # re-applies it hourly, so a change made by hand in Administration is reverted at
+  # the top of the next hour.
+  name: dependency-track-config-reconcile
+  namespace: security
+data:
+  # Why these, specifically.
+  #
+  # Dependency-Track's INTERNAL analyzer matches NVD records by CPE. Ecosystem
+  # advisories for PyPI / npm / Go are purl-keyed and usually carry no usable CPE,
+  # so with NVD alone the server holds the CVE, holds the component, and never
+  # connects them. Measured on this org's own SBOMs: 3 findings with NVD only,
+  # 66 once OSV and GitHub Advisories were on, against 1344 identical components.
+  # golang.org/x/net v0.26.0 went from 0 to 3 — CVE-2024-45338 was in the database
+  # the whole time.
+  #
+  # OSV ecosystems are the ones this org actually ships, not all 46: the language
+  # ecosystems for source SBOMs, plus the container-base ones (Alpine, Debian,
+  # Ubuntu, Red Hat, AlmaLinux, Rocky, Wolfi, Chainguard) because Diatreme pushes
+  # assembled-image SBOMs to the same server. Adding an ecosystem is one word here.
+  #
+  # NOTE the separator is a SEMICOLON. `google.osv.enabled` is not a boolean — it
+  # holds the ecosystem LIST, and a comma-separated value is read as one unknown
+  # ecosystem name, which disables OSV while looking enabled. Verify a change with
+  # `GET /api/v1/integration/osv/ecosystem/inactive`: 46 inactive means nothing is
+  # mirroring.
+  desired.json: |
+    {
+      "vuln-source.google.osv.enabled": "Go;PyPI;npm;GitHub Actions;Maven;NuGet;RubyGems;Packagist;crates.io;Hex;Pub;Alpine;Debian;Ubuntu;Red Hat;AlmaLinux;Rocky Linux;Wolfi;Chainguard",
+      "vuln-source.google.osv.alias.sync.enabled": "true",
+      "vuln-source.github.advisories.enabled": "true",
+      "vuln-source.nvd.enabled": "true",
+      "vuln-source.epss.enabled": "true",
+      "scanner.internal.enabled": "true",
+      "scanner.ossindex.enabled": "true"
+    }
+
+  reconcile.py: |
+    """Reconcile Dependency-Track's config properties towards desired.json.
+
+    Idempotent: reads current values, writes only what differs, exits 0 when
+    already correct. Safe to run on a schedule.
+
+    Deliberately does NOT manage secrets. The GitHub Advisory access token is a
+    credential and belongs in OCI Vault, not in a ConfigMap in a public repo; this
+    script only warns when a source is enabled without the token it needs, which is
+    otherwise a silent no-op (the mirror is "enabled" and fails every sync).
+    """
+
+    import json
+    import os
+    import sys
+    import urllib.error
+    import urllib.request
+
+    DT_URL = os.environ["DT_URL"].rstrip("/")
+    API_KEY = os.environ["DT_API_KEY"]
+    DESIRED = json.load(open("/config/desired.json"))
+
+    # Semicolon-separated LIST properties. Dependency-Track returns these in its own
+    # order, which is not the order they were written in, so a plain string compare
+    # reports a difference on every run and the reconciler rewrites the property
+    # hourly for ever. Compare the set instead, and only write a genuine change.
+    LIST_PROPERTIES = {"vuln-source.google.osv.enabled"}
+
+
+    def equivalent(key, have, want):
+        if key in LIST_PROPERTIES:
+            split = lambda v: {p.strip() for p in str(v or "").split(";") if p.strip()}
+            return split(have) == split(want)
+        return str(have) == str(want)
+
+
+    def call(path, payload=None):
+        req = urllib.request.Request(
+            f"{DT_URL}/api/v1/{path}",
+            data=json.dumps(payload).encode() if payload is not None else None,
+            method="POST" if payload is not None else "GET",
+        )
+        req.add_header("X-Api-Key", API_KEY)
+        req.add_header("Accept", "application/json")
+        if payload is not None:
+            req.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            return json.loads(body) if body.strip() else None
+
+
+    try:
+        props = call("configProperty")
+    except urllib.error.HTTPError as exc:
+        sys.exit(f"dt-config: GET /configProperty -> HTTP {exc.code} (key needs SYSTEM_CONFIGURATION)")
+    except urllib.error.URLError as exc:
+        sys.exit(f"dt-config: Dependency-Track unreachable: {exc}")
+
+    current = {f"{p['groupName']}.{p['propertyName']}": p for p in props}
+
+    unknown = [k for k in DESIRED if k not in current]
+    if unknown:
+        # A renamed property must not be applied silently as a no-op.
+        sys.exit(f"dt-config: property name(s) not present on this server: {unknown}")
+
+    payload = []
+    for key, want in DESIRED.items():
+        have = current[key].get("propertyValue")
+        if not equivalent(key, have, want):
+            print(f"dt-config: {key}: {have!r} -> {want!r}")
+            payload.append(
+                {
+                    "groupName": current[key]["groupName"],
+                    "propertyName": current[key]["propertyName"],
+                    "propertyValue": want,
+                }
+            )
+
+    if payload:
+        call("configProperty/aggregate", payload)
+        print(f"dt-config: applied {len(payload)} change(s)")
+    else:
+        print(f"dt-config: already correct ({len(DESIRED)} properties)")
+
+    # Enabled-but-unusable checks. Each of these is a source that reports no error
+    # and mirrors nothing, which is indistinguishable from "no vulnerabilities".
+    gh_token = (current.get("vuln-source.github.advisories.access.token") or {}).get("propertyValue")
+    if DESIRED.get("vuln-source.github.advisories.enabled") == "true" and not gh_token:
+        print(
+            "::warning::dt-config: GitHub Advisories is enabled but has no access token. "
+            "Its mirror uses GitHub's GraphQL API and will fail every sync. Set one in "
+            "Administration -> Vulnerability Sources (a classic PAT with NO scopes is enough), "
+            "and store it in OCI Vault so a rebuild does not lose it."
+        )
+
+    osv = DESIRED.get("vuln-source.google.osv.enabled", "")
+    if osv and "," in osv:
+        print(
+            "::warning::dt-config: the OSV ecosystem list contains a comma. The separator is "
+            "a SEMICOLON; a comma-separated value is read as one unknown ecosystem and OSV "
+            "mirrors nothing while appearing enabled."
+        )
+    if osv:
+        try:
+            inactive = call("integration/osv/ecosystem/inactive")
+            available = call("integration/osv/ecosystem")
+            if isinstance(inactive, list) and isinstance(available, list) and len(inactive) == len(available):
+                print(
+                    f"::warning::dt-config: OSV is configured but ALL {len(available)} ecosystems "
+                    "are inactive, so it will mirror nothing. Check the names in desired.json "
+                    "against GET /api/v1/integration/osv/ecosystem."
+                )
+        except (urllib.error.HTTPError, urllib.error.URLError):
+            pass  # advisory check only; never fail the reconcile on it

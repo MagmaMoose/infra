@@ -1,0 +1,88 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  # Re-applies the analyzer config in configmap-config-reconcile.yaml.
+  #
+  # A CronJob rather than an init container because these settings go in over the
+  # REST API, which needs the API server already running — an init container runs
+  # before it exists. A schedule also makes this self-healing: a change made by
+  # hand in Administration is reverted at the top of the next hour, so the
+  # ConfigMap stays the honest source of truth.
+  name: dependency-track-config-reconcile
+  namespace: security
+  annotations:
+    # CPU limits are omitted estate-wide; see .trivyignore KSV-0011 and the
+    # Kyverno default-limitrange. Memory is limited.
+    checkov.io/skip1: CKV_K8S_11=CPU limits are unset estate-wide by decision; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited.
+    # DT_API_KEY must arrive as an env var: the reconcile script is stdlib-only
+    # and reads from the environment; there is no file-based credential path
+    # without rewriting it.
+    checkov.io/skip2: CKV_K8S_35=DT_API_KEY must be an env var; the stdlib-only reconcile script has no file-based credential path.
+    # python:3.13-alpine is kept current by Renovate; pinning a digest adds
+    # churn for a scheduled in-cluster task on a home-lab account.
+    checkov.io/skip3: CKV_K8S_43=python:3.13-alpine kept current by Renovate; digest pinning not warranted for this home-lab scheduled task.
+spec:
+  # :15 past, to stay clear of dt-defectdojo-sync at :00.
+  schedule: "15 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels:
+            app: dependency-track-config-reconcile
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          nodeSelector:
+            node-role.kubernetes.io/worker: ""
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: reconcile
+              # Stdlib-only script (urllib + json), so any Python image will do.
+              image: python:3.13-alpine
+              imagePullPolicy: Always
+              command: ["python", "/scripts/reconcile.py"]
+              env:
+                - name: DT_URL
+                  value: http://dependency-track-api-server.security.svc.cluster.local:8080  # DevSkim: ignore DS137138 - in-cluster svc, TLS not configured for pod-to-pod traffic
+                - name: DT_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: dependency-track-config
+                      key: DT_API_KEY
+              volumeMounts:
+                - name: config
+                  mountPath: /scripts
+                  readOnly: true
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+                seccompProfile:
+                  type: RuntimeDefault
+          volumes:
+            - name: config
+              configMap:
+                name: dependency-track-config-reconcile
+                defaultMode: 0555
