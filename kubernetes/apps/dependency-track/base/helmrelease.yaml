@@ -5,6 +5,16 @@ metadata:
   namespace: security
 spec:
   interval: 10m
+  # Helm must be willing to wait longer than the pod is allowed to take, and by
+  # default it is not. The api-server's startupProbe permits 310s (10s initial +
+  # 30 x 10s), while an unset HelmRelease timeout defaults to 300s — so Helm gives
+  # up TEN SECONDS before Kubernetes would, and only on the slow boots: exactly the
+  # ones where Dependency-Track is mirroring vulnerability data at startup.
+  #
+  # 15m is deliberate margin over the 310s probe budget, not a tuned value: a
+  # timeout that merely beats the current boot time would re-break the moment a
+  # mirror runs long.
+  timeout: 15m
   chart:
     spec:
       chart: dependency-track
