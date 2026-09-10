@@ -9,9 +9,9 @@ resources:
   - cronjob-version-retention.yaml
   - database.yaml
   - externalsecret-config.yaml
-  - externalsecret-retention.yaml
   - externalsecret-db.yaml
   - externalsecret-oidc.yaml
+  - externalsecret-retention.yaml
   - externalsecret-secretkey.yaml
   - helmrelease.yaml
   - ingress.yaml

@@ -60,7 +60,8 @@ data:
 
     DT_URL = os.environ["DT_URL"].rstrip("/")
     API_KEY = os.environ["DT_API_KEY"]
-    CFG = json.load(open("/config/retention.json"))
+    with open("/config/retention.json") as _f:
+        CFG = json.load(_f)
     KEEP = int(CFG.get("keep", 5))
     PROTECTED = {v.lower() for v in CFG.get("protect_versions", [])}
     DRY_RUN = bool(CFG.get("dry_run", False))
@@ -78,12 +79,22 @@ data:
             return json.loads(body) if body.strip() else None
 
 
-    try:
-        projects = call("project?pageSize=1000")
-    except urllib.error.HTTPError as exc:
-        sys.exit(f"dt-retention: GET /project -> HTTP {exc.code} (key needs VIEW_PORTFOLIO)")
-    except urllib.error.URLError as exc:
-        sys.exit(f"dt-retention: Dependency-Track unreachable: {exc}")
+    PAGE_SIZE = 500
+    projects = []
+    page = 1
+    while True:
+        try:
+            batch = call(f"project?pageSize={PAGE_SIZE}&pageNumber={page}")
+        except urllib.error.HTTPError as exc:
+            sys.exit(f"dt-retention: GET /project page {page} -> HTTP {exc.code} (key needs VIEW_PORTFOLIO)")
+        except urllib.error.URLError as exc:
+            sys.exit(f"dt-retention: Dependency-Track unreachable: {exc}")
+        if not batch:
+            break
+        projects.extend(batch)
+        if len(batch) < PAGE_SIZE:
+            break
+        page += 1
 
     by_name = defaultdict(list)
     for p in projects:
@@ -125,7 +136,7 @@ data:
             print(f"dt-retention: deleted {p['name']} @ {p.get('version')}")
         except urllib.error.HTTPError as exc:
             failed += 1
-            print(f"::warning::dt-retention: {p['name']} @ {p.get('version')} -> HTTP {exc.code}")
+            print(f"dt-retention: WARN {p['name']} @ {p.get('version')} -> HTTP {exc.code}")
     if failed:
         # A key without PORTFOLIO_MANAGEMENT fails every delete and would otherwise
         # look like a clean run that simply found nothing.

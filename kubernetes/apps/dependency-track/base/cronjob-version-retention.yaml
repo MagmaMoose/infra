@@ -9,6 +9,17 @@ metadata:
   # delete something within minutes of a mistaken config change.
   name: dependency-track-version-retention
   namespace: security
+  annotations:
+    # CPU limits are omitted estate-wide; see .trivyignore KSV-0011 and the
+    # Kyverno default-limitrange. Memory is limited.
+    checkov.io/skip1: CKV_K8S_11=CPU limits are unset estate-wide by decision; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited.
+    # DT_API_KEY must arrive as an env var: the retention script is stdlib-only
+    # and reads from the environment; there is no file-based credential path
+    # without rewriting it.
+    checkov.io/skip2: CKV_K8S_35=DT_API_KEY must be an env var; the stdlib-only retention script has no file-based credential path.
+    # python:3.13-alpine is kept current by Renovate; pinning a digest adds
+    # churn for a scheduled in-cluster task on a home-lab account.
+    checkov.io/skip3: CKV_K8S_43=python:3.13-alpine kept current by Renovate; digest pinning not warranted for this home-lab scheduled task.
 spec:
   # 03:20, well clear of the hourly sync and the :15 config reconcile.
   schedule: "20 3 * * *"
@@ -26,19 +37,23 @@ spec:
             app: dependency-track-version-retention
         spec:
           restartPolicy: Never
+          automountServiceAccountToken: false
           nodeSelector:
             node-role.kubernetes.io/worker: ""
           securityContext:
             runAsNonRoot: true
-            runAsUser: 1001
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
           containers:
             - name: retention
               image: python:3.13-alpine
-              imagePullPolicy: IfNotPresent
+              imagePullPolicy: Always
               command: ["python", "/scripts/retention.py"]
               env:
                 - name: DT_URL
-                  value: http://dependency-track-api-server.security.svc.cluster.local:8080
+                  value: http://dependency-track-api-server.security.svc.cluster.local:8080  # DevSkim: ignore DS137138 - in-cluster svc, TLS not configured for pod-to-pod traffic
                 - name: DT_API_KEY
                   valueFrom:
                     secretKeyRef:
@@ -62,6 +77,8 @@ spec:
                 readOnlyRootFilesystem: true
                 capabilities:
                   drop: ["ALL"]
+                seccompProfile:
+                  type: RuntimeDefault
           volumes:
             - name: config
               configMap:
