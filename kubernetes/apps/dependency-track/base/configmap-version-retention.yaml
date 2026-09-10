@@ -1,0 +1,133 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # Version retention for Dependency-Track projects.
+  #
+  # Diatreme creates ONE project version per image release, and nothing removes them:
+  # dunmir builds three images and releases often, so it alone reached 21 versions
+  # within a day of the image pipeline starting to work. Chargate's source projects
+  # pin to the ref name (`main`) and overwrite in place, so they never accumulate —
+  # this is entirely an image-side problem.
+  #
+  # Old versions are not free. Each is a full component inventory that the metrics
+  # and vulnerability-analysis tasks walk on every cycle, and they crowd the portfolio
+  # view with releases nobody is running.
+  #
+  # `retention.json` is the contract. Edit that, not the server.
+  name: dependency-track-version-retention
+  namespace: security
+data:
+  # `keep` is per project NAME, counted by most recent BOM import.
+  #
+  # Five is chosen to comfortably span a rollback: if a bad release ships, the
+  # version you would roll back to is still in the portfolio with its findings
+  # intact. It is not a compliance retention period — Dependency-Track is a current
+  # inventory, not an archive, and DefectDojo holds the finding history.
+  #
+  # `protect_versions` never expire regardless of age. `main` is Chargate's source
+  # version and would never be pruned anyway (one version per name), but pinning it
+  # means a future change to source versioning cannot quietly start deleting them.
+  retention.json: |
+    {
+      "keep": 5,
+      "protect_versions": ["main", "master", "latest"],
+      "dry_run": false
+    }
+
+  retention.py: |
+    """Prune old Dependency-Track project versions, keeping the newest per name.
+
+    Ordering is by `lastBomImport`, not by version string: version strings are not
+    reliably sortable across projects (v0.0.9 vs v0.0.10, prefixes, prereleases) and
+    the question being asked is "which did we most recently see", which the import
+    timestamp answers directly.
+
+    Safety rules, in order:
+      * a name with <= keep versions is never touched
+      * a version marked isLatest is never deleted
+      * a version in protect_versions is never deleted
+      * a version with no BOM import is treated as OLDEST, because it is a failed or
+        abandoned upload rather than something in use
+      * deletion is per name, and the newest `keep` always survive
+    """
+
+    import json
+    import os
+    import sys
+    import urllib.error
+    import urllib.request
+    from collections import defaultdict
+
+    DT_URL = os.environ["DT_URL"].rstrip("/")
+    API_KEY = os.environ["DT_API_KEY"]
+    CFG = json.load(open("/config/retention.json"))
+    KEEP = int(CFG.get("keep", 5))
+    PROTECTED = {v.lower() for v in CFG.get("protect_versions", [])}
+    DRY_RUN = bool(CFG.get("dry_run", False))
+
+    if KEEP < 1:
+        sys.exit("dt-retention: keep must be >= 1; refusing to delete every version")
+
+
+    def call(path, method="GET"):
+        req = urllib.request.Request(f"{DT_URL}/api/v1/{path}", method=method)
+        req.add_header("X-Api-Key", API_KEY)
+        req.add_header("Accept", "application/json")
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            body = resp.read().decode("utf-8", errors="replace")
+            return json.loads(body) if body.strip() else None
+
+
+    try:
+        projects = call("project?pageSize=1000")
+    except urllib.error.HTTPError as exc:
+        sys.exit(f"dt-retention: GET /project -> HTTP {exc.code} (key needs VIEW_PORTFOLIO)")
+    except urllib.error.URLError as exc:
+        sys.exit(f"dt-retention: Dependency-Track unreachable: {exc}")
+
+    by_name = defaultdict(list)
+    for p in projects:
+        by_name[p["name"]].append(p)
+
+    doomed = []
+    for name, versions in sorted(by_name.items()):
+        if len(versions) <= KEEP:
+            continue
+        # Newest first. No import at all sorts last, i.e. deleted first.
+        versions.sort(key=lambda p: p.get("lastBomImport") or 0, reverse=True)
+        survivors, candidates = versions[:KEEP], versions[KEEP:]
+        for p in candidates:
+            version = (p.get("version") or "").lower()
+            if p.get("isLatest"):
+                print(f"dt-retention: keeping {name} @ {p.get('version')} (isLatest)")
+                continue
+            if version in PROTECTED:
+                print(f"dt-retention: keeping {name} @ {p.get('version')} (protected)")
+                continue
+            doomed.append(p)
+        kept = [v.get("version") for v in survivors]
+        print(f"dt-retention: {name}: {len(versions)} versions, keeping {kept}")
+
+    if not doomed:
+        print(f"dt-retention: nothing to prune (keep={KEEP})")
+        sys.exit(0)
+
+    print(f"dt-retention: {len(doomed)} version(s) to delete")
+    if DRY_RUN:
+        for p in doomed:
+            print(f"dt-retention: WOULD DELETE {p['name']} @ {p.get('version')}")
+        sys.exit(0)
+
+    failed = 0
+    for p in doomed:
+        try:
+            call(f"project/{p['uuid']}", method="DELETE")
+            print(f"dt-retention: deleted {p['name']} @ {p.get('version')}")
+        except urllib.error.HTTPError as exc:
+            failed += 1
+            print(f"::warning::dt-retention: {p['name']} @ {p.get('version')} -> HTTP {exc.code}")
+    if failed:
+        # A key without PORTFOLIO_MANAGEMENT fails every delete and would otherwise
+        # look like a clean run that simply found nothing.
+        sys.exit(f"dt-retention: {failed} of {len(doomed)} deletions failed")
+    print(f"dt-retention: pruned {len(doomed)} version(s)")

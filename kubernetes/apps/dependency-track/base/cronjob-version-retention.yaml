@@ -1,0 +1,69 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  # Prunes old project versions per configmap-version-retention.yaml.
+  #
+  # Daily, not hourly: this is the only scheduled job in the stack that deletes
+  # portfolio data, and nothing about it is urgent. Releases add at most a handful of
+  # versions a day, so a daily pass keeps the count bounded without a job that could
+  # delete something within minutes of a mistaken config change.
+  name: dependency-track-version-retention
+  namespace: security
+spec:
+  # 03:20, well clear of the hourly sync and the :15 config reconcile.
+  schedule: "20 3 * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 900
+      template:
+        metadata:
+          labels:
+            app: dependency-track-version-retention
+        spec:
+          restartPolicy: Never
+          nodeSelector:
+            node-role.kubernetes.io/worker: ""
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+          containers:
+            - name: retention
+              image: python:3.13-alpine
+              imagePullPolicy: IfNotPresent
+              command: ["python", "/scripts/retention.py"]
+              env:
+                - name: DT_URL
+                  value: http://dependency-track-api-server.security.svc.cluster.local:8080
+                - name: DT_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: dependency-track-retention
+                      key: DT_API_KEY
+              volumeMounts:
+                - name: config
+                  mountPath: /scripts
+                  readOnly: true
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: config
+              configMap:
+                name: dependency-track-version-retention
+                defaultMode: 0555
