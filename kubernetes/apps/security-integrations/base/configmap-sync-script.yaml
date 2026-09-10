@@ -47,7 +47,20 @@ data:
     DD_URL = os.environ.get("DEFECTDOJO_URL", "http://defectdojo-django.security.svc.cluster.local").rstrip("/")
     DT_URL = os.environ.get("DTRACK_API_URL", "http://dependency-track-api-server.security.svc.cluster.local:8080").rstrip("/")
     DT_KEY = os.environ.get("DTRACK_API_KEY", "").strip()
-    PRODUCT_TYPE = os.environ.get("DD_PRODUCT_TYPE", "Dependency-Track")
+    # Must match the product type Chargate and Diatreme use, because all three now
+    # import into the SAME product per repo. DefectDojo refuses a reimport whose
+    # product_type_name disagrees with the existing product:
+    #
+    #   400 "The fetched product has a conflict with the supplied product type name:
+    #        existing product type name - Research and Development
+    #        vs supplied product type name - Dependency-Track"
+    #
+    # That was invisible while this sync created its own `MagmaMoose/<repo>` products
+    # — it owned them, so nothing conflicted. Pointing it at the shared repo product
+    # made the mismatch fatal for every repo that already had one, and only for those:
+    # products this run created fresh still succeeded, so the failure looked partial
+    # and arbitrary rather than systematic.
+    PRODUCT_TYPE = os.environ.get("DD_PRODUCT_TYPE", "Research and Development")
     ENGAGEMENT = os.environ.get("DD_ENGAGEMENT", "Dependency Track")
     SITE_URL = os.environ.get("DD_SITE_URL", "https://defectdojo.magmamoose.com").rstrip("/")
     MIN_SEVERITY = os.environ.get("GITHUB_MIN_SEVERITY", "High")
