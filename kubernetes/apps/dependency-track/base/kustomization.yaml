@@ -4,11 +4,14 @@ kind: Kustomization
 # CR lives in `database`; each resource carries its own metadata.namespace.
 resources:
   - configmap-config-reconcile.yaml
+  - configmap-version-retention.yaml
   - cronjob-config-reconcile.yaml
+  - cronjob-version-retention.yaml
   - database.yaml
   - externalsecret-config.yaml
   - externalsecret-db.yaml
   - externalsecret-oidc.yaml
+  - externalsecret-retention.yaml
   - externalsecret-secretkey.yaml
   - helmrelease.yaml
   - ingress.yaml
