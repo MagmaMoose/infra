@@ -16,7 +16,7 @@ spec:
       dnsPolicy: ClusterFirstWithHostNet # Required when host networking is used
       containers:
         - name: plex
-          image: lscr.io/linuxserver/plex:1.43.3 # {"$imagepolicy": "flux-system:plex"}
+          image: lscr.io/linuxserver/plex:1.43.4 # {"$imagepolicy": "flux-system:plex"}
           resources:
             requests:
               # Right-sized from observed ~266Mi usage; 448Mi gives scheduling headroom.
