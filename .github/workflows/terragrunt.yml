@@ -52,6 +52,11 @@ env:
   OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
   OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
   OCI_REGION: eu-amsterdam-1
+  # Pinned so a plan and the apply that follows it run the same toolchain. Both are
+  # installed only when the runner does not already provide them, so bumping the
+  # image out from under this is safe.
+  TERRAGRUNT_VERSION: 1.1.4
+  TOFU_VERSION: 1.12.6
 
 jobs:
   discover:
@@ -93,12 +98,53 @@ jobs:
     needs: discover
     if: needs.discover.outputs.has_stacks == 'true'
     runs-on: firefly-amd64
+    # Whether a plan actually RAN, as opposed to whether the job ended green. Every
+    # matrix entry computes the same value from the same repository secrets, so the
+    # usual last-writer-wins caveat on a matrix job output does not bite here.
+    outputs:
+      planned: ${{ steps.creds.outputs.present }}
     strategy:
       fail-fast: false
       max-parallel: 1
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The runner image is expected to carry these, and does not: every apply since
+      # this pipeline landed has died on `terragrunt: command not found` (exit 127) --
+      # run 33958691272 on the Cloudflare leaf, run 34212061664 on an AWS one. The
+      # `command -v` guard makes this a no-op the moment the `firefly-amd64` image
+      # does ship them, so fixing the image later needs no change here.
+      #
+      # Checksummed, because an unverified binary fetched over the network is handed
+      # every credential this job has.
+      - name: Install the terragrunt toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+          if ! command -v tofu >/dev/null 2>&1; then
+            base="https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}"
+            archive="tofu_${TOFU_VERSION}_linux_amd64.tar.gz"
+            curl -fsSL --retry 3 -o "$RUNNER_TEMP/$archive" "$base/$archive"
+            curl -fsSL --retry 3 -o "$RUNNER_TEMP/tofu.sums" "$base/tofu_${TOFU_VERSION}_SHA256SUMS"
+            (cd "$RUNNER_TEMP" && grep " $archive\$" tofu.sums | sha256sum -c -)
+            tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/bin" tofu
+          fi
+
+          if ! command -v terragrunt >/dev/null 2>&1; then
+            base="https://github.com/gruntwork-io/terragrunt/releases/download/v${TERRAGRUNT_VERSION}"
+            curl -fsSL --retry 3 -o "$RUNNER_TEMP/bin/terragrunt" "$base/terragrunt_linux_amd64"
+            curl -fsSL --retry 3 -o "$RUNNER_TEMP/tg.sums" "$base/SHA256SUMS"
+            (cd "$RUNNER_TEMP/bin" && grep " terragrunt_linux_amd64\$" "$RUNNER_TEMP/tg.sums" \
+              | sed 's/terragrunt_linux_amd64/terragrunt/' | sha256sum -c -)
+            chmod +x "$RUNNER_TEMP/bin/terragrunt"
+          fi
+
+          terragrunt --version
+          tofu version
 
       # Are the OCI credentials configured at all? Every leaf's provider block reads
       # them from the environment (terraform/root.hcl), so without them terragrunt
@@ -186,7 +232,15 @@ jobs:
     # appendix's bespoke "was this PR approved" job is not reimplemented: GitHub
     # environments already do that, and hand-rolled approval checks are easy to
     # get subtly wrong.
-    if: github.event_name == 'push' && needs.discover.outputs.has_stacks == 'true' && needs.plan.result == 'success'
+    #
+    # `needs.plan.result == 'success'` is NOT enough on its own: when the OCI
+    # credentials are absent the plan job skips every step and still reports
+    # success, so apply used to run behind a plan that never happened -- the one
+    # thing the protected environment and the human approval exist to prevent.
+    # `planned` is the plan job saying it really planned.
+    if: >-
+      github.event_name == 'push' && needs.discover.outputs.has_stacks == 'true'
+      && needs.plan.result == 'success' && needs.plan.outputs.planned == 'true'
     runs-on: firefly-amd64
     environment: all/deploy
     strategy:
@@ -195,6 +249,42 @@ jobs:
       matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The runner image is expected to carry these, and does not: every apply since
+      # this pipeline landed has died on `terragrunt: command not found` (exit 127) --
+      # run 33958691272 on the Cloudflare leaf, run 34212061664 on an AWS one. The
+      # `command -v` guard makes this a no-op the moment the `firefly-amd64` image
+      # does ship them, so fixing the image later needs no change here.
+      #
+      # Checksummed, because an unverified binary fetched over the network is handed
+      # every credential this job has.
+      - name: Install the terragrunt toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+          if ! command -v tofu >/dev/null 2>&1; then
+            base="https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}"
+            archive="tofu_${TOFU_VERSION}_linux_amd64.tar.gz"
+            curl -fsSL --retry 3 -o "$RUNNER_TEMP/$archive" "$base/$archive"
+            curl -fsSL --retry 3 -o "$RUNNER_TEMP/tofu.sums" "$base/tofu_${TOFU_VERSION}_SHA256SUMS"
+            (cd "$RUNNER_TEMP" && grep " $archive\$" tofu.sums | sha256sum -c -)
+            tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/bin" tofu
+          fi
+
+          if ! command -v terragrunt >/dev/null 2>&1; then
+            base="https://github.com/gruntwork-io/terragrunt/releases/download/v${TERRAGRUNT_VERSION}"
+            curl -fsSL --retry 3 -o "$RUNNER_TEMP/bin/terragrunt" "$base/terragrunt_linux_amd64"
+            curl -fsSL --retry 3 -o "$RUNNER_TEMP/tg.sums" "$base/SHA256SUMS"
+            (cd "$RUNNER_TEMP/bin" && grep " terragrunt_linux_amd64\$" "$RUNNER_TEMP/tg.sums" \
+              | sed 's/terragrunt_linux_amd64/terragrunt/' | sha256sum -c -)
+            chmod +x "$RUNNER_TEMP/bin/terragrunt"
+          fi
+
+          terragrunt --version
+          tofu version
 
       - name: Write the OCI private key
         shell: bash
