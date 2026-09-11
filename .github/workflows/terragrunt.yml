@@ -123,7 +123,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/bin"
+          # $GITHUB_PATH only reaches LATER steps, so this step has to put the
+          # directory on its own PATH too or the verification below cannot see what
+          # it just installed.
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/bin:$PATH"
 
           if ! command -v tofu >/dev/null 2>&1; then
             base="https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}"
@@ -263,7 +267,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/bin"
+          # $GITHUB_PATH only reaches LATER steps, so this step has to put the
+          # directory on its own PATH too or the verification below cannot see what
+          # it just installed.
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          export PATH="$RUNNER_TEMP/bin:$PATH"
 
           if ! command -v tofu >/dev/null 2>&1; then
             base="https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}"
