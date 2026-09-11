@@ -276,6 +276,111 @@ resource "cloudflare_zero_trust_access_policy" "dunmir_docs_team" {
   }
 }
 
+# --- self_hosted: Caldrith docs (MkDocs on Cloudflare Pages) -----------------
+# Same class as the Dün Mir app above, and gated for the same reason: a private
+# repository's docs site is served on the open internet at `caldrith-docs.pages.dev`
+# until an Access app covers it. `docs_require_access: true` is set for this repo
+# in MagmaMoose/admin, so tremvok's docs workflow refuses to publish without one.
+resource "cloudflare_zero_trust_access_application" "caldrith_docs" {
+  account_id                = var.account_id
+  name                      = "Caldrith docs"
+  type                      = "self_hosted"
+  domain                    = "caldrith-docs.pages.dev"
+  tags                      = ["Magma Moose"]
+  app_launcher_visible      = true
+  auto_redirect_to_identity = false
+  session_duration          = "24h"
+
+  allowed_idps = [
+    cloudflare_zero_trust_access_identity_provider.google_workspace.id,
+    cloudflare_zero_trust_access_identity_provider.one_time_pin.id,
+    cloudflare_zero_trust_access_identity_provider.google.id,
+  ]
+}
+
+resource "cloudflare_zero_trust_access_policy" "caldrith_docs_team" {
+  account_id       = var.account_id
+  application_id   = cloudflare_zero_trust_access_application.caldrith_docs.id
+  name             = "Magma Moose team"
+  decision         = "allow"
+  precedence       = 1
+  session_duration = "24h"
+
+  include {
+    group = [cloudflare_zero_trust_access_group.magma_moose_domain.id]
+  }
+}
+
+# --- self_hosted: Nievah docs (MkDocs on Cloudflare Pages) -----------------
+# Same class as the Dün Mir app above, and gated for the same reason: a private
+# repository's docs site is served on the open internet at `nievah-docs.pages.dev`
+# until an Access app covers it. `docs_require_access: true` is set for this repo
+# in MagmaMoose/admin, so tremvok's docs workflow refuses to publish without one.
+resource "cloudflare_zero_trust_access_application" "nievah_docs" {
+  account_id                = var.account_id
+  name                      = "Nievah docs"
+  type                      = "self_hosted"
+  domain                    = "nievah-docs.pages.dev"
+  tags                      = ["Magma Moose"]
+  app_launcher_visible      = true
+  auto_redirect_to_identity = false
+  session_duration          = "24h"
+
+  allowed_idps = [
+    cloudflare_zero_trust_access_identity_provider.google_workspace.id,
+    cloudflare_zero_trust_access_identity_provider.one_time_pin.id,
+    cloudflare_zero_trust_access_identity_provider.google.id,
+  ]
+}
+
+resource "cloudflare_zero_trust_access_policy" "nievah_docs_team" {
+  account_id       = var.account_id
+  application_id   = cloudflare_zero_trust_access_application.nievah_docs.id
+  name             = "Magma Moose team"
+  decision         = "allow"
+  precedence       = 1
+  session_duration = "24h"
+
+  include {
+    group = [cloudflare_zero_trust_access_group.magma_moose_domain.id]
+  }
+}
+
+# --- self_hosted: Noctyr docs (MkDocs on Cloudflare Pages) -----------------
+# Same class as the Dün Mir app above, and gated for the same reason: a private
+# repository's docs site is served on the open internet at `noctyr-docs.pages.dev`
+# until an Access app covers it. `docs_require_access: true` is set for this repo
+# in MagmaMoose/admin, so tremvok's docs workflow refuses to publish without one.
+resource "cloudflare_zero_trust_access_application" "noctyr_docs" {
+  account_id                = var.account_id
+  name                      = "Noctyr docs"
+  type                      = "self_hosted"
+  domain                    = "noctyr-docs.pages.dev"
+  tags                      = ["Magma Moose"]
+  app_launcher_visible      = true
+  auto_redirect_to_identity = false
+  session_duration          = "24h"
+
+  allowed_idps = [
+    cloudflare_zero_trust_access_identity_provider.google_workspace.id,
+    cloudflare_zero_trust_access_identity_provider.one_time_pin.id,
+    cloudflare_zero_trust_access_identity_provider.google.id,
+  ]
+}
+
+resource "cloudflare_zero_trust_access_policy" "noctyr_docs_team" {
+  account_id       = var.account_id
+  application_id   = cloudflare_zero_trust_access_application.noctyr_docs.id
+  name             = "Magma Moose team"
+  decision         = "allow"
+  precedence       = 1
+  session_duration = "24h"
+
+  include {
+    group = [cloudflare_zero_trust_access_group.magma_moose_domain.id]
+  }
+}
+
 # --- self_hosted: Zoey ------------------------------------------------------
 # Zoey — the project-intelligence dashboard (firefly cluster, behind the
 # firefly cloudflared tunnel — ingress in tunnels.tf). The app has no in-app
