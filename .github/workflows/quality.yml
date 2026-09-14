@@ -59,7 +59,7 @@ jobs:
       # Verified per version against chargate and diatreme, not from release notes:
       # v1.9.5 red on both; v1.9.7 gives chargate 99.3% patch coverage and diatreme
       # a clean skip.
-      - uses: magmamoose/brimyr@061ae3582fc151ac4f65ecd8090282dc6fa6dc3a # v1.9.7
+      - uses: magmamoose/brimyr@e3ac74c103fe5d53a686d4aac96e01d86ac7f724 # v1.9.7
         with:
           # `threshold` is deliberately absent: 80 is the action's own default, and
           # naming it here would be a second place to keep in sync with the tool.
