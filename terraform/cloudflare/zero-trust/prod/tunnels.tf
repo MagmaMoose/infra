@@ -444,7 +444,7 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "firefly" {
       # that does not exist yet, which is a hard outage on the API and on every
       # agent check-in. Bring the new namespace up, confirm a pod is Ready, then
       # apply this.
-      service  = "http://dunmir-backend.dunmir.svc.cluster.local:8000"
+      service = "http://dunmir-backend.dunmir.svc.cluster.local:8000"
       origin_request {}
     }
 
@@ -470,6 +470,21 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "firefly" {
     ingress_rule {
       hostname = "janeway.magmamoose.com"
       service  = "http://janeway.janeway.svc.cluster.local:8000"
+      origin_request {}
+    }
+
+    # OpenHands — the autonomous coding agent UI. Previously LAN-only on
+    # openhands.sargeant.co; now also reachable off-LAN at this hostname so the
+    # agent can be driven remotely. It is a high-privilege workload (it edits
+    # code and acts as Caleb on GitHub), so the Access app in access_apps.tf is
+    # Caleb-only AND carries the macOS device-posture requirements — no Friends
+    # group, no service-token bypass, no public path exceptions. The
+    # openhands.sargeant.co / .local aliases stay off the tunnel as the LAN
+    # fallback. WebSockets (the agent event stream) ride this rule unchanged;
+    # cloudflared proxies Upgrade requests natively.
+    ingress_rule {
+      hostname = "openhands.magmamoose.com"
+      service  = "http://openhands.openhands.svc.cluster.local:8000"
       origin_request {}
     }
 

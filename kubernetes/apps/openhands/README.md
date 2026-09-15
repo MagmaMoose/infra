@@ -9,7 +9,14 @@ in-cluster LiteLLM gateway using the `litellm_proxy/deepseek-v4-pro` model alias
 The pod is deliberately a single stateful instance. Its 10Gi `local-path` volume stores the
 OpenHands settings and per-conversation workspaces. The pod itself is the sandbox boundary:
 it has GitHub write credentials and cluster DNS, but it has no Docker socket or Kubernetes API
-access. The ingress is LAN-only.
+access.
+
+Two ingresses. `openhands.magmamoose.com` is the primary entrypoint: a proxied CNAME to the
+firefly cloudflared tunnel, gated by a Caleb-only Cloudflare Access app that also requires
+macOS device posture (FileVault on, current OS) and expires the session after 8h. Because the
+pod holds GitHub write credentials, that app has no path bypasses and must not be widened to
+the Friends group. `openhands.sargeant.co` / `.local` stay LAN-only (no tunnel, no Access) as
+the fallback when the Cloudflare edge is unavailable.
 
 ## Authentication and secrets
 
