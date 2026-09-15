@@ -149,6 +149,37 @@ data:
           base_model: openai/gpt-5.5
           billing_mode: openai-api
           credential_source: oci-vault:openai-api-key
+      # gpt-5.6 family. Verified against GET https://api.openai.com/v1/models on
+      # 2026-09-15 — these three ids are what the account actually serves; there is no
+      # bare `gpt-5.6`, so the variant suffix is mandatory. Same OPENAI_API_KEY as the
+      # 5.5/5.4 entries above (one OpenAI account, one vault secret).
+      - model_name: gpt-5.6-luna
+        litellm_params:
+          model: openai/gpt-5.6-luna
+          api_key: os.environ/OPENAI_API_KEY
+        model_info:
+          mode: chat
+          base_model: openai/gpt-5.6-luna
+          billing_mode: openai-api
+          credential_source: oci-vault:openai-api-key
+      - model_name: gpt-5.6-sol
+        litellm_params:
+          model: openai/gpt-5.6-sol
+          api_key: os.environ/OPENAI_API_KEY
+        model_info:
+          mode: chat
+          base_model: openai/gpt-5.6-sol
+          billing_mode: openai-api
+          credential_source: oci-vault:openai-api-key
+      - model_name: gpt-5.6-terra
+        litellm_params:
+          model: openai/gpt-5.6-terra
+          api_key: os.environ/OPENAI_API_KEY
+        model_info:
+          mode: chat
+          base_model: openai/gpt-5.6-terra
+          billing_mode: openai-api
+          credential_source: oci-vault:openai-api-key
       - model_name: gpt-5.4-mini
         litellm_params:
           model: openai/gpt-5.4-mini
