@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: bazarr
-          image: linuxserver/bazarr:1.6.0 # {"$imagepolicy": "flux-system:bazarr"}
+          image: linuxserver/bazarr:1.6.1 # {"$imagepolicy": "flux-system:bazarr"}
           resources:
             requests:
               memory: "238Mi"
