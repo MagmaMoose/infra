@@ -76,7 +76,11 @@ spec:
                 sleep 5
               done
 
-              PAYLOAD=$(printf '{"key":"%s","key_alias":"openhands","models":["deepseek-v4-pro","deepseek-v4-flash","gpt-5.6-luna","gpt-5.6-sol","gpt-5.6-terra"],"metadata":{"owner":"openhands","managed_by":"litellm-keyseed Job"}}' "$OPENHANDS_KEY")
+              # max_budget matters most in the case this key exists for: Claude quota runs
+              # out, work moves to the per-token gpt-5.6 models, and the agent runs with
+              # max_iterations 500 and confirmation_mode off. Without a ceiling a stuck
+              # loop bills until someone notices. LiteLLM rejects requests past it.
+              PAYLOAD=$(printf '{"key":"%s","key_alias":"openhands","models":["deepseek-v4-pro","deepseek-v4-flash","gpt-5.6-luna","gpt-5.6-sol","gpt-5.6-terra"],"max_budget":50,"budget_duration":"30d","metadata":{"owner":"openhands","managed_by":"litellm-keyseed Job"}}' "$OPENHANDS_KEY")
 
               CODE=$(curl -s -o /tmp/out -w '%{http_code}' -X POST "$B/key/update" \
                 -H "$H" -H 'Content-Type: application/json' -d "$PAYLOAD")

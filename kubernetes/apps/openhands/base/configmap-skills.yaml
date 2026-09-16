@@ -1,0 +1,58 @@
+# Skills are injected inline through the settings API by the seed script, which reads
+# every file mounted here. They cannot be mounted as files instead: OpenHands expects a
+# directory per skill (skill_root with scripts/, references/, assets/) and ConfigMap
+# keys cannot contain "/", so a flat mount plus an inline PATCH is the only declarative
+# route. Filename minus .md becomes the skill name.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openhands-skills
+  namespace: openhands
+data:
+  infra-repo-conventions.md: |
+    Working in the infrastructure repo (magmamoose/infra):
+
+    - CLAUDE.md is canonical and AGENTS.md is the long-form version of the same rules.
+      When a rule changes, change it in both.
+    - The repo is PUBLIC. Some namespaces and some sibling repositories are private.
+      Work on them normally, but never name them, their workloads or their contents in
+      commit messages, PR text or code comments. Describe them generically instead.
+    - Read .claude/COMMON_MISTAKES.md before touching Flux placement or labels, CNPG
+      Postgres, a Terragrunt leaf, a tick or cron schedule, a scanner suppression, or
+      anything pinned to a node. It is not auto-loaded because of its size, and most
+      review findings in this repo are repeats of something already recorded there.
+    - Branch names are Conventional-Commit style: <type>/<description>. Allowed types
+      are feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert.
+    - Validate Kustomize changes with `kustomize build` before proposing them. A change
+      that does not build is the finding.
+  placement-and-storage.md: |
+    Placement and storage rules for the firefly cluster:
+
+    - Placement is a label, not a nodeSelector. `placement.sargeant.co/tier` is read by
+      Kyverno ClusterPolicies (place-cloud, place-on-prem) which inject the real
+      nodeSelector at admission. Setting a nodeSelector by hand fights the policy.
+    - A placement label on a HelmRelease is silently inert. It only takes effect on
+      Deployments, StatefulSets, DaemonSets and CronJobs. Deployments sitting beside
+      the HelmRelease DO get pinned, which makes the failure look like something else.
+    - In kustomization.yaml label blocks, keep includeSelectors and includeTemplates
+      false. Those fields are immutable on a live workload, so touching them makes
+      Flux's next apply fail.
+    - Storage follows placement. The plain `longhorn` class has no node selector, so a
+      volume can land with replicas on both sides of the OCI-to-home link and pay VPN
+      latency on every synchronous write. Use longhorn-on-prem for on-prem workloads.
+    - Longhorn snapshots live on the same disk as the volume. Only the weekly-backup
+      job reaches S3, and it is opt-in per volume via a label.
+  verify-before-writing.md: |
+    Verify unknowns against the real source before writing code against them.
+
+    Model ids, API shapes, package names and live cluster state are all things that
+    look obvious and are frequently wrong. A single check costs far less than the
+    rework, the failed apply, and the round trip to a human.
+
+    - Model names: query the provider's /v1/models rather than assuming a naming
+      pattern holds.
+    - API request shapes: read the service's own OpenAPI document. It is authoritative
+      for the version actually deployed, which documentation often is not.
+    - Cluster state: read it with kubectl. Manifests describe intent, not reality, and
+      the gap between them is usually where the bug is.
+    - Never claim something is fixed until the live state shows it.

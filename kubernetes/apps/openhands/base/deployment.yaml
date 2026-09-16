@@ -184,7 +184,11 @@ spec:
               memory: 1Gi
             limits:
               cpu: "2"
-              memory: 2Gi
+              # 3Gi, not 2Gi: the Playwright MCP server spawns Chromium in this pod and
+              # wants ~1GB on its own. Not higher, because the on-prem workers this now
+              # schedules on are 6.4GB (ff-pi2) and 93% memory-requested (ff-vm1), so a
+              # 4Gi ceiling could take the node down rather than just the container.
+              memory: 3Gi
           volumeMounts:
             - name: state
               mountPath: /workspace
@@ -192,6 +196,14 @@ spec:
             - name: state
               mountPath: /home/openhands/.openhands
               subPath: openhands-state
+            # Nested inside /workspace on purpose: the agent sees one tree, but the
+            # clones live on their own 50Gi volume so they cannot crowd out the
+            # conversation history, and only the state volume is backed up to S3.
+            - name: repos
+              mountPath: /workspace/repos
+            - name: skills
+              mountPath: /skills
+              readOnly: true
             - name: bootstrap
               mountPath: /bootstrap
               readOnly: true
@@ -201,10 +213,64 @@ spec:
             - name: subagents
               mountPath: /home/openhands/.agents/agents
               readOnly: true
+        # Keeps /workspace/repos in step with GitHub. A sidecar rather than a CronJob
+        # because the repos volume is ReadWriteOnce: a separate pod would have to attach
+        # it on the same node and would fight the agent for the lock. Runs its own loop
+        # instead of a schedule for the same reason.
+        - name: repo-sync
+          image: alpine:3.22
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 25m
+              memory: 96Mi
+            limits:
+              memory: 512Mi
+          env:
+            - name: HOME
+              value: /home/sync
+            - name: SYNC_INTERVAL_SECONDS
+              value: "1800"
+            - name: SKIP_ARCHIVED
+              value: "true"
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openhands
+                  key: github-token
+          command: ["/bin/sh", "-c"]
+          args:
+            - apk add --no-cache git curl jq >/dev/null && exec /scripts/sync.sh
+          volumeMounts:
+            - name: repos
+              mountPath: /workspace/repos
+            - name: reposync
+              mountPath: /scripts
+              readOnly: true
+            - name: reposync
+              mountPath: /config
+              readOnly: true
+            - name: reposync-home
+              mountPath: /home/sync
       volumes:
         - name: state
           persistentVolumeClaim:
-            claimName: openhands
+            claimName: openhands-state
+        - name: repos
+          persistentVolumeClaim:
+            claimName: openhands-repos
+        - name: skills
+          configMap:
+            name: openhands-skills
+        - name: reposync
+          configMap:
+            name: openhands-reposync
+            defaultMode: 0755
+        - name: reposync-home
+          emptyDir: {}
         - name: bootstrap
           configMap:
             name: openhands-bootstrap

@@ -1,0 +1,129 @@
+# Mirrors GitHub into /workspace/repos/<owner>/<name>, matching the ~/repos layout.
+#
+# Why not Syncthing: a git repository is a database, not a pile of files. Both ends
+# mutate .git/index, refs and packfiles, and Syncthing has no way to merge those — it
+# writes .sync-conflict-* files INTO .git, which corrupts the repo. No ignore pattern
+# fixes it either, because excluding .git would sync working trees detached from their
+# own history. Git is already a sync protocol and GitHub is already the source of
+# truth, so this reconciles the SET of repos and lets git move the contents.
+#
+# Safety rule: this never touches work in progress. A dirty worktree, a non-default
+# branch, or a branch ahead of its remote is fetched and then left alone. Repos that
+# disappear upstream are moved to .attic, never deleted.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openhands-reposync
+  namespace: openhands
+data:
+  owners.txt: |
+    # One GitHub owner per line: orgs and users both work. Blank lines and # ignored.
+    # Everything each owner exposes to the token is mirrored, so scope the PAT rather
+    # than trying to filter here.
+    magmamoose
+    calebsargeant
+    velocity-digital
+    tengen-systems
+  sync.sh: |
+    #!/bin/sh
+    # kics-scan disable=baee238e-1921-4801-9c3f-79ae1d7b2cbc
+    set -u
+
+    ROOT=/workspace/repos
+    ATTIC="$ROOT/.attic"
+    INTERVAL="${SYNC_INTERVAL_SECONDS:-1800}"
+    SKIP_ARCHIVED="${SKIP_ARCHIVED:-true}"
+
+    log() { printf '[repo-sync] %s\n' "$*"; }
+
+    if [ -z "${GITHUB_TOKEN:-}" ]; then
+      log "no GITHUB_TOKEN; sleeping instead of looping on failures"
+      while :; do sleep 3600; done
+    fi
+
+    # HOME is an emptyDir, so the credential file and .gitconfig never land on the PVC.
+    printf 'https://x-access-token:%s@github.com\n' "$GITHUB_TOKEN" > "$HOME/.git-credentials"
+    chmod 600 "$HOME/.git-credentials"
+    git config --global credential.helper store
+    git config --global safe.directory '*'
+    git config --global advice.detachedHead false
+
+    api() {
+      curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" \
+           -H 'Accept: application/vnd.github+json' \
+           -H 'X-GitHub-Api-Version: 2022-11-28' "$1"
+    }
+
+    # Orgs and users need different endpoints and there is no reliable way to tell them
+    # apart from the name, so try the org one and fall back.
+    list_repos() {
+      _o="$1"; _p=1
+      while [ "$_p" -le 10 ]; do
+        _r="$(api "https://api.github.com/orgs/$_o/repos?per_page=100&type=all&page=$_p" 2>/dev/null)"
+        [ -n "$_r" ] || _r="$(api "https://api.github.com/users/$_o/repos?per_page=100&type=all&page=$_p" 2>/dev/null)"
+        [ -n "$_r" ] || return 0
+        _n="$(printf '%s' "$_r" | jq 'length')"
+        [ "$_n" -gt 0 ] 2>/dev/null || return 0
+        if [ "$SKIP_ARCHIVED" = "true" ]; then
+          printf '%s' "$_r" | jq -r '.[] | select(.archived|not) | "\(.name)\t\(.default_branch)"'
+        else
+          printf '%s' "$_r" | jq -r '.[] | "\(.name)\t\(.default_branch)"'
+        fi
+        [ "$_n" -eq 100 ] || return 0
+        _p=$((_p + 1))
+      done
+    }
+
+    sync_one() {
+      _owner="$1"; _name="$2"; _branch="$3"
+      _dir="$ROOT/$_owner/$_name"
+
+      if [ ! -d "$_dir/.git" ]; then
+        log "clone $_owner/$_name"
+        git clone --quiet "https://github.com/$_owner/$_name.git" "$_dir" \
+          || log "WARNING: clone failed for $_owner/$_name"
+        return
+      fi
+
+      git -C "$_dir" fetch --quiet --all --prune --tags 2>/dev/null \
+        || { log "WARNING: fetch failed for $_owner/$_name"; return; }
+
+      # Leave anything with local work exactly as it is. Three ways to be "in use":
+      # uncommitted changes, parked on another branch, or ahead of the remote.
+      if [ -n "$(git -C "$_dir" status --porcelain 2>/dev/null)" ]; then return; fi
+      _cur="$(git -C "$_dir" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+      [ "$_cur" = "$_branch" ] || return
+      [ "$(git -C "$_dir" rev-list --count "origin/$_branch..$_branch" 2>/dev/null || echo 1)" = "0" ] || return
+
+      git -C "$_dir" merge --quiet --ff-only "origin/$_branch" 2>/dev/null
+    }
+
+    while :; do
+      mkdir -p "$ROOT" "$ATTIC"
+      for owner in $(grep -vE '^\s*(#|$)' /config/owners.txt); do
+        seen="$(mktemp)"
+        list_repos "$owner" | while IFS="$(printf '\t')" read -r name branch; do
+          [ -n "$name" ] || continue
+          printf '%s\n' "$name" >> "$seen"
+          sync_one "$owner" "$name" "${branch:-main}"
+        done
+
+        # Anything on disk the API no longer returns: renamed, deleted, archived, or
+        # access revoked. Moved aside rather than removed, so a wrong answer from a
+        # rate-limited API call can never destroy local work.
+        if [ -s "$seen" ] && [ -d "$ROOT/$owner" ]; then
+          for d in "$ROOT/$owner"/*; do
+            [ -d "$d" ] || continue
+            b="$(basename "$d")"
+            grep -qxF "$b" "$seen" && continue
+            log "archiving $owner/$b (no longer returned by the API)"
+            mkdir -p "$ATTIC/$owner"
+            rm -rf "$ATTIC/$owner/$b"
+            mv "$d" "$ATTIC/$owner/$b"
+          done
+        fi
+        rm -f "$seen"
+      done
+      log "pass complete; sleeping ${INTERVAL}s"
+      sleep "$INTERVAL"
+    done

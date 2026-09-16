@@ -79,3 +79,30 @@ reach them, so the API is the only declarative surface available.
   renderer is used instead.
 
 Read the seed log with `kubectl -n openhands logs deploy/openhands | grep openhands-seed`.
+
+## Storage and the repo mirror
+
+Two Longhorn volumes on `longhorn-on-prem`, and the Deployment is on the on-prem
+placement tier so the pod sits beside them. `openhands-state` (10Gi) holds settings,
+profiles and conversation history and carries the `weekly-backup` label, so it reaches
+S3; that job has no group selector, so a volume without the label gets local snapshots
+only. `openhands-repos` (50Gi) holds the clones, which are reproducible from GitHub and
+so are deliberately left out of the backup set.
+
+`/workspace/repos/<owner>/<name>` is maintained by the `repo-sync` sidecar, mirroring
+the `~/repos` layout. It reconciles the *set* of repositories and lets git move the
+contents, which is why it replaces the previous Syncthing arrangement: Syncthing does
+file-level bidirectional sync, and a git repository is a database whose index, refs and
+packfiles both ends mutate. It cannot merge those, so it writes `.sync-conflict-*` files
+into `.git` and corrupts the repo. Excluding `.git` is not a fix either, since that
+syncs working trees detached from their own history.
+
+The sidecar never touches work in progress. A repository with uncommitted changes, on a
+non-default branch, or ahead of its remote is fetched and then left alone. Repositories
+the API stops returning are moved to `/workspace/repos/.attic`, never deleted, so a
+rate-limited or partial API response cannot destroy local work. Owners are listed in
+`configmap-reposync.yaml`.
+
+Migration: `openhands-migrate-state-v1` copies the old local-path state across once. It
+is pinned to ff-oci2 because local-path is node-local. Delete the `openhands` PVC and
+its block in `pvc.yaml` once the history looks right in the UI.
