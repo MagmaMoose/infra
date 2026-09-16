@@ -243,6 +243,14 @@ spec:
                 secretKeyRef:
                   name: openhands
                   key: github-token
+            # Second forge. hosts.txt maps pinkroccade.ghe.com to this variable, so a
+            # missing value degrades to "skip that owner with a warning" rather than
+            # failing the whole pass.
+            - name: GHE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openhands
+                  key: ghe-token
           command: ["/bin/sh", "-c"]
           args:
             - apk add --no-cache git curl jq >/dev/null && exec /scripts/sync.sh

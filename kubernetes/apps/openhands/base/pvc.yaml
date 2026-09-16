@@ -24,7 +24,10 @@ spec:
       storage: 10Gi
   storageClassName: longhorn-on-prem
 ---
-# Repos: mirrored clones, maintained by the repo-sync sidecar. Every byte is
+# Repos: mirrored clones, maintained by the repo-sync sidecar. 75Gi rather than 50Gi
+# because the work forge added 115 active repos on top of the 74 on github.com, and
+# the top 100 of those alone are ~7.3Gi of git data before checkout. Longhorn is thin
+# provisioned, so the unused remainder costs nothing until it is written. Every byte is
 # reproducible from GitHub, so it takes daily snapshots (automatic, whole-cluster
 # `default` group) but deliberately NOT the backup label — replicating 50Gi of git
 # clones into object storage weekly would be paying to store a second copy of GitHub.
@@ -38,7 +41,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 50Gi
+      storage: 75Gi
   storageClassName: longhorn-on-prem
 ---
 # The original local-path volume, kept only so migrate-state-v1 can read it. local-path
