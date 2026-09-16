@@ -54,7 +54,7 @@ data:
     # Profiles live in ~/.openhands/profiles on the state PVC, so they cannot be mounted
     # from Git and have to be seeded through the API. POST /api/profiles/{name} is an
     # upsert, which makes this safe to re-run on every pod start.
-    LLM_BASE="http://litellm.automation.svc.cluster.local:8080"
+    LLM_BASE="http://litellm.automation.svc.cluster.local:8080"  # DevSkim: ignore DS137138 - in-cluster ClusterIP, not externally reachable
     PRIMARY_PROFILE="gpt-5.6-luna"
 
     put_profile() {
@@ -92,7 +92,7 @@ data:
     # hardcoding a value that would silently rot if the token moved workspaces.
     SLACK_TEAM_ID=""
     if [ -n "${BOOTSTRAP_SLACK_BOT_TOKEN:-}" ]; then
-      SLACK_TEAM_ID="$(curl -fsS -H "Authorization: Bearer ${BOOTSTRAP_SLACK_BOT_TOKEN}" \
+      SLACK_TEAM_ID="$(curl -fsS --max-time 10 -H "Authorization: Bearer ${BOOTSTRAP_SLACK_BOT_TOKEN}" \
         https://slack.com/api/auth.test 2>/dev/null | jq -r '.team_id // empty')"
       [ -n "$SLACK_TEAM_ID" ] || log "WARNING: slack auth.test gave no team_id; slack MCP will be skipped"
     fi

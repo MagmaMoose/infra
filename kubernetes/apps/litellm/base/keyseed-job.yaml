@@ -14,6 +14,11 @@ kind: Job
 metadata:
   name: litellm-keyseed-v1
   namespace: automation
+  annotations:
+    checkov.io/skip1: CKV_K8S_11=CPU limits are unset estate-wide by decision; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited.
+    checkov.io/skip2: CKV_K8S_15=IfNotPresent is the house convention; image is tagged and pulled only when absent, not on every Job run
+    checkov.io/skip3: CKV_K8S_35=LITELLM_MASTER_KEY and OPENHANDS_KEY are consumed directly by curl in a single-use shell script; there is no file-based credential path without rewriting the script
+    checkov.io/skip4: CKV_K8S_43=curlimages/curl pinned to 8.11.1; digest pinning not warranted for this home-lab one-shot Job
 spec:
   ttlSecondsAfterFinished: 604800
   backoffLimit: 6
@@ -23,14 +28,17 @@ spec:
         app: litellm-keyseed
     spec:
       restartPolicy: OnFailure
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534
+        runAsGroup: 65534
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: keyseed
           image: curlimages/curl:8.11.1
+          imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -57,7 +65,7 @@ spec:
           args:
             - |
               set -u
-              B=http://litellm.automation.svc.cluster.local:4000
+              B=http://litellm.automation.svc.cluster.local:4000  # DevSkim: ignore DS137138 - in-cluster ClusterIP, not externally reachable
               # Management endpoints want the "Bearer " prefix INSIDE the custom header.
               # general_settings.litellm_key_header_name renames the header but does not
               # change the value grammar; sending the bare key returns "Malformed API Key".
