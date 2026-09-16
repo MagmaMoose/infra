@@ -1032,6 +1032,9 @@ resource "cloudflare_zero_trust_access_application" "openhands" {
   auto_redirect_to_identity = false
   session_duration          = "8h"
 
+  http_only_cookie_attribute = true
+  enable_binding_cookie      = true
+
   allowed_idps = [
     cloudflare_zero_trust_access_identity_provider.google_workspace.id,
     cloudflare_zero_trust_access_identity_provider.google.id,
@@ -1050,12 +1053,20 @@ resource "cloudflare_zero_trust_access_policy" "openhands_caleb" {
     group = [cloudflare_zero_trust_access_group.caleb.id]
   }
 
-  # Same posture set as radarr_caleb / overseerr_caleb: macOS with FileVault on
-  # and a current OS version. Firewall posture still omitted repo-wide.
-  require {
-    device_posture = [
-      cloudflare_zero_trust_device_posture_rule.mac_disk_encryption.id,
-      cloudflare_zero_trust_device_posture_rule.mac_os_version.id,
-    ]
-  }
+  # NO device_posture requirement, deliberately. Both macOS posture rules are reported
+  # by the WARP client, so requiring them means the app only works from an enrolled
+  # device with WARP proxying — which defeats the point of publishing this host for
+  # off-LAN use, and denied every request until it was removed in the dashboard on
+  # 2026-09-16. Terraform is being brought in line with that rather than re-imposing it:
+  # the next apply of this leaf would otherwise silently lock the app again.
+  #
+  # The compensating control is the include above: a single exact email, not a domain
+  # match, so a generic Google login cannot satisfy it.
 }
+
+# Cookie hardening for the OpenHands app specifically. This agent renders untrusted
+# content (repository files, fetched web pages) inside its own origin, so script
+# injection there is a realistic path to the Access session cookie. http_only stops
+# page JavaScript reading it; the binding cookie ties it to the client so a stolen
+# cookie is not replayable elsewhere. Neither is set on the other apps because none
+# of them render attacker-supplied content the way this one does.
