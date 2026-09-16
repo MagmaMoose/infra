@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-09T00:00:00Z",
+  "generated": "2026-09-16T00:00:00Z",
   "summary": "Monolithic infrastructure-as-code repo for a Raspberry Pi home lab plus multi-cloud (GCP/OCI/Cloudflare/AWS). Terragrunt-wrapped Terraform provisions cloud, Ansible bootstraps systems, FluxCD reconciles TWO k3s clusters: 'firefly' (Pi + OCI nodes) and 'franklinhouse' (6 VMs on a 3-node Proxmox cluster, folded in from calebsargeant/infra-v2 on 2026-08-13).",
   "entrypoints": [
     "kubernetes/clusters/firefly/kustomization.yaml",
