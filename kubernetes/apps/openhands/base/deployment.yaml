@@ -55,7 +55,7 @@ spec:
                 - ALL
           # OpenHands V1 agent-canvas serves the UI and agent-server in one container.
           # The pod is the sandbox boundary; it intentionally has GitHub write access.
-          image: ghcr.io/openhands/agent-canvas:1.5.2 # {"$imagepolicy": "flux-system:openhands"}
+          image: ghcr.io/openhands/agent-canvas:1.19.0 # {"$imagepolicy": "flux-system:openhands"}
           # A `claude setup-token` / clipboard-created Vault value can include one trailing
           # newline. Nievah strips HTTP-header values (required by HTTP), while agent-canvas
           # compares its raw environment value. Normalise the shared key before handing off to
@@ -224,7 +224,7 @@ spec:
         # instead of a schedule for the same reason.
         # readOnlyRootFilesystem is not set: the agent image may write to the root
         # filesystem at startup. Constrained by no SA token, dropped capabilities, and seccomp=RuntimeDefault.
-        - name: repo-sync  # nosemgrep: yaml.kubernetes.security.writable-filesystem-container.writable-filesystem-container
+        - name: repo-sync # nosemgrep: yaml.kubernetes.security.writable-filesystem-container.writable-filesystem-container
           # Same image as the agent, deliberately. It already ships git, curl and jq, it
           # is already on the node so there is no second pull, and it runs as the same
           # uid 10001 the pod enforces. The first version used alpine and ran
@@ -234,7 +234,7 @@ spec:
           # lost its only endpoint and the agent went down with it. Nothing here should
           # install software at runtime. Both image lines carry the same $imagepolicy
           # marker, so Flux image automation moves them together and they cannot drift.
-          image: ghcr.io/openhands/agent-canvas:1.5.2 # {"$imagepolicy": "flux-system:openhands"}
+          image: ghcr.io/openhands/agent-canvas:1.19.0 # {"$imagepolicy": "flux-system:openhands"}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
