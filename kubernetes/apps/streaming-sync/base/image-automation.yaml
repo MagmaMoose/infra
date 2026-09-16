@@ -1,0 +1,32 @@
+---
+# Image automation for the CronJob's base image. It used the floating `python:3.12-slim`
+# tag, which never moves on a node that already has it cached (IfNotPresent), so the
+# job silently stayed on whatever 3.12 build was pulled first. Pin the patch release and
+# let the `media` ImageUpdateAutomation bump it. The range stays on 3.12: sync.py is only
+# tested there. Objects live in flux-system, where the marker in cronjob.yaml resolves.
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: streaming-sync
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: streaming-sync
+  filterTags:
+    pattern: ^(?P<version>3\.12\.[0-9]+)-slim$
+    extract: $version
+  policy:
+    semver:
+      range: '>=3.12.0 <3.13.0'
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: streaming-sync
+  namespace: flux-system
+spec:
+  image: python
+  # Docker Hub's python repository has thousands of tags and 3.12 only gets security
+  # releases, so a daily scan is plenty.
+  interval: 24h
