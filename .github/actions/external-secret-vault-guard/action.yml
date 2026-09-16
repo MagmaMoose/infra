@@ -72,6 +72,13 @@ inputs:
     description: OCID of the vault whose secret NAMES are listed.
     required: false
     default: ""
+  oci-compartment-ocid:
+    description: >-
+      Compartment holding the vault's secrets. ListSecrets is not recursive, so
+      a sub-compartment must be named. Empty lists the tenancy root. The script
+      always read OCI_COMPARTMENT_OCID, but nothing could pass it in.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -104,6 +111,7 @@ runs:
         OCI_KEY_CONTENT: ${{ inputs.oci-key-content }}
         OCI_REGION: ${{ inputs.oci-region }}
         OCI_VAULT_OCID: ${{ inputs.oci-vault-ocid }}
+        OCI_COMPARTMENT_OCID: ${{ inputs.oci-compartment-ocid }}
       run: |
         args=()
         for p in ${{ inputs.paths }}; do args+=(--path "$p"); done
