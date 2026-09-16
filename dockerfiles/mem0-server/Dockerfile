@@ -12,7 +12,7 @@
 #   Second-order win, and the reason the Deployment moved: the published image is arm64
 #   ONLY, which forced mem0 onto the OCI (arm64) node tier while its Postgres lives
 #   on-prem — every query crossed the site-to-site VPN. python:3.12-slim is multi-arch,
-#   so this image is amd64+arm64 and mem0 now runs beside its database on ff-vm1.
+#   so this image is amd64+arm64 and mem0 can run on either tier (see its kustomization).
 #
 # Built + pushed by .github/workflows/docker-publish.yml to
 # ghcr.io/magmamoose/mem0-server — NOT by hand. A laptop `docker push` needs a

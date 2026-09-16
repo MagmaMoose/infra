@@ -120,10 +120,11 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 128Mi
+              # measured 214Mi working set after first boot (2026-09-16), so 128Mi under-reserved
+              memory: 256Mi
             limits:
               cpu: 500m
-              memory: 384Mi
+              memory: 512Mi
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true

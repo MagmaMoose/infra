@@ -16,29 +16,26 @@ resources:
   - service.yaml
   - ingress.yaml
   - networkpolicy.yaml
-# Placement: ON-PREM, i.e. ff-vm1 — the same node as the CNPG `postgres` primary, and the
-# same LAN as the rest of the cluster's storage.
+# Placement: CLOUD, although all three CNPG `postgres` instances run on ff-vm1.
 #
-# This used to be `cloud` (ff-oci1/ff-oci2), and NOT as a preference: the old image layered
-# on `mem0/mem0-api-server`, whose manifest index contains linux/arm64 and nothing else, so
-# amd64 ff-vm1 could not run it at all. The consequence was that the fleet's memory service
-# sat on the far side of the site-to-site VPN from its own database and paid a tunnel
-# round-trip per query — an architectural cost imposed by a base image's build matrix.
-# dockerfiles/mem0-server now builds from upstream source on multi-arch python:3.12-slim,
-# which is what makes this line changeable.
+# The multi-arch image (dockerfiles/mem0-server) made on-prem possible, and it was the
+# design: beside the database, no tunnel round trip. It did not survive first deploy on
+# 2026-09-16. ff-vm1, the only node `place-on-prem` selects, had 99% of its memory
+# requested; mem0 carried no priority label, so at priority 0 it was preempted within
+# minutes and could not reschedule. Raising its priority there would have made the scheduler
+# evict the lowest-priority pods on ff-vm1 first, and that includes the CNPG operator
+# (priority 0). The cloud tier was at 35-44% memory requested. The cost is a Postgres round
+# trip over the site-to-site mesh, about 2 ms.
 #
-# `place-on-prem` applies BOTH `node-role.kubernetes.io/worker` and
-# `topology.sargeant.co/tier: on-prem`, and only ff-vm1 carries both — checked against live
-# labels, not against the comment (COMMON_MISTAKES #22): `topology.sargeant.co/tier=on-prem`
-# ALONE is a SET (ff-pi1, ff-pi2, ff-vm1), so the two-key selector is doing real work here.
-# Capacity checked the same way: ff-vm1 is 8 CPU / 28 GiB allocatable at ~54% CPU and ~70%
-# memory requested, so the old "97% / 99%" warning in that policy's own comment is stale.
+# Move it back to `on-prem`, keeping the priority, once ff-vm1 has memory headroom.
 labels:
-  # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which adds the
-  # nodeSelector at admission.
+  # Consumed at admission by the Kyverno `place-cloud` (nodeSelector) and
+  # `assign-priority-class` (priorityClassName) ClusterPolicies. `medium` matches hermes,
+  # mem0's main caller.
   # includeSelectors/includeTemplates false: these fields are immutable on a live
   # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
   - pairs:
-      placement.sargeant.co/tier: on-prem
+      placement.sargeant.co/tier: cloud
+      placement.sargeant.co/priority: medium
     includeSelectors: false
     includeTemplates: false
