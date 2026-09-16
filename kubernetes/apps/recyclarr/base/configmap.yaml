@@ -8,49 +8,46 @@ data:
   # Sonarr + Radarr on each CronJob run. API keys are injected from the
   # recyclarr-secrets Secret as $SONARR_API_KEY / $RADARR_API_KEY.
   #
-  # NOTE: uses recyclarr v7 `include: template:` (TRaSH config-templates). v8
-  # removed official include-templates, so the CronJob is pinned to v7.x.
+  # Recyclarr v8 syntax: each profile is guide-backed by its TRaSH `trash_id`, which
+  # brings the profile's qualities, custom formats, scores and language with it, plus
+  # every custom-format group the guide marks as a default for that profile. This
+  # replaces v7's `include: template:` lists, which v8 no longer ships.
   #
-  # The image pin alone is not enough: v7 clones config-templates from `master`
-  # at run time, and upstream merged the v8 layout into master on 2026-08-07,
-  # deleting every include below. Every run since failed with "unable to find
-  # config include". settings.yml pins the templates to the last v7-layout
-  # commit; move the pin only together with a v8 migration.
-  settings.yml: |
-    resource_providers:
-      - name: config-templates-v7
-        type: config-templates
-        clone_url: https://github.com/recyclarr/config-templates.git
-        reference: 4ae377bb704fc7fd69a544ad04e91357e0b09f62
-        replace_default: true
+  # The CronJob keeps no state between runs (emptyDir). Since 8.4 a sync adopts custom
+  # formats and profiles that already exist by name, so profile names must match what
+  # Sonarr/Radarr already have, or it creates a second profile and every title stays on
+  # the old, unmanaged one.
   recyclarr.yml: |
     sonarr:
       series:
         base_url: http://sonarr.media.svc.cluster.local:8989
         api_key: !env_var SONARR_API_KEY
-        replace_existing_custom_formats: true
         delete_old_custom_formats: true
-        include:
-          # NOTE: quality DEFINITIONS (per-episode size caps) are intentionally NOT
-          # managed by Recyclarr. TRaSH leaves 1080p max=unlimited, which let 5 GB
-          # premium episodes through. They are capped via the Sonarr API instead:
-          # HDTV/WEBRip/WEBDL-1080p -> max 50 MB/min (~3 GB/60-min ep), preferred 42
-          # (~2.5 GB). Recyclarr can't express custom sizes, and re-adding the
-          # sonarr-quality-definition-series template here would reset the caps.
-          # WEB-1080p profile (1080p only; 720p/SD/2160p disabled)
-          - template: sonarr-v4-quality-profile-web-1080p
-          - template: sonarr-v4-custom-formats-web-1080p
+        # NOTE: quality DEFINITIONS (per-episode size caps) are intentionally NOT
+        # managed by Recyclarr. TRaSH leaves 1080p max=unlimited, which let 5 GB
+        # premium episodes through. They are capped via the Sonarr API instead:
+        # HDTV/WEBRip/WEBDL-1080p -> max 50 MB/min (~3 GB/60-min ep), preferred 42
+        # (~2.5 GB). Adding a `quality_definition` here would reset the caps.
+        quality_profiles:
+          # WEB-1080p (1080p only; 720p/SD/2160p disabled). The guide's name matches
+          # the existing profile, so no `name` override is needed.
+          - trash_id: 72dae194fc92bf828f32cde7744e51a1 # WEB-1080p
+            reset_unmatched_scores:
+              enabled: true
 
     radarr:
       movies:
         base_url: http://radarr.media.svc.cluster.local:7878
         api_key: !env_var RADARR_API_KEY
-        replace_existing_custom_formats: true
         delete_old_custom_formats: true
-        include:
-          # SQP UHD sizes — reasonable 4K file sizes (caps the bloat)
-          - template: radarr-quality-definition-sqp-uhd
-          # SQP-1 (2160p): Bluray-2160p / WEB-2160p, EXCLUDES Remux-2160p,
-          # falls back to 1080p — "4K within reasonable size limits"
-          - template: radarr-quality-profile-sqp-1-2160p-default
-          - template: radarr-custom-formats-sqp-1-2160p
+        # SQP UHD sizes — reasonable 4K file sizes (caps the bloat)
+        quality_definition:
+          type: sqp-uhd
+        quality_profiles:
+          # SQP-1 (2160p): Bluray-2160p / WEB-2160p, EXCLUDES Remux-2160p, falls back
+          # to 1080p — "4K within reasonable size limits". The guide calls it
+          # "[SQP] SQP-1 (2160p)"; keep the name every movie is already assigned to.
+          - trash_id: 5128baeb2b081b72126bc8482b2a86a0 # [SQP] SQP-1 (2160p)
+            name: SQP-1 (2160p)
+            reset_unmatched_scores:
+              enabled: true
