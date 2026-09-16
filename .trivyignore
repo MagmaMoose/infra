@@ -193,3 +193,23 @@ AVD-KSV-0023
 KSV-0048
 KSV0048
 AVD-KSV-0048
+
+# KSV-0014 — "container should set securityContext.readOnlyRootFilesystem: true".
+#
+# Suppressed for the repo-sync sidecar in the OpenHands Deployment only. That
+# container uses alpine:3.22 and runs `apk add --no-cache git curl jq` at startup,
+# which writes to the root filesystem before exec-ing the sync script. The control
+# is correct in principle; the current design simply cannot satisfy it without a
+# pre-built image. The Semgrep counterpart is suppressed inline on the same line
+# (nosemgrep: yaml.kubernetes.security.writable-filesystem-container).
+#
+# Path-scoped so the control stays active for every other container in the repo
+# (29 containers that correctly set readOnlyRootFilesystem: true would otherwise
+# lose enforcement). Only inline trivy:ignore and .trivyignore reach Chargate's
+# SARIF pipeline for Kubernetes YAML — per-container annotation is not possible.
+#
+# Proper fix: switch repo-sync to a pre-built image with git/curl/jq installed,
+# then remove these entries and set readOnlyRootFilesystem: true.
+KSV-0014 kubernetes/apps/openhands/base/deployment.yaml
+KSV0014 kubernetes/apps/openhands/base/deployment.yaml
+AVD-KSV-0014 kubernetes/apps/openhands/base/deployment.yaml

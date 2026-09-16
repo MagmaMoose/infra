@@ -200,6 +200,28 @@ responses, and its proxy config can mark a model with
 structured OpenAI `tool_calls`; it currently emits tool-call-shaped JSON in the
 assistant message content instead.
 
+## Virtual keys, and why clients should not use the master key
+
+The gateway's per-client access is virtual keys in Postgres, not anything in
+`config.yaml`. Each key has an alias and a `models` allow-list, so a compromised client
+reaches only what its key names:
+
+| Alias | Models |
+|---|---|
+| `warp-dev` | deepseek-v4-pro, deepseek-v4-flash |
+| `nievah-pr-review` | the claude-* groups plus both deepseek models |
+| `openhands` | deepseek-v4-pro/flash, gpt-5.6-luna/sol/terra |
+
+Keys are database rows, so a restore from backup brings back whatever the dump held and
+nothing in Git corrects it. `kubernetes/apps/litellm/base/keyseed-job.yaml` closes that
+gap for `openhands`: it upserts the key from its OCI Vault value on every run, which is
+idempotent and never rotates it. Bump the Job's name suffix when the model list changes,
+since Jobs are immutable.
+
+Management endpoints (`/key/*`, `/team/*`) still want the `Bearer ` prefix *inside*
+`x-litellm-api-key`. Renaming the header via `litellm_key_header_name` does not change
+the value grammar, and sending the bare key returns "Malformed API Key".
+
 ## Operational note
 
 LiteLLM intentionally has no hard node selector. The Pi node can be too tight to

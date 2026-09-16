@@ -5,17 +5,29 @@ resources:
   - externalsecret.yaml
   - pvc.yaml
   - configmap-bootstrap.yaml
+  - configmap-subagents.yaml
+  - configmap-skills.yaml
+  - configmap-reposync.yaml
+  - migration-job.yaml
   - deployment.yaml
   - service.yaml
   - ingress.yaml
-# agent-canvas is multi-arch and this workload needs the native-cloud capacity.
+# MOVED cloud -> on-prem, 2026-09-16. The repo mirror needs ~50Gi and the OCI nodes
+# have 44Gi root disks with 7-12Gi free; the space is all on-prem (ff-pi1 732Gi free,
+# ff-vm1 801Gi). Keeping the pod on OCI would have meant a Longhorn volume whose
+# replicas live at the far end of the OCI-to-home VPN, with every write paying that
+# latency synchronously and a link outage degrading the volume mid-session.
+#
+# `on-prem` resolves to {node-role.kubernetes.io/worker, topology.sargeant.co/tier}
+# via the place-on-prem ClusterPolicy, which means ff-pi2 or ff-vm1 (ff-pi1 is tier
+# `system`, so it is excluded). The image is multi-arch, so either is fine.
 labels:
   # Placement tier — consumed by the Kyverno `place-cloud` ClusterPolicy, which
   # adds the nodeSelector at admission. Replaces components/node-selectors/native-cloud.
   # includeSelectors/includeTemplates false: these fields are immutable on a live
   # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
   - pairs:
-      placement.sargeant.co/tier: cloud
+      placement.sargeant.co/tier: on-prem
       placement.sargeant.co/priority: low
     includeSelectors: false
     includeTemplates: false

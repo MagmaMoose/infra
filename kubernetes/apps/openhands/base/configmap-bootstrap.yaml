@@ -50,30 +50,182 @@ data:
       exit 0
     fi
 
-    jq -n --arg k "${BOOTSTRAP_LLM_API_KEY:-}" '{
-      agent_settings_diff: {
+    # ---- LLM profiles ---------------------------------------------------------
+    # Profiles live in ~/.openhands/profiles on the state PVC, so they cannot be mounted
+    # from Git and have to be seeded through the API. POST /api/profiles/{name} is an
+    # upsert, which makes this safe to re-run on every pod start.
+    LLM_BASE="http://litellm.automation.svc.cluster.local:8080"  # DevSkim: ignore DS137138 - in-cluster ClusterIP, not externally reachable
+    PRIMARY_PROFILE="gpt-5.6-luna"
+
+    put_profile() {
+      _name="$1"; _model="$2"; _effort="$3"
+      jq -n --arg m "litellm_proxy/${_model}" --arg b "$LLM_BASE" \
+            --arg k "${BOOTSTRAP_LLM_API_KEY:-}" --arg e "$_effort" '{
         llm: {
-          model: "litellm_proxy/deepseek-v4-pro",
-          base_url: "http://litellm.automation.svc.cluster.local:8080",
-          api_key: $k
+          model: $m,
+          base_url: $b,
+          api_key: $k,
+          reasoning_effort: $e,
+          native_tool_calling: true,
+          drop_params: true,
+          num_retries: 5,
+          timeout: 300
+        }
+      }' | curl -fsS -o /dev/null -X POST "${BASE}/api/profiles/${_name}" \
+            -H 'Content-Type: application/json' \
+            -H "X-Session-API-Key: ${SESSION_KEY}" --data @- \
+        && log "profile ${_name} saved" \
+        || log "WARNING: profile ${_name} failed"
+    }
+
+    # litellm_proxy/ is the provider prefix the gateway expects. Do NOT use openai/ here:
+    # it reaches the same endpoint but bypasses LiteLLM's model-group routing, so per-model
+    # budgets and the key's model allow-list stop being enforced.
+    put_profile gpt-5.6-luna    gpt-5.6-luna    high
+    put_profile gpt-5.6-sol     gpt-5.6-sol     high
+    put_profile gpt-5.6-terra   gpt-5.6-terra   medium
+    put_profile deepseek-v4-pro deepseek-v4-pro medium
+
+    # ---- MCP servers ----------------------------------------------------------
+    # The Slack server needs a team id alongside the bot token and there is no vault entry
+    # for it; auth.test returns the one the token belongs to, so derive it rather than
+    # hardcoding a value that would silently rot if the token moved workspaces.
+    SLACK_TEAM_ID=""
+    if [ -n "${BOOTSTRAP_SLACK_BOT_TOKEN:-}" ]; then
+      SLACK_TEAM_ID="$(curl -fsS --max-time 10 -H "Authorization: Bearer ${BOOTSTRAP_SLACK_BOT_TOKEN}" \
+        https://slack.com/api/auth.test 2>/dev/null | jq -r '.team_id // empty')"
+      [ -n "$SLACK_TEAM_ID" ] || log "WARNING: slack auth.test gave no team_id; slack MCP will be skipped"
+    fi
+
+    # npx-based servers resolve packages at first use. npm_config_cache and
+    # PLAYWRIGHT_BROWSERS_PATH point at the state PVC (see the Deployment), so the
+    # ~150MB Chromium download survives a pod restart instead of repeating.
+    MCP_CONFIG="$(jq -n \
+      --arg gh    "${BOOTSTRAP_GITHUB_TOKEN:-}" \
+      --arg slack "${BOOTSTRAP_SLACK_BOT_TOKEN:-}" \
+      --arg team  "$SLACK_TEAM_ID" \
+      --arg cu    "${BOOTSTRAP_CLICKUP_TOKEN:-}" '
+      {
+        context7: {
+          transport: "http",
+          url: "https://mcp.context7.com/mcp",
+          description: "Current library and framework documentation"
+        },
+        playwright: {
+          transport: "stdio",
+          command: "npx",
+          args: ["-y", "@playwright/mcp@0.0.81", "--headless", "--isolated"],
+          description: "Browser automation"
+        },
+        mermaid: {
+          transport: "stdio",
+          command: "npx",
+          args: ["-y", "mcp-mermaid@0.4.1"],
+          description: "Render and validate Mermaid diagrams"
+        },
+        ms365: {
+          transport: "stdio",
+          command: "npx",
+          args: ["-y", "@softeria/ms-365-mcp-server@0.154.0"],
+          description: "Microsoft 365 mail, calendar and files (run its login tool once)"
         }
       }
-    }' | curl -fsS -o /dev/null -X PATCH "${BASE}/api/settings" \
-        -H 'Content-Type: application/json' \
-        -H "X-Session-API-Key: ${SESSION_KEY}" \
-        --data @- \
-      && log "LLM settings applied (litellm_proxy/deepseek-v4-pro)" \
+      + (if $gh    != "" then { github: {
+           transport: "http",
+           url: "https://api.githubcopilot.com/mcp/",
+           auth: { strategy: "bearer", value: $gh },
+           description: "GitHub repositories, issues, pull requests and Actions"
+         } } else {} end)
+      + (if $slack != "" and $team != "" then { slack: {
+           transport: "stdio",
+           command: "npx",
+           args: ["-y", "@modelcontextprotocol/server-slack@2025.4.25"],
+           env: { SLACK_BOT_TOKEN: $slack, SLACK_TEAM_ID: $team },
+           description: "Slack channels and messages"
+         } } else {} end)
+      + (if $cu    != "" then { clickup: {
+           transport: "stdio",
+           command: "npx",
+           args: ["-y", "@taazkareem/clickup-mcp-server@0.14.5"],
+           env: { CLICKUP_API_KEY: $cu },
+           description: "ClickUp tasks and lists"
+         } } else {} end)
+    ')"
+
+    # ---- Skills ---------------------------------------------------------------
+    # Read every file from the openhands-skills ConfigMap and inject them inline. jq -s
+    # over an empty glob still yields [], so an empty ConfigMap clears skills rather
+    # than failing. Filename minus .md is the skill name.
+    SKILLS="$(for f in /skills/*.md; do
+      [ -f "$f" ] || continue
+      jq -n --arg n "$(basename "$f" .md)" --rawfile c "$f" '{name: $n, content: $c}'
+    done | jq -s '.')"
+    log "$(echo "$SKILLS" | jq 'length') skills loaded from /skills"
+
+    # ---- Settings -------------------------------------------------------------
+    # One PATCH carries the active LLM, the sub-agent switch, the MCP map and the git
+    # identity. enable_sub_agents defaults to false, so the mounted definitions in
+    # ~/.agents/agents are inert until this flips it.
+    jq -n \
+      --arg m "litellm_proxy/${PRIMARY_PROFILE}" \
+      --arg b "$LLM_BASE" \
+      --arg k "${BOOTSTRAP_LLM_API_KEY:-}" \
+      --arg p "$PRIMARY_PROFILE" \
+      --arg gn "${GIT_AUTHOR_NAME:-}" \
+      --arg ge "${GIT_AUTHOR_EMAIL:-}" \
+      --argjson mcp "$MCP_CONFIG" \
+      --argjson sk "$SKILLS" '{
+        agent_settings_diff: {
+          llm: { model: $m, base_url: $b, api_key: $k },
+          enable_sub_agents: true,
+          mcp_config: $mcp,
+          # Serial tool calls by default. 4 is a straight win on read-heavy work like
+          # exploring an unfamiliar repo, where the calls are independent reads.
+          tool_concurrency_limit: 4,
+          agent_context: {
+            skills: $sk,
+            load_user_skills: true,
+            # Carried explicitly: agent_context is replaced wholesale by this diff, so
+            # omitting it would drop the default marketplace path.
+            marketplace_path: "marketplaces/default.json"
+          }
+        },
+        misc_settings_diff: {
+          app_preferences: { git_user_name: $gn, git_user_email: $ge }
+        },
+        active_profile: $p
+      }' | curl -fsS -o /dev/null -X PATCH "${BASE}/api/settings" \
+          -H 'Content-Type: application/json' \
+          -H "X-Session-API-Key: ${SESSION_KEY}" \
+          --data @- \
+      && log "settings applied (profile=${PRIMARY_PROFILE}, sub-agents on, $(echo "$MCP_CONFIG" | jq 'keys|length') MCP servers)" \
       || log "WARNING: PATCH /api/settings failed"
 
-    if [ -n "${BOOTSTRAP_GITHUB_TOKEN:-}" ]; then
-      jq -n --arg t "$BOOTSTRAP_GITHUB_TOKEN" \
-        '{custom_secrets: {GITHUB_TOKEN: {value: $t}}}' \
+    # ---- Stored secrets -------------------------------------------------------
+    # custom_secrets are exposed to the agent's shell, which is how it authenticates git
+    # pushes. Kept separate from mcp_config: that map configures servers, this is what the
+    # agent itself can read.
+    put_secret() {
+      [ -n "$2" ] || return 0
+      jq -n --arg n "$1" --arg v "$2" '{custom_secrets: {($n): {value: $v}}}' \
         | curl -fsS -o /dev/null -X PUT "${BASE}/api/settings/secrets" \
             -H 'Content-Type: application/json' \
-            -H "X-Session-API-Key: ${SESSION_KEY}" \
-            --data @- \
-        && log "GITHUB_TOKEN secret stored" \
-        || log "WARNING: storing GITHUB_TOKEN failed"
-    fi
+            -H "X-Session-API-Key: ${SESSION_KEY}" --data @- \
+        && log "secret $1 stored" \
+        || log "WARNING: storing $1 failed"
+    }
+    put_secret GITHUB_TOKEN   "${BOOTSTRAP_GITHUB_TOKEN:-}"
+    put_secret SLACK_BOT_TOKEN "${BOOTSTRAP_SLACK_BOT_TOKEN:-}"
+    put_secret CLICKUP_API_KEY "${BOOTSTRAP_CLICKUP_TOKEN:-}"
+
+    # ---- Sub-agents -----------------------------------------------------------
+    # Rescans ~/.agents/agents (mounted from the openhands-subagents ConfigMap) and the
+    # builtin set. Without this the definitions are only picked up on a cold start.
+    jq -n '{load_user: true, load_project: false, load_builtin: true}' \
+      | curl -fsS -o /dev/null -X POST "${BASE}/api/sub-agents" \
+          -H 'Content-Type: application/json' \
+          -H "X-Session-API-Key: ${SESSION_KEY}" --data @- \
+      && log "sub-agents reloaded" \
+      || log "WARNING: sub-agent reload failed"
 
     exit 0

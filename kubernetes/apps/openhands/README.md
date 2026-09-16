@@ -51,3 +51,58 @@ without SSH verification.
 The workspace is node-local scratch state, so a node loss discards active conversations and
 requires a new run. Keep the PVC bounded and monitor its usage; completed agent workspaces are
 not automatically garbage-collected by the V1 API.
+
+## Provisioning
+
+Everything below is applied by `configmap-bootstrap.yaml`'s seed script, which the pod's
+postStart hook runs on every start. The script is idempotent, so a rollout re-converges
+the instance and hand-edits made in the UI are overwritten on the next restart. That is
+deliberate: OpenHands keeps its settings encrypted on the state PVC, where Git cannot
+reach them, so the API is the only declarative surface available.
+
+- **LLM profiles** — one per gateway model: `gpt-5.6-luna` (active), `gpt-5.6-sol`,
+  `gpt-5.6-terra`, `deepseek-v4-pro`. All use the `litellm_proxy/` provider prefix. Using
+  `openai/` instead reaches the same endpoint but skips LiteLLM's model-group routing, so
+  budgets and the key's allow-list stop applying.
+- **Credentials** — the scoped `openhands` LiteLLM key (see the LiteLLM keyseed Job), not
+  the gateway master key. An agent with GitHub write access should not also hold admin
+  rights over the gateway every other workload shares.
+- **Git identity** — `misc_settings.app_preferences`, set from the `GIT_AUTHOR_*` env vars
+  so the Deployment stays the single source.
+- **Sub-agents** — markdown definitions in `configmap-subagents.yaml`, mounted at
+  `~/.agents/agents` (outside the PVC, so they cannot drift) and enabled via
+  `enable_sub_agents`. They default to off; mounting alone does nothing.
+- **MCP servers** — GitHub and Context7 over HTTP, Slack, ClickUp, Playwright, Mermaid and
+  Microsoft 365 over stdio. Servers whose credentials are absent are omitted rather than
+  configured broken. Microsoft 365 needs its `login` tool run once interactively; the
+  hosted MermaidChart server would need an OAuth round-trip through the UI, so the local
+  renderer is used instead.
+
+Read the seed log with `kubectl -n openhands logs deploy/openhands | grep openhands-seed`.
+
+## Storage and the repo mirror
+
+Two Longhorn volumes on `longhorn-on-prem`, and the Deployment is on the on-prem
+placement tier so the pod sits beside them. `openhands-state` (10Gi) holds settings,
+profiles and conversation history and carries the `weekly-backup` label, so it reaches
+S3; that job has no group selector, so a volume without the label gets local snapshots
+only. `openhands-repos` (50Gi) holds the clones, which are reproducible from GitHub and
+so are deliberately left out of the backup set.
+
+`/workspace/repos/<owner>/<name>` is maintained by the `repo-sync` sidecar, mirroring
+the `~/repos` layout. It reconciles the *set* of repositories and lets git move the
+contents, which is why it replaces the previous Syncthing arrangement: Syncthing does
+file-level bidirectional sync, and a git repository is a database whose index, refs and
+packfiles both ends mutate. It cannot merge those, so it writes `.sync-conflict-*` files
+into `.git` and corrupts the repo. Excluding `.git` is not a fix either, since that
+syncs working trees detached from their own history.
+
+The sidecar never touches work in progress. A repository with uncommitted changes, on a
+non-default branch, or ahead of its remote is fetched and then left alone. Repositories
+the API stops returning are moved to `/workspace/repos/.attic`, never deleted, so a
+rate-limited or partial API response cannot destroy local work. Owners are listed in
+`configmap-reposync.yaml`.
+
+Migration: `openhands-migrate-state-v1` copies the old local-path state across once. It
+is pinned to ff-oci2 because local-path is node-local. Delete the `openhands` PVC and
+its block in `pvc.yaml` once the history looks right in the UI.

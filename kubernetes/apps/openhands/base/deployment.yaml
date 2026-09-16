@@ -108,16 +108,35 @@ spec:
               value: 4991715+CalebSargeant@users.noreply.github.com
             # Bootstrap writes the encrypted V1 settings through /api/settings. These
             # values are not read by the agent-server directly.
+            # Scoped `openhands` virtual key, not the gateway master key. It only
+            # resolves the deepseek + gpt-5.6 model groups, so a prompt-injected agent
+            # cannot reach the Claude entries or the proxy's admin endpoints.
             - name: BOOTSTRAP_LLM_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: openhands
-                  key: llm-api-key
+                  key: litellm-key
             - name: BOOTSTRAP_GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: openhands
                   key: github-token
+            - name: BOOTSTRAP_SLACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openhands
+                  key: slack-bot-token
+            - name: BOOTSTRAP_CLICKUP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openhands
+                  key: clickup-token
+            # npx-resolved MCP servers cache here instead of in the container's ephemeral
+            # HOME, so a restart does not re-download Chromium (~150MB) and the npm tree.
+            - name: npm_config_cache
+              value: /home/openhands/.openhands/cache/npm
+            - name: PLAYWRIGHT_BROWSERS_PATH
+              value: /home/openhands/.openhands/cache/playwright
             # Nievah uses this stable key for headless REST authentication. agent-canvas
             # uses the V1 OH_SESSION_API_KEYS_0 value for its public proxy and agent server;
             # the legacy SESSION_API_KEY is ignored when that canonical key is absent and
@@ -165,7 +184,11 @@ spec:
               memory: 1Gi
             limits:
               cpu: "2"
-              memory: 2Gi
+              # 3Gi, not 2Gi: the Playwright MCP server spawns Chromium in this pod and
+              # wants ~1GB on its own. Not higher, because the on-prem workers this now
+              # schedules on are 6.4GB (ff-pi2) and 93% memory-requested (ff-vm1), so a
+              # 4Gi ceiling could take the node down rather than just the container.
+              memory: 3Gi
           volumeMounts:
             - name: state
               mountPath: /workspace
@@ -173,14 +196,95 @@ spec:
             - name: state
               mountPath: /home/openhands/.openhands
               subPath: openhands-state
+            # Nested inside /workspace on purpose: the agent sees one tree, but the
+            # clones live on their own 50Gi volume so they cannot crowd out the
+            # conversation history, and only the state volume is backed up to S3.
+            - name: repos
+              mountPath: /workspace/repos
+            - name: skills
+              mountPath: /skills
+              readOnly: true
             - name: bootstrap
               mountPath: /bootstrap
               readOnly: true
+            # Sub-agent definitions. ~/.agents/agents is the first directory
+            # load_user_agents() searches, and it sits outside the state PVC so these stay
+            # declarative: every rollout replaces them, nothing drifts into the volume.
+            - name: subagents
+              mountPath: /home/openhands/.agents/agents
+              readOnly: true
+        # Keeps /workspace/repos in step with GitHub. A sidecar rather than a CronJob
+        # because the repos volume is ReadWriteOnce: a separate pod would have to attach
+        # it on the same node and would fight the agent for the lock. Runs its own loop
+        # instead of a schedule for the same reason.
+        # readOnlyRootFilesystem is not set: apk installs git/curl/jq to the root fs at
+        # startup. Constrained by no SA token, dropped capabilities, and seccomp=RuntimeDefault.
+        - name: repo-sync  # nosemgrep: yaml.kubernetes.security.writable-filesystem-container.writable-filesystem-container
+          image: alpine:3.22
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 25m
+              memory: 96Mi
+            limits:
+              memory: 512Mi
+          env:
+            - name: HOME
+              value: /home/sync
+            - name: SYNC_INTERVAL_SECONDS
+              value: "1800"
+            - name: SKIP_ARCHIVED
+              value: "true"
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openhands
+                  key: github-token
+            # Second forge. hosts.txt maps pinkroccade.ghe.com to this variable, so a
+            # missing value degrades to "skip that owner with a warning" rather than
+            # failing the whole pass.
+            - name: GHE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openhands
+                  key: ghe-token
+          command: ["/bin/sh", "-c"]
+          args:
+            - apk add --no-cache git curl jq >/dev/null && exec /scripts/sync.sh
+          volumeMounts:
+            - name: repos
+              mountPath: /workspace/repos
+            - name: reposync
+              mountPath: /scripts
+              readOnly: true
+            - name: reposync
+              mountPath: /config
+              readOnly: true
+            - name: reposync-home
+              mountPath: /home/sync
       volumes:
         - name: state
           persistentVolumeClaim:
-            claimName: openhands
+            claimName: openhands-state
+        - name: repos
+          persistentVolumeClaim:
+            claimName: openhands-repos
+        - name: skills
+          configMap:
+            name: openhands-skills
+        - name: reposync
+          configMap:
+            name: openhands-reposync
+            defaultMode: 0755
+        - name: reposync-home
+          emptyDir: {}
         - name: bootstrap
           configMap:
             name: openhands-bootstrap
             defaultMode: 0755
+        - name: subagents
+          configMap:
+            name: openhands-subagents

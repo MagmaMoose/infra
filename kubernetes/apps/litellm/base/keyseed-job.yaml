@@ -1,0 +1,107 @@
+# Upserts the per-client virtual keys that LiteLLM stores in Postgres, which the
+# config.yaml ConfigMap cannot express — keys are DB rows, not config. Without this
+# the gateway's access model is created by hand in the UI and is not reproducible
+# from Git after a database restore.
+#
+# Idempotent: /key/update first, /key/generate on miss. The key VALUE comes from OCI
+# Vault, so re-running never rotates it and OpenHands keeps working across replays.
+#
+# Bump the name suffix (-v1, -v2, ...) whenever the payload below changes. Jobs are
+# immutable, so editing this in place would make Flux's apply fail; a new name makes
+# the change a new Job. Old completed Jobs can be deleted by hand once succeeded.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: litellm-keyseed-v1
+  namespace: automation
+  annotations:
+    checkov.io/skip1: CKV_K8S_11=CPU limits are unset estate-wide by decision; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited.
+    checkov.io/skip2: CKV_K8S_15=IfNotPresent is the house convention; image is tagged and pulled only when absent, not on every Job run
+    checkov.io/skip3: CKV_K8S_35=LITELLM_MASTER_KEY and OPENHANDS_KEY are consumed directly by curl in a single-use shell script; there is no file-based credential path without rewriting the script
+    checkov.io/skip4: CKV_K8S_43=curlimages/curl pinned to 8.11.1; digest pinning not warranted for this home-lab one-shot Job
+spec:
+  ttlSecondsAfterFinished: 604800
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app: litellm-keyseed
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: keyseed
+          image: curlimages/curl:8.11.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          env:
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm
+                  key: master-key
+            - name: OPENHANDS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm
+                  key: openhands-key
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -u
+              B=http://litellm.automation.svc.cluster.local:4000  # DevSkim: ignore DS137138 - in-cluster ClusterIP, not externally reachable
+              # Management endpoints want the "Bearer " prefix INSIDE the custom header.
+              # general_settings.litellm_key_header_name renames the header but does not
+              # change the value grammar; sending the bare key returns "Malformed API Key".
+              H="x-litellm-api-key: Bearer ${LITELLM_MASTER_KEY}"
+
+              for i in $(seq 1 60); do
+                curl -fsS -o /dev/null "$B/health/readiness" && break
+                sleep 5
+              done
+
+              # max_budget matters most in the case this key exists for: Claude quota runs
+              # out, work moves to the per-token gpt-5.6 models, and the agent runs with
+              # max_iterations 500 and confirmation_mode off. Without a ceiling a stuck
+              # loop bills until someone notices. LiteLLM rejects requests past it.
+              PAYLOAD=$(printf '{"key":"%s","key_alias":"openhands","models":["deepseek-v4-pro","deepseek-v4-flash","gpt-5.6-luna","gpt-5.6-sol","gpt-5.6-terra"],"max_budget":50,"budget_duration":"30d","metadata":{"owner":"openhands","managed_by":"litellm-keyseed Job"}}' "$OPENHANDS_KEY")
+
+              CODE=$(curl -s -o /tmp/out -w '%{http_code}' -X POST "$B/key/update" \
+                -H "$H" -H 'Content-Type: application/json' -d "$PAYLOAD")
+              if [ "$CODE" = "200" ]; then
+                echo "[keyseed] openhands key updated"
+                exit 0
+              fi
+              echo "[keyseed] update returned $CODE, creating"
+
+              CODE=$(curl -s -o /tmp/out -w '%{http_code}' -X POST "$B/key/generate" \
+                -H "$H" -H 'Content-Type: application/json' -d "$PAYLOAD")
+              if [ "$CODE" = "200" ]; then
+                echo "[keyseed] openhands key created"
+                exit 0
+              fi
+              echo "[keyseed] FAILED ($CODE):"
+              sed 's/sk-[A-Za-z0-9_-]*/sk-REDACTED/g' /tmp/out
+              exit 1
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

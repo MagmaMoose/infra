@@ -1,0 +1,192 @@
+# Mirrors GitHub into /workspace/repos/<owner>/<name>, matching the ~/repos layout.
+#
+# Why not Syncthing: a git repository is a database, not a pile of files. Both ends
+# mutate .git/index, refs and packfiles, and Syncthing has no way to merge those — it
+# writes .sync-conflict-* files INTO .git, which corrupts the repo. No ignore pattern
+# fixes it either, because excluding .git would sync working trees detached from their
+# own history. Git is already a sync protocol and GitHub is already the source of
+# truth, so this reconciles the SET of repos and lets git move the contents.
+#
+# Safety rule: this never touches work in progress. A dirty worktree, a non-default
+# branch, or a branch ahead of its remote is fetched and then left alone. Repos that
+# disappear upstream are moved to .attic, never deleted.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openhands-reposync
+  namespace: openhands
+data:
+  # <host> <api base> <env var holding its token>. Adding a forge is a line here plus
+  # the matching env var on the sidecar; nothing in sync.sh needs to change.
+  hosts.txt: |
+    github.com           https://api.github.com            GITHUB_TOKEN
+    pinkroccade.ghe.com  https://api.pinkroccade.ghe.com   GHE_TOKEN
+  # <owner>[@host] [as <directory>]. Host defaults to github.com. `as` overrides the
+  # directory name, which is how an org whose name does not match the local convention
+  # still lands where you expect it.
+  owners.txt: |
+    # `as` is used only to lowercase the two owners GitHub spells in camel case, so
+    # every directory here matches the local tree. Case matters on the API side, so
+    # the left-hand name must stay as GitHub spells it.
+    MagmaMoose as magmamoose
+    CalebSargeant as calebsargeant
+    tengen-systems
+    # Work forge. 115 active repos, roughly 7-8Gi of git data before checkout, so this
+    # is the bulk of the volume. Set SKIP_ARCHIVED=false to add the 21 archived ones.
+    samenlevingszaken@pinkroccade.ghe.com
+    # Not listed, and not oversights:
+    #   MagmaMooseArchives / CalebSargeantArchives — archived work, ~31 dead repos.
+    #   platform1-systems, aosis, velocity-digital — present in ~/repos but NOT visible
+    #     to the github.com token, so listing them would silently mirror nothing.
+  sync.sh: |
+    #!/bin/sh
+    # kics-scan disable=baee238e-1921-4801-9c3f-79ae1d7b2cbc
+    set -u
+
+    ROOT=/workspace/repos
+    ATTIC="$ROOT/.attic"
+    INTERVAL="${SYNC_INTERVAL_SECONDS:-1800}"
+    SKIP_ARCHIVED="${SKIP_ARCHIVED:-true}"
+
+    log() { printf '[repo-sync] %s\n' "$*"; }
+
+    if [ -z "${GITHUB_TOKEN:-}" ]; then
+      log "no GITHUB_TOKEN; sleeping instead of looping on failures"
+      while :; do sleep 3600; done
+    fi
+
+    # HOME is an emptyDir, so the credential file and .gitconfig never land on the PVC.
+    : > "$HOME/.git-credentials"
+    chmod 600 "$HOME/.git-credentials"
+    while read -r _h _api _envvar; do
+      case "$_h" in ''|\#*) continue ;; esac
+      eval "_tok=\${$_envvar:-}"
+      [ -n "$_tok" ] || { log "no $_envvar set; $_h will be skipped"; continue; }
+      printf 'https://x-access-token:%s@%s\n' "$_tok" "$_h" >> "$HOME/.git-credentials"
+    done < /config/hosts.txt
+    git config --global credential.helper store
+    git config --global safe.directory '*'
+    git config --global advice.detachedHead false
+
+    # Resolve a host to its API base and token. Both are looked up per call rather than
+    # cached, because the file is tiny and a stale cache here would silently send one
+    # forge's token to another.
+    host_api()  { awk -v h="$1" '$1==h {print $2}' /config/hosts.txt | head -1; }
+    host_tok()  { _v="$(awk -v h="$1" '$1==h {print $3}' /config/hosts.txt | head -1)"; [ -n "$_v" ] && eval "printf '%s' \"\${$_v:-}\""; }
+
+    api() {
+      # $1 host, $2 path
+      _b="$(host_api "$1")"; _t="$(host_tok "$1")"
+      [ -n "$_b" ] && [ -n "$_t" ] || return 1
+      curl -fsS --max-time 60 -H "Authorization: Bearer $_t" \
+           -H 'Accept: application/vnd.github+json' \
+           -H 'X-GitHub-Api-Version: 2022-11-28' "${_b}${2}"
+    }
+
+    # Which endpoint to use is not cosmetic. /users/<login>/repos returns PUBLIC repos
+    # only even when authenticated — on github.com that was 26 of 32 for this account,
+    # so ten private repos went missing with no error. The authenticated user's own
+    # repos have to come from /user/repos instead. Orgs are fine on /orgs/<name>/repos.
+    me_for_host() { api "$1" /user 2>/dev/null | jq -r '.login // empty'; }
+
+    list_repos() {
+      _o="$1"; _h="$2"; _me="$3"; _p=1
+      while [ "$_p" -le 10 ]; do
+        if [ -n "$_me" ] && [ "$(printf '%s' "$_o" | tr 'A-Z' 'a-z')" = "$(printf '%s' "$_me" | tr 'A-Z' 'a-z')" ]; then
+          # affiliation=owner is personal repos only; the owner filter keeps collaborator
+          # and org repos out of this owner's directory.
+          _r="$(api "$_h" "/user/repos?per_page=100&affiliation=owner&page=$_p" 2>/dev/null \
+                | jq --arg o "$_o" '[.[] | select((.owner.login|ascii_downcase) == ($o|ascii_downcase))]')"
+        else
+          _r="$(api "$_h" "/orgs/$_o/repos?per_page=100&type=all&page=$_p" 2>/dev/null)"
+          if [ -z "$_r" ]; then
+            log "WARNING: $_o is not an org readable on $_h; falling back to public repos only"
+            _r="$(api "$_h" "/users/$_o/repos?per_page=100&type=all&page=$_p" 2>/dev/null)"
+          fi
+        fi
+        [ -n "$_r" ] || return 0
+        _n="$(printf '%s' "$_r" | jq 'length')"
+        [ "$_n" -gt 0 ] 2>/dev/null || return 0
+        if [ "$SKIP_ARCHIVED" = "true" ]; then
+          printf '%s' "$_r" | jq -r '.[] | select(.archived|not) | "\(.name)\t\(.default_branch)"'
+        else
+          printf '%s' "$_r" | jq -r '.[] | "\(.name)\t\(.default_branch)"'
+        fi
+        [ "$_n" -eq 100 ] || return 0
+        _p=$((_p + 1))
+      done
+    }
+
+    sync_one() {
+      _owner="$1"; _host="$2"; _dir="$ROOT/$3/$4"; _name="$4"; _branch="$5"
+
+      if [ ! -d "$_dir/.git" ]; then
+        log "clone $_host/$_owner/$_name"
+        git clone --quiet "https://$_host/$_owner/$_name.git" "$_dir" \
+          || log "WARNING: clone failed for $_host/$_owner/$_name"
+        return
+      fi
+
+      git -C "$_dir" fetch --quiet --all --prune --tags 2>/dev/null \
+        || { log "WARNING: fetch failed for $_owner/$_name"; return; }
+
+      # Leave anything with local work exactly as it is. Three ways to be "in use":
+      # uncommitted changes, parked on another branch, or ahead of the remote.
+      if [ -n "$(git -C "$_dir" status --porcelain 2>/dev/null)" ]; then return; fi
+      _cur="$(git -C "$_dir" rev-parse --abbrev-ref HEAD 2>/dev/null)"
+      [ "$_cur" = "$_branch" ] || return
+      [ "$(git -C "$_dir" rev-list --count "origin/$_branch..$_branch" 2>/dev/null || echo 1)" = "0" ] || return
+
+      git -C "$_dir" merge --quiet --ff-only "origin/$_branch" 2>/dev/null
+    }
+
+    while :; do
+      mkdir -p "$ROOT" "$ATTIC"
+
+      # <owner>[@host] [as <dir>]. Read line-wise, not word-wise, because a line now
+      # carries up to three fields.
+      while read -r spec rest; do
+        case "$spec" in ''|\#*) continue ;; esac
+
+        owner="${spec%%@*}"
+        case "$spec" in *@*) host="${spec#*@}" ;; *) host="github.com" ;; esac
+        dir="$owner"
+        case "$rest" in as\ *) dir="${rest#as }"; dir="${dir%% *}" ;; esac
+
+        if [ -z "$(host_api "$host")" ]; then # nosemgrep: generic.nginx.security.request-host-used.request-host-used
+          log "WARNING: $host is not in hosts.txt; skipping $owner" # nosemgrep: generic.nginx.security.request-host-used.request-host-used
+          continue
+        fi
+        if [ -z "$(host_tok "$host")" ]; then # nosemgrep: generic.nginx.security.request-host-used.request-host-used
+          log "WARNING: no token for $host; skipping $owner" # nosemgrep: generic.nginx.security.request-host-used.request-host-used
+          continue
+        fi
+
+        me="$(me_for_host "$host")" # nosemgrep: generic.nginx.security.request-host-used.request-host-used
+        seen="$(mktemp)"
+        list_repos "$owner" "$host" "$me" | while IFS="$(printf '\t')" read -r name branch; do # nosemgrep: generic.nginx.security.request-host-used.request-host-used
+          [ -n "$name" ] || continue
+          printf '%s\n' "$name" >> "$seen"
+          sync_one "$owner" "$host" "$dir" "$name" "${branch:-main}" # nosemgrep: generic.nginx.security.request-host-used.request-host-used
+        done
+
+        # Anything on disk the API no longer returns: renamed, deleted, archived, or
+        # access revoked. Moved aside rather than removed, so a wrong answer from a
+        # rate-limited API call can never destroy local work.
+        if [ -s "$seen" ] && [ -d "$ROOT/$dir" ]; then
+          for d in "$ROOT/$dir"/*; do
+            [ -d "$d" ] || continue
+            b="$(basename "$d")"
+            grep -qxF "$b" "$seen" && continue
+            log "archiving $dir/$b (no longer returned by the API)"
+            mkdir -p "$ATTIC/$dir"
+            rm -rf "$ATTIC/$dir/$b"
+            mv "$d" "$ATTIC/$dir/$b"
+          done
+        fi
+        rm -f "$seen"
+      done < /config/owners.txt
+
+      log "pass complete; sleeping ${INTERVAL}s"
+      sleep "$INTERVAL"
+    done

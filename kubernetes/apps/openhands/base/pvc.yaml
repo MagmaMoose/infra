@@ -1,3 +1,52 @@
+# Two volumes, because the two halves of this workload have opposite requirements.
+#
+# Both are longhorn-on-prem: that class pins replicas to Longhorn-tagged on-prem nodes
+# (ff-pi1, ff-vm1), and the Deployment is on the on-prem placement tier to match. The
+# plain `longhorn` class has no node selector, which is how 10 volumes in this cluster
+# ended up with replicas straddling OCI and home — every write on those pays VPN
+# latency synchronously. Do not "simplify" these back to `longhorn`.
+---
+# State: settings, LLM profiles, conversation history. Small and irreplaceable, so it
+# opts in to the weekly S3 backup. That job has no group selector, so a volume without
+# this label gets local snapshots only and never reaches object storage.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openhands-state
+  namespace: openhands
+  labels:
+    recurring-job.longhorn.io/weekly-backup: enabled
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: longhorn-on-prem
+---
+# Repos: mirrored clones, maintained by the repo-sync sidecar. 75Gi rather than 50Gi
+# because the work forge added 115 active repos on top of the 74 on github.com, and
+# the top 100 of those alone are ~7.3Gi of git data before checkout. Longhorn is thin
+# provisioned, so the unused remainder costs nothing until it is written. Every byte is
+# reproducible from GitHub, so it takes daily snapshots (automatic, whole-cluster
+# `default` group) but deliberately NOT the backup label — replicating 50Gi of git
+# clones into object storage weekly would be paying to store a second copy of GitHub.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openhands-repos
+  namespace: openhands
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 75Gi
+  storageClassName: longhorn-on-prem
+---
+# The original local-path volume, kept only so migrate-state-v1 can read it. local-path
+# is node-local, so this PVC pins anything mounting it to ff-oci2. Delete this claim and
+# this block once the migration Job has completed and the history looks right.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -9,6 +58,4 @@ spec:
   resources:
     requests:
       storage: 10Gi
-  # The agent workspace is scratch state. local-path avoids an unschedulable Longhorn
-  # replica on the small OCI nodes and pins this single-instance workload to its node.
   storageClassName: local-path
