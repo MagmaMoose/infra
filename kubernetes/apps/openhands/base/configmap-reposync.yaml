@@ -157,17 +157,17 @@ data:
           log "WARNING: $host is not in hosts.txt; skipping $owner" # nosemgrep: generic.nginx.security.request-host-used.request-host-used
           continue
         fi
-        if [ -z "$(host_tok "$host")" ]; then
-          log "WARNING: no token for $host; skipping $owner"
+        if [ -z "$(host_tok "$host")" ]; then # nosemgrep: generic.nginx.security.request-host-used.request-host-used
+          log "WARNING: no token for $host; skipping $owner" # nosemgrep: generic.nginx.security.request-host-used.request-host-used
           continue
         fi
 
-        me="$(me_for_host "$host")"
+        me="$(me_for_host "$host")" # nosemgrep: generic.nginx.security.request-host-used.request-host-used
         seen="$(mktemp)"
-        list_repos "$owner" "$host" "$me" | while IFS="$(printf '\t')" read -r name branch; do
+        list_repos "$owner" "$host" "$me" | while IFS="$(printf '\t')" read -r name branch; do # nosemgrep: generic.nginx.security.request-host-used.request-host-used
           [ -n "$name" ] || continue
           printf '%s\n' "$name" >> "$seen"
-          sync_one "$owner" "$host" "$dir" "$name" "${branch:-main}"
+          sync_one "$owner" "$host" "$dir" "$name" "${branch:-main}" # nosemgrep: generic.nginx.security.request-host-used.request-host-used
         done
 
         # Anything on disk the API no longer returns: renamed, deleted, archived, or
