@@ -201,8 +201,15 @@ inputs = {
   # EVENTS_QUEUE_URL and OVERFLOW_BUCKET into a stack that provides neither: it applies clean
   # and then answers 502 on every delivery GitHub will not re-send. Both objects were verified
   # present in caldrith-artifacts-483461801743 on 2026-09-03.
+  #
+  # 3.1.0 IS REQUIRED BY MagmaMoose/admin's settings.yml, NOT JUST AVAILABLE. It adds
+  # `files[].source_repo` (MagmaMoose/caldrith#105), and admin#106 started using it. The file
+  # schema is `extra="forbid"`, so 3.0.0 rejects the whole settings.yml and reconciles NOTHING,
+  # org-wide, from the moment admin uses a key it does not know. Releasing a caldrith version
+  # only publishes its zips; the org runs the new code when this line changes. Both 3.1.0 objects
+  # were uploaded by caldrith's publish-edge run for v3.1.0 on 2026-09-16.
   # ─────────────────────────────────────────────────────────────────────────────────────────
-  artifact_version = "3.0.0"
+  artifact_version = "3.1.0"
 
   # A clean hostname for the GitHub App's webhook URL. The module requests its own REGIONAL ACM
   # certificate (see api.tf); `certificate_arn` is only for reusing one managed elsewhere.
