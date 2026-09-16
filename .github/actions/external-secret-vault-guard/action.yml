@@ -76,7 +76,7 @@ inputs:
     description: >-
       Compartment holding the vault's secrets. ListSecrets is not recursive, so
       a sub-compartment must be named. Empty lists the tenancy root. The script
-      always read OCI_COMPARTMENT_OCID, but nothing could pass it in.
+      always reads OCI_COMPARTMENT_OCID, but nothing could pass it in.
     required: false
     default: ""
 
