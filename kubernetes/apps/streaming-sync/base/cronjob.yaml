@@ -21,7 +21,7 @@ spec:
             topology.sargeant.co/tier: on-prem
           containers:
             - name: streaming-sync
-              image: python:3.12-slim
+              image: python:3.12.14-slim # {"$imagepolicy": "flux-system:streaming-sync"}
               command: ["python", "/app/sync.py"]
               env:
                 - name: DRY_RUN
