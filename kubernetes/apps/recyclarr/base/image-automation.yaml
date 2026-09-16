@@ -1,0 +1,29 @@
+---
+# Image automation for recyclarr, kept beside the CronJob it bumps. Objects live in
+# flux-system, which is what the `{"$imagepolicy": "flux-system:recyclarr"}` marker in
+# cronjob.yaml resolves against. The range stays inside one major: each recyclarr major
+# has changed the config syntax (v8 replaced include templates with guide-backed profiles).
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: recyclarr
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: recyclarr
+  filterTags:
+    pattern: ^[0-9]+\.[0-9]+\.[0-9]+$
+    extract: $0
+  policy:
+    semver:
+      range: '>=8.0.0 <9.0.0'
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: recyclarr
+  namespace: flux-system
+spec:
+  image: ghcr.io/recyclarr/recyclarr
+  interval: 1h

@@ -20,8 +20,9 @@ spec:
             topology.sargeant.co/tier: native-cloud
           containers:
             - name: recyclarr
-              # Pinned to v7: v8 removed TRaSH `include: template:` support.
-              image: ghcr.io/recyclarr/recyclarr:7.5.2
+              # Bumped by the `media` ImageUpdateAutomation within 8.x (image-automation.yaml).
+              # A new major changes the config syntax, so it needs a deliberate migration.
+              image: ghcr.io/recyclarr/recyclarr:8.7.2 # {"$imagepolicy": "flux-system:recyclarr"}
               args: ["sync"]
               env:
                 - name: SONARR_API_KEY
@@ -41,9 +42,6 @@ spec:
                 - name: config
                   mountPath: /config/recyclarr.yml
                   subPath: recyclarr.yml
-                - name: config
-                  mountPath: /config/settings.yml
-                  subPath: settings.yml
               resources:
                 requests:
                   cpu: 10m
