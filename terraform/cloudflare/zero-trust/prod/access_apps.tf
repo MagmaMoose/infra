@@ -276,6 +276,111 @@ resource "cloudflare_zero_trust_access_policy" "dunmir_docs_team" {
   }
 }
 
+# --- self_hosted: Caldrith docs (MkDocs on Cloudflare Pages) -----------------
+# Same class as the Dün Mir app above, and gated for the same reason: a private
+# repository's docs site is served on the open internet at `caldrith-docs.pages.dev`
+# until an Access app covers it. `docs_require_access: true` is set for this repo
+# in MagmaMoose/admin, so tremvok's docs workflow refuses to publish without one.
+resource "cloudflare_zero_trust_access_application" "caldrith_docs" {
+  account_id                = var.account_id
+  name                      = "Caldrith docs"
+  type                      = "self_hosted"
+  domain                    = "caldrith-docs.pages.dev"
+  tags                      = ["Magma Moose"]
+  app_launcher_visible      = true
+  auto_redirect_to_identity = false
+  session_duration          = "24h"
+
+  allowed_idps = [
+    cloudflare_zero_trust_access_identity_provider.google_workspace.id,
+    cloudflare_zero_trust_access_identity_provider.one_time_pin.id,
+    cloudflare_zero_trust_access_identity_provider.google.id,
+  ]
+}
+
+resource "cloudflare_zero_trust_access_policy" "caldrith_docs_team" {
+  account_id       = var.account_id
+  application_id   = cloudflare_zero_trust_access_application.caldrith_docs.id
+  name             = "Magma Moose team"
+  decision         = "allow"
+  precedence       = 1
+  session_duration = "24h"
+
+  include {
+    group = [cloudflare_zero_trust_access_group.magma_moose_domain.id]
+  }
+}
+
+# --- self_hosted: Nievah docs (MkDocs on Cloudflare Pages) -----------------
+# Same class as the Dün Mir app above, and gated for the same reason: a private
+# repository's docs site is served on the open internet at `nievah-docs.pages.dev`
+# until an Access app covers it. `docs_require_access: true` is set for this repo
+# in MagmaMoose/admin, so tremvok's docs workflow refuses to publish without one.
+resource "cloudflare_zero_trust_access_application" "nievah_docs" {
+  account_id                = var.account_id
+  name                      = "Nievah docs"
+  type                      = "self_hosted"
+  domain                    = "nievah-docs.pages.dev"
+  tags                      = ["Magma Moose"]
+  app_launcher_visible      = true
+  auto_redirect_to_identity = false
+  session_duration          = "24h"
+
+  allowed_idps = [
+    cloudflare_zero_trust_access_identity_provider.google_workspace.id,
+    cloudflare_zero_trust_access_identity_provider.one_time_pin.id,
+    cloudflare_zero_trust_access_identity_provider.google.id,
+  ]
+}
+
+resource "cloudflare_zero_trust_access_policy" "nievah_docs_team" {
+  account_id       = var.account_id
+  application_id   = cloudflare_zero_trust_access_application.nievah_docs.id
+  name             = "Magma Moose team"
+  decision         = "allow"
+  precedence       = 1
+  session_duration = "24h"
+
+  include {
+    group = [cloudflare_zero_trust_access_group.magma_moose_domain.id]
+  }
+}
+
+# --- self_hosted: Noctyr docs (MkDocs on Cloudflare Pages) -----------------
+# Same class as the Dün Mir app above, and gated for the same reason: a private
+# repository's docs site is served on the open internet at `noctyr-docs.pages.dev`
+# until an Access app covers it. `docs_require_access: true` is set for this repo
+# in MagmaMoose/admin, so tremvok's docs workflow refuses to publish without one.
+resource "cloudflare_zero_trust_access_application" "noctyr_docs" {
+  account_id                = var.account_id
+  name                      = "Noctyr docs"
+  type                      = "self_hosted"
+  domain                    = "noctyr-docs.pages.dev"
+  tags                      = ["Magma Moose"]
+  app_launcher_visible      = true
+  auto_redirect_to_identity = false
+  session_duration          = "24h"
+
+  allowed_idps = [
+    cloudflare_zero_trust_access_identity_provider.google_workspace.id,
+    cloudflare_zero_trust_access_identity_provider.one_time_pin.id,
+    cloudflare_zero_trust_access_identity_provider.google.id,
+  ]
+}
+
+resource "cloudflare_zero_trust_access_policy" "noctyr_docs_team" {
+  account_id       = var.account_id
+  application_id   = cloudflare_zero_trust_access_application.noctyr_docs.id
+  name             = "Magma Moose team"
+  decision         = "allow"
+  precedence       = 1
+  session_duration = "24h"
+
+  include {
+    group = [cloudflare_zero_trust_access_group.magma_moose_domain.id]
+  }
+}
+
 # --- self_hosted: Zoey ------------------------------------------------------
 # Zoey — the project-intelligence dashboard (firefly cluster, behind the
 # firefly cloudflared tunnel — ingress in tunnels.tf). The app has no in-app
@@ -927,6 +1032,9 @@ resource "cloudflare_zero_trust_access_application" "openhands" {
   auto_redirect_to_identity = false
   session_duration          = "8h"
 
+  http_only_cookie_attribute = true
+  enable_binding_cookie      = true
+
   allowed_idps = [
     cloudflare_zero_trust_access_identity_provider.google_workspace.id,
     cloudflare_zero_trust_access_identity_provider.google.id,
@@ -945,12 +1053,20 @@ resource "cloudflare_zero_trust_access_policy" "openhands_caleb" {
     group = [cloudflare_zero_trust_access_group.caleb.id]
   }
 
-  # Same posture set as radarr_caleb / overseerr_caleb: macOS with FileVault on
-  # and a current OS version. Firewall posture still omitted repo-wide.
-  require {
-    device_posture = [
-      cloudflare_zero_trust_device_posture_rule.mac_disk_encryption.id,
-      cloudflare_zero_trust_device_posture_rule.mac_os_version.id,
-    ]
-  }
+  # NO device_posture requirement, deliberately. Both macOS posture rules are reported
+  # by the WARP client, so requiring them means the app only works from an enrolled
+  # device with WARP proxying — which defeats the point of publishing this host for
+  # off-LAN use, and denied every request until it was removed in the dashboard on
+  # 2026-09-16. Terraform is being brought in line with that rather than re-imposing it:
+  # the next apply of this leaf would otherwise silently lock the app again.
+  #
+  # The compensating control is the include above: a single exact email, not a domain
+  # match, so a generic Google login cannot satisfy it.
 }
+
+# Cookie hardening for the OpenHands app specifically. This agent renders untrusted
+# content (repository files, fetched web pages) inside its own origin, so script
+# injection there is a realistic path to the Access session cookie. http_only stops
+# page JavaScript reading it; the binding cookie ties it to the client so a stolen
+# cookie is not replayable elsewhere. Neither is set on the other apps because none
+# of them render attacker-supplied content the way this one does.

@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: prowlarr
+  name: prowlarr-data
   namespace: media
 spec:
   accessModes:
@@ -9,4 +9,12 @@ spec:
   resources:
     requests:
       storage: 5Gi
-  storageClassName: prowlarr
+  # Longhorn (replicated, node-independent). This replaces a static hostPath PV
+  # (/mnt/nvme/prowlarr-config) that resolved to whichever of the four cloud-tier
+  # nodes the pod landed on, so a reschedule would start Prowlarr on an empty
+  # directory. nzbhydra2 and overseerr lost their config for ~12 weeks exactly
+  # that way. Seeded from ff-oci1's copy, where the pod ran. The database is in
+  # Postgres; /config holds the data-protection keys, indexer definitions,
+  # backups and logs. New claim name because a bound claim's storage class
+  # cannot change.
+  storageClassName: longhorn

@@ -21,13 +21,6 @@ rule changes, change it in both.
 - `AGENTS.md` — deep guide. Read for detail beyond the architecture map.
 - `.claude/{decisions,sessions}/` — load only when the current task touches them.
 
-## [tooling]
-- Build/test/lint output: summarise; don't echo full stdout unless a failure requires it
-- grep/find/glob: matching paths + relevant lines only, no surrounding context unless asked
-- Shell output >50 lines: store full to `.claude/last_output.txt`, reference by path
-- Prefer targeted line-range reads over whole-file reads
-- Don't re-read files to "verify" after a write — trust Edit/Write
-
 ## [maintenance]
 - Bug >1h to fix → append to `.claude/COMMON_MISTAKES.md`
 - Architectural decision → ADR at `.claude/decisions/YYYY-MM-DD-<topic>.md` (run `/adr`)

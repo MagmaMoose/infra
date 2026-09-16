@@ -16,12 +16,22 @@ components:
 # across the whole tier. Requests now come from measurement (KRR), per
 # cleanup.md: profiles are a floor for NEW workloads, not the steady-state value.
 labels:
-  # Placement tier — consumed by the Kyverno `place-cloud` ClusterPolicy, which
-  # adds the nodeSelector at admission. Replaces components/node-selectors/native-cloud.
+  # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
+  # adds the nodeSelector at admission.
   # includeSelectors/includeTemplates false: these fields are immutable on a live
   # Deployment/StatefulSet, so touching them would make Flux's next apply fail.
+  #
+  # Both replicas of this app's Longhorn volume already live on-prem while the pod sat
+  # on an OCI node, so every read and write was
+  # crossing the site link with no local copy to serve from. Moving the pod, rather
+  # than the replicas, is the cheap half of that fix: the OCI disks are 44Gi with
+  # 7-12Gi free, so the data could not follow the pod even if we wanted it to.
+  #
+  # Verified before moving, because either would have broken it silently: the image is
+  # multi-arch (linux/amd64 + linux/arm64), so it runs on ff-vm1 or ff-pi2; and the
+  # only storage anchor is the Longhorn PVC, which attaches over the network.
   - pairs:
-      placement.sargeant.co/tier: cloud
+      placement.sargeant.co/tier: on-prem
       placement.sargeant.co/priority: medium
     includeSelectors: false
     includeTemplates: false

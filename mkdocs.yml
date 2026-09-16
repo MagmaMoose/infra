@@ -56,6 +56,7 @@ nav:
       - Runtime & Continuous Security: operations/runtime-continuous-security.md
       - DefectDojo: operations/defectdojo.md
       - Backup and Restore: operations/backup-and-restore.md
+      - External Secrets OCI principal: operations/external-secrets-oci-principal.md
       - Observability Stack: operations/observability-stack.md
       - Auto Shutdown: operations/auto-shutdown.md
       - Auto Update: operations/auto-update.md
