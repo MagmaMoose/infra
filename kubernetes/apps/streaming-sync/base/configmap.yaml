@@ -5,11 +5,12 @@ metadata:
   namespace: media
 data:
   # Keeps Plex (via Radarr/Sonarr) as the COMPLEMENT of what's already streaming on
-  # the configured providers/region. On a provider -> unmonitor + delete files + tag
-  # `auto-streaming`. A title WE removed (tagged) that later LEAVES the providers ->
+  # the configured providers/region. On a provider -> unmonitor + tag `auto-streaming`
+  # + delete files. A title WE removed (tagged) that later LEAVES the providers ->
   # re-monitor + untag + search (back into Plex). `keep`-tagged titles are never
   # touched. TMDB uncertainty (request error / unmapped id) -> SKIP. DRY_RUN=true
-  # (default) changes nothing. Stdlib only — no pip install needed.
+  # (default) changes nothing. The Slack summary names every title it changed or
+  # failed to change. Stdlib only — no pip install needed.
   sync.py: |
     #!/usr/bin/env python3
     import json, os, urllib.request, urllib.parse, urllib.error
@@ -25,9 +26,13 @@ data:
     KEEP_TAG    = os.environ.get("KEEP_TAG", "keep").lower()
     AUTO_TAG    = os.environ.get("AUTO_TAG", "auto-streaming").lower()
     MAX_REMOVE  = int(os.environ.get("MAX_REMOVE", "50"))
+    LIST_MAX    = int(os.environ.get("LIST_MAX", "30"))  # titles per Slack list before "…and N more"
     SLACK_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
     SLACK_CHAN  = os.environ.get("SLACK_CHANNEL", "")
     TMDB        = "https://api.themoviedb.org/3"
+
+    class ApiError(Exception):
+        pass
 
     def http(method, url, headers=None, params=None, body=None):
         if params:
@@ -44,10 +49,23 @@ data:
                 raw = r.read()
                 return json.loads(raw) if raw else None
         except urllib.error.HTTPError as e:
-            if method == "GET":
-                raise
-            print("  ! %s %s -> HTTP %s %s" % (method, url.split("?")[0], e.code, e.read()[:160]))
-            return None
+            raise ApiError("HTTP %s%s" % (e.code, error_detail(e.read())))
+
+    def error_detail(raw):
+        # Radarr/Sonarr answer a rejected write with a list of validation errors
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            text = raw[:160].decode("utf-8", "replace").strip()
+            return ": " + text if text else ""
+        if isinstance(data, list):
+            msgs = [d.get("errorMessage", "") for d in data if isinstance(d, dict)]
+        elif isinstance(data, dict):
+            msgs = [data.get("message") or data.get("error") or ""]
+        else:
+            msgs = []
+        msg = "; ".join(m for m in msgs if m)
+        return ": " + msg if msg else ""
 
     def arr(app, method, path, params=None, body=None):
         base, key = (RADARR_URL, RADARR_KEY) if app == "radarr" else (SONARR_URL, SONARR_KEY)
@@ -73,8 +91,9 @@ data:
                 return tv[0]["id"]
         return None
 
-    def on_streaming(kind, tmdb_id):
-        # True/False when known; None when uncertain (request error / no id) -> SKIP
+    def streaming_on(kind, tmdb_id):
+        # Matching provider names ([] = not on any of them); None when uncertain
+        # (request error / no id) -> SKIP
         if not tmdb_id:
             return None
         try:
@@ -82,11 +101,9 @@ data:
         except Exception as e:
             print("  ? tmdb %s/%s failed: %s" % (kind, tmdb_id, e))
             return None
-        region = (res or {}).get("results", {}).get(REGION)
-        if not region:
-            return False  # not offered on any service in this region
-        names = {p.get("provider_name", "").lower() for p in region.get("flatrate", [])}
-        return bool(names & PROVIDERS)
+        region = (res or {}).get("results", {}).get(REGION) or {}
+        names = {p.get("provider_name", "") for p in region.get("flatrate", [])}
+        return sorted(n for n in names if n.lower() in PROVIDERS)
 
     def ensure_tag(app, label):
         for t in (arr(app, "GET", "tag") or []):
@@ -105,6 +122,9 @@ data:
             else {"name": "SeriesSearch", "seriesId": item_id}
         arr(app, "POST", "command", body=cmd)
 
+    def label(it):
+        return "%s (%s)" % (it.get("title", "?"), it["year"]) if it.get("year") else it.get("title", "?")
+
     def plan(app):
         kind = "movie" if app == "radarr" else "tv"
         res = "movie" if app == "radarr" else "series"
@@ -117,54 +137,101 @@ data:
             if keep_id in tags:
                 continue
             tmdb_id = it.get("tmdbId") if app == "radarr" else series_tmdb_id(it)
-            streaming = on_streaming(kind, tmdb_id)
-            if streaming is None:
+            providers = streaming_on(kind, tmdb_id)
+            if providers is None:
                 skipped += 1
                 continue
             has_file = it.get("hasFile", False) or it.get("statistics", {}).get("sizeOnDisk", 0) > 0
-            if streaming:
+            if providers:
                 if has_file or it.get("monitored"):
-                    to_remove.append(it)
+                    to_remove.append((it, providers))
             elif auto_id in tags:
-                to_readd.append(it)
+                to_readd.append((it, []))
         return res, auto_id, to_remove, to_readd, skipped
+
+    def remove(app, res, auto_id, it):
+        # Unmonitor before deleting: if the update is rejected nothing is deleted.
+        # Deleting first left a still-monitored title with no files, which was
+        # downloaded again and deleted again on every run.
+        arr(app, "PUT", "%s/%s" % (res, it["id"]),
+            body={**it, "monitored": False, "tags": sorted(set(it.get("tags", [])) | {auto_id})})
+        delete_files(app, it)
+
+    def readd(app, res, auto_id, it):
+        arr(app, "PUT", "%s/%s" % (res, it["id"]),
+            body={**it, "monitored": True, "tags": sorted(set(it.get("tags", [])) - {auto_id})})
+        search(app, it["id"])
+
+    def apply(app, res, auto_id, entries, action):
+        done, failed = [], []
+        for it, providers in entries:
+            if DRY_RUN:
+                done.append((it, providers))
+                continue
+            try:
+                action(app, res, auto_id, it)
+                done.append((it, providers))
+            except Exception as e:
+                print("  ! %s %s failed: %s" % (action.__name__, label(it), e))
+                failed.append((it, str(e)))
+        return done, failed
+
+    def slack_escape(s):
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    def title_lines(prefix, entries, note):
+        out = ["    %s %s%s" % (prefix, slack_escape(label(it)), note(extra)) for it, extra in entries[:LIST_MAX]]
+        if len(entries) > LIST_MAX:
+            out.append("    …and %d more" % (len(entries) - LIST_MAX))
+        return out
 
     def main():
         mode = "DRY-RUN" if DRY_RUN else "LIVE"
         print("streaming-sync [%s] region=%s providers=%s" % (mode, REGION, sorted(PROVIDERS)))
         lines = ["*streaming-sync* [%s] — %s / %s" % (mode, REGION, ", ".join(sorted(PROVIDERS)))]
+        vr = "would remove" if DRY_RUN else "removed"
+        va = "would re-add" if DRY_RUN else "re-added"
         for app in ("radarr", "sonarr"):
             try:
                 res, auto_id, to_remove, to_readd, skipped = plan(app)
             except Exception as e:
                 print("  !! %s failed: %s" % (app, e))
-                lines.append("• %s: ERROR %s" % (app, e))
+                lines.append("• *%s*: ERROR %s" % (app, slack_escape(str(e))))
                 continue
             capped = len(to_remove) > MAX_REMOVE
-            vr = "would remove" if DRY_RUN else "removed"
-            va = "would re-add" if DRY_RUN else "re-added"
-            print("  %s: %s %d (on streaming), %s %d (left streaming), skipped %d%s"
-                  % (app, vr, len(to_remove), va, len(to_readd), skipped,
-                     "  [SAFETY CAP HIT — removals skipped]" if capped else ""))
-            for it in to_remove[:40]:
-                print("    - %s: %s" % (vr, it.get("title", "?")))
-            for it in to_readd[:40]:
-                print("    + %s: %s" % (va, it.get("title", "?")))
-            lines.append("• %s: %s *%d*, %s *%d* (skipped %d)%s"
-                         % (app, vr, len(to_remove), va, len(to_readd), skipped,
-                            "  ⚠️ CAP HIT, removals skipped" if capped else ""))
-            if not DRY_RUN and not capped:
-                for it in to_remove:
-                    delete_files(app, it)
-                    arr(app, "PUT", "%s/%s" % (res, it["id"]),
-                        body={**it, "monitored": False, "tags": sorted(set(it.get("tags", [])) | {auto_id})})
-                for it in to_readd:
-                    arr(app, "PUT", "%s/%s" % (res, it["id"]),
-                        body={**it, "monitored": True, "tags": sorted(set(it.get("tags", [])) - {auto_id})})
-                    search(app, it["id"])
+            if capped:
+                # a runaway plan means the TMDB data is suspect, so change nothing at all
+                removed, remove_failed, readded, readd_failed = [], [], [], []
+            else:
+                removed, remove_failed = apply(app, res, auto_id, to_remove, remove)
+                readded, readd_failed = apply(app, res, auto_id, to_readd, readd)
+            print("  %s: %s %d (on streaming), %s %d (left streaming), failed %d, skipped %d%s"
+                  % (app, vr, len(removed), va, len(readded), len(remove_failed) + len(readd_failed), skipped,
+                     "  [SAFETY CAP HIT — %d on streaming, nothing changed]" % len(to_remove) if capped else ""))
+            for it, providers in removed:
+                print("    - %s: %s [%s]" % (vr, label(it), ", ".join(providers)))
+            for it, _ in readded:
+                print("    + %s: %s" % (va, label(it)))
+            summary = "• *%s*: %s %d, %s %d" % (app, vr, len(removed), va, len(readded))
+            if remove_failed or readd_failed:
+                summary += ", failed %d" % (len(remove_failed) + len(readd_failed))
+            summary += " (skipped %d)" % skipped
+            if capped:
+                summary += "  ⚠️ CAP HIT: %d titles on streaming is over MAX_REMOVE=%d, nothing changed" % (len(to_remove), MAX_REMOVE)
+            lines.append(summary)
+            lines += title_lines("−", removed, lambda providers: " · " + ", ".join(providers))
+            lines += title_lines("+", readded, lambda _: "")
+            lines += title_lines("⚠️ not removed:", remove_failed, lambda err: " — " + slack_escape(err))
+            lines += title_lines("⚠️ not re-added:", readd_failed, lambda err: " — " + slack_escape(err))
         if SLACK_TOKEN and SLACK_CHAN:
-            http("POST", "https://slack.com/api/chat.postMessage",
-                 {"Authorization": "Bearer %s" % SLACK_TOKEN}, body={"channel": SLACK_CHAN, "text": "\n".join(lines)})
+            try:
+                resp = http("POST", "https://slack.com/api/chat.postMessage",
+                            {"Authorization": "Bearer %s" % SLACK_TOKEN},
+                            body={"channel": SLACK_CHAN, "text": "\n".join(lines)})
+                if not (resp or {}).get("ok"):
+                    print("  ! slack post failed: %s" % (resp or {}).get("error"))
+            except Exception as e:
+                print("  ! slack post failed: %s" % e)
 
     if __name__ == "__main__":
         main()

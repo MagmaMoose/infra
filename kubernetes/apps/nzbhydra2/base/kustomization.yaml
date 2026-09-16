@@ -4,6 +4,7 @@ resources:
   - image-automation.yaml
   - deployment.yaml
   - ingress.yaml
+  - pvc.yaml
 components:
   - ../../../components/pod-gateway-client
 # NOTE: the c.micro resource-profile component was removed here on 2026-08-06.
