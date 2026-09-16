@@ -1,0 +1,64 @@
+# Tiered Longhorn classes. Neither of these existed in Git before: `longhorn-on-prem`
+# and `longhorn-static` were created by hand in the cluster, so a rebuild would have
+# lost them. This file adopts on-prem as written (the spec below is the live object,
+# byte for byte, because StorageClass parameters are immutable and a differing apply
+# is rejected) and adds the OCI counterpart.
+#
+# The rule: storage follows placement. A workload on the cloud tier uses longhorn-oci,
+# a workload on the on-prem tier uses longhorn-on-prem. Never cross.
+#
+# `longhorn` is the chart's own class (see persistence.* in helmrelease.yaml) and has
+# NO node selector, which is how 14 volumes ended up with replicas on the far side of
+# the OCI-to-home link — 4 of them with no local replica at all, paying VPN latency on
+# every read and write. Treat `longhorn` as DEPRECATED: do not put new PVCs on it, and
+# move existing ones onto a tiered class as capacity allows. Once nothing references it
+# the name can be reclaimed for the on-prem tier.
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-on-prem
+allowVolumeExpansion: true
+provisioner: driver.longhorn.io
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+parameters:
+  backupTargetName: default
+  dataEngine: v1
+  dataLocality: best-effort
+  disableRevisionCounter: "true"
+  fsType: ext4
+  nodeSelector: on-prem
+  numberOfReplicas: "2"
+  staleReplicaTimeout: "30"
+  unmapMarkSnapChainRemoved: ignored
+---
+# numberOfReplicas is 1, not 2, and that is deliberate. The four OCI nodes have 44Gi
+# root disks with 7-12Gi free between them, while 75Gi of volumes are already attached
+# there; two replicas of that would need 150Gi and simply does not fit. Because
+# allow-volume-creation-with-degraded-availability is true, asking for 2 here would not
+# fail loudly. It would hand back single-replica volumes marked degraded, which is the
+# same result reached by a route that looks like a fault.
+#
+# Durability for this tier comes from the weekly S3 backup, not from replication. Label
+# any PVC on this class with recurring-job.longhorn.io/weekly-backup=enabled unless its
+# contents are genuinely disposable; the backup job has no group selector, so an
+# unlabelled volume gets local snapshots only.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: longhorn-oci
+allowVolumeExpansion: true
+provisioner: driver.longhorn.io
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+parameters:
+  backupTargetName: default
+  dataEngine: v1
+  dataLocality: best-effort
+  disableRevisionCounter: "true"
+  fsType: ext4
+  nodeSelector: cloud
+  numberOfReplicas: "1"
+  staleReplicaTimeout: "30"
+  unmapMarkSnapChainRemoved: ignored
