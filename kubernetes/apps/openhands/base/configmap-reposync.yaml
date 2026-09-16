@@ -20,10 +20,15 @@ data:
     # One GitHub owner per line: orgs and users both work. Blank lines and # ignored.
     # Everything each owner exposes to the token is mirrored, so scope the PAT rather
     # than trying to filter here.
-    magmamoose
-    calebsargeant
-    velocity-digital
+    MagmaMoose
+    CalebSargeant
     tengen-systems
+    # Not listed, and not oversights:
+    #   MagmaMooseArchives / CalebSargeantArchives — archived work, ~31 dead repos.
+    #   platform1-systems, aosis, velocity-digital — present in ~/repos but NOT visible
+    #     to this token, so listing them would silently mirror nothing.
+    #   the work GitHub Enterprise host — different API origin entirely; this token
+    #     cannot reach it and work repos do not belong in a home agent's workspace.
   sync.sh: |
     #!/bin/sh
     # kics-scan disable=baee238e-1921-4801-9c3f-79ae1d7b2cbc
@@ -54,13 +59,27 @@ data:
            -H 'X-GitHub-Api-Version: 2022-11-28' "$1"
     }
 
-    # Orgs and users need different endpoints and there is no reliable way to tell them
-    # apart from the name, so try the org one and fall back.
+    # Which endpoint to use is not cosmetic. /users/<login>/repos returns PUBLIC repos
+    # only even when authenticated — for this account that is 26 of 32, so six private
+    # repos would have gone missing with no error. The authenticated user's own repos
+    # have to come from /user/repos instead. Orgs are fine on /orgs/<name>/repos.
+    ME="$(api https://api.github.com/user 2>/dev/null | jq -r '.login // empty')"
+
     list_repos() {
       _o="$1"; _p=1
       while [ "$_p" -le 10 ]; do
-        _r="$(api "https://api.github.com/orgs/$_o/repos?per_page=100&type=all&page=$_p" 2>/dev/null)"
-        [ -n "$_r" ] || _r="$(api "https://api.github.com/users/$_o/repos?per_page=100&type=all&page=$_p" 2>/dev/null)"
+        if [ -n "$ME" ] && [ "$(printf '%s' "$_o" | tr 'A-Z' 'a-z')" = "$(printf '%s' "$ME" | tr 'A-Z' 'a-z')" ]; then
+          # affiliation=owner is personal repos only; the owner filter below keeps any
+          # collaborator or org repo from leaking into this owner's directory.
+          _r="$(api "https://api.github.com/user/repos?per_page=100&affiliation=owner&page=$_p" 2>/dev/null \
+                | jq --arg o "$_o" '[.[] | select((.owner.login|ascii_downcase) == ($o|ascii_downcase))]')"
+        else
+          _r="$(api "https://api.github.com/orgs/$_o/repos?per_page=100&type=all&page=$_p" 2>/dev/null)"
+          if [ -z "$_r" ]; then
+            log "WARNING: $_o is not an org this token can read; falling back to public repos only"
+            _r="$(api "https://api.github.com/users/$_o/repos?per_page=100&type=all&page=$_p" 2>/dev/null)"
+          fi
+        fi
         [ -n "$_r" ] || return 0
         _n="$(printf '%s' "$_r" | jq 'length')"
         [ "$_n" -gt 0 ] 2>/dev/null || return 0
