@@ -17,6 +17,12 @@ data:
     # (The nginx auth-proxy on :8080 exists precisely so OpenAI-protocol clients,
     # which can only use `Authorization`, get mapped onto x-litellm-api-key.)
     # See docs/guides/litellm-clients.md.
+    #
+    # ACCESS GROUP `tenant-metered`: the per-token models a tenant's virtual key or team
+    # may be given, by creating it with `models: ["tenant-metered"]`. A key or team
+    # created with no `models` can call EVERY model, the -max subscription entries and
+    # the LAN Ollama models included, and the Ollama models book $0 so no budget ever
+    # trips on them. Never create a tenant key without this group.
     model_list:
       - model_name: claude-opus-4-8
         litellm_params:
@@ -24,6 +30,7 @@ data:
           api_key: os.environ/ANTHROPIC_API_KEY
         model_info:
           mode: chat
+          access_groups: ["tenant-metered"]
           base_model: anthropic/claude-opus-4-8
           auth_mode: anthropic-api-key
           billing_mode: anthropic-api
@@ -35,6 +42,7 @@ data:
           api_key: os.environ/ANTHROPIC_API_KEY
         model_info:
           mode: chat
+          access_groups: ["tenant-metered"]
           base_model: anthropic/claude-sonnet-4-6
           auth_mode: anthropic-api-key
           billing_mode: anthropic-api
@@ -46,6 +54,7 @@ data:
           api_key: os.environ/ANTHROPIC_API_KEY
         model_info:
           mode: chat
+          access_groups: ["tenant-metered"]
           base_model: anthropic/claude-haiku-4-5
           auth_mode: anthropic-api-key
           billing_mode: anthropic-api
@@ -218,6 +227,7 @@ data:
           api_base: https://api.deepseek.com
         model_info:
           mode: chat
+          access_groups: ["tenant-metered"]
           base_model: deepseek/deepseek-v4-pro
           billing_mode: deepseek-api
           credential_source: oci-vault:litellm-deepseek-api-key
@@ -228,11 +238,25 @@ data:
           api_base: https://api.deepseek.com
         model_info:
           mode: chat
+          access_groups: ["tenant-metered"]
           base_model: deepseek/deepseek-v4-flash
           billing_mode: deepseek-api
           credential_source: oci-vault:litellm-deepseek-api-key
     general_settings:
       master_key: os.environ/LITELLM_MASTER_KEY
+      # Shared spend counters, budget reservations and rate limits across the 2 replicas.
+      # Without it each pod keeps its own counter and only sees the other pod's spend
+      # after the ~10s DB flush and its 60s key/team cache, so a budget overshoots and
+      # rpm/tpm/parallel limits hold per pod (seen on 1.101.0: a key already over budget
+      # was refused by one pod and served by the other). If Redis is down, each pod falls
+      # back to its own counter. This is NOT `litellm_settings.cache`, which would serve
+      # cached responses across callers and book the hits at $0. db 0 is another app's.
+      coordination_redis:
+        url: redis://valkey-oci.database.svc.cluster.local:6379/1
+      # Keep request and response bodies out of LiteLLM_SpendLogs (spend, tokens and
+      # model are still recorded). The default is already false; pinned here because a
+      # value saved from the admin UI wins over the default but not over a YAML key.
+      store_prompts_in_spend_logs: false
       # NOTE: `forward_client_headers_to_llm_api` is deliberately NOT set here.
       # As a global flag it forwarded every client `x-*` header to EVERY provider
       # (OpenAI, DeepSeek, Ollama), not just the Claude pass-through entries. It is
