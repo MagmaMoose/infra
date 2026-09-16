@@ -86,7 +86,7 @@ spec:
 # ~17 GiB already there (postgres-backups 15 GiB, minio-backups 2 GiB), and most of
 # that 41 GiB does not deserve it: `security/data-dependency-track-api-server-0`
 # alone is 9.4 GiB of NVD/OSV vulnerability mirror that the app re-downloads by
-# itself, and `automation/atlantis` is 6 GiB of terraform plan cache. Paying to
+# itself. Paying to
 # store regenerable data offsite is how a backup bill becomes a reason to turn
 # backups off.
 #

@@ -111,12 +111,10 @@ This is a monolithic infrastructure-as-code repository managing a home lab envir
 - Use clear, concise language
 - Include code examples where helpful
 
-## Atlantis Integration
+## Terraform Automation
 
-- This repository uses Atlantis for Terraform automation
-- Configuration is in `atlantis.yaml`
-- See `ATLANTIS_SETUP.md` for detailed setup information
-- Atlantis runs on pull request comments
+- Terraform runs through `.github/workflows/terragrunt.yml`: plans on pull requests, applies from `main`
+- See `docs/operations/terraform-delivery.md`
 
 ## Git Workflow
 

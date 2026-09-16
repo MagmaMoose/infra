@@ -1,28 +1,23 @@
 # Terraform delivery
 
-<!-- sources: .github/workflows/terragrunt.yml, scripts/terragrunt-pipeline.sh, atlantis.yaml, .github/workflows/terrateam.yml -->
+<!-- sources: .github/workflows/terragrunt.yml, scripts/terragrunt-pipeline.sh, .github/workflows/terrateam.yml -->
 
 Terraform changes reach the clouds through the **Terragrunt GitHub Actions workflow**. It
 plans on every pull request that touches `terraform/**` and applies from `main` behind a
 protected environment.
 
-Atlantis is still deployed and still comments on some pull requests, but it no longer
-covers the estate. Read this page before assuming an `atlantis plan` comment is the gate.
+Atlantis used to do this job and was removed on 2026-09-16.
 
 ## Which system actually runs
 
 | System | Where it's defined | State today |
 | --- | --- | --- |
 | Terragrunt workflow | `.github/workflows/terragrunt.yml` + `scripts/terragrunt-pipeline.sh` | **The gate.** Runs on every pull request touching `terraform/**`, plus a weekday drift schedule and `workflow_dispatch`. |
-| Atlantis | `atlantis.yaml`, deployed from `kubernetes/apps/atlantis` | Live, but covers **20 of the 27** leaves. Everything under `terraform/aws` except `artifacts` and `nievah-frontdoor` is invisible to it. Scheduled for removal. |
 | Terrateam | `.github/workflows/terrateam.yml` | `workflow_dispatch` only, driven by the Terrateam backend. Not part of the normal path. |
-
-The [Atlantis setup guide](../guides/atlantis-setup.md) still describes how Atlantis is
-built and configured. It's accurate about Atlantis. It just isn't the whole story any more.
 
 ## Why the workflow replaced Atlantis
 
-Atlantis decides what to plan from each project's `when_modified` globs, which only see that
+Atlantis decided what to plan from each project's `when_modified` globs, which only saw that
 project's own subtree. Edits to `terraform/root.hcl`, a `region.hcl`, or anything under
 `terraform/modules/` change the rendered config of leaves that don't contain the edited file,
 so those leaves were silently **not** planned and had to be triggered by hand.

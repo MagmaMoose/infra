@@ -122,20 +122,9 @@ it is a physically separate k3s cluster and cannot reach firefly's `postgres`.
 
 **Never commit plaintext secrets regardless of which method is used.** The SOPS `.sops.yaml` configuration is in the repo root if fallback encryption is needed.
 
-### 4. Atlantis PR Integration
+### 4. Terraform PR Integration
 
-GitHub PRs trigger Terraform planning/applying via Atlantis (deployed in Kubernetes):
-
-```yaml
-# atlantis.yaml defines projects
-projects:
-  - name: gcp-infrastructure
-    dir: terraform/gcp
-    terraform_version: v1.11.3
-    workflow: terragrunt  # Custom workflow auto-detects terragrunt.hcl vs plain TF
-```
-
-**Workflow**: Push to feature branch → PR → Atlantis comments with `terragrunt plan` output → `atlantis apply` comment → merge.
+`.github/workflows/terragrunt.yml` (a thin wrapper around `scripts/terragrunt-pipeline.sh`) plans every leaf a pull request affects and applies from `main` behind a protected environment. It replans every leaf when `terraform/root.hcl`, a `region.hcl` or a shared module changes, and it excludes `terraform/oci/cloudworkers/**`. See `docs/operations/terraform-delivery.md`. Atlantis was removed on 2026-09-16.
 
 ## Critical Developer Workflows
 
@@ -201,7 +190,7 @@ Namespaces live in `kubernetes/infrastructure/configs/namespaces/`. Mapping:
 - `general-system/` → networking, secrets, DNS (1password-connect, cloudflared, external-dns)
 - `database/` → postgres, stateful systems
 - `media/` → media apps (sonarr, radarr, etc. w/ gluetun sidecars)
-- `automation/` → Atlantis, n8n, workflow engines
+- `automation/` → n8n, hermes, litellm, workflow engines
 - `observability/` → monitoring (Prometheus metrics in opencost, fluent-bit)
 - `kube-system/` → cluster infrastructure
 
@@ -232,7 +221,7 @@ LiteLLM (`kubernetes/apps/litellm`) intentionally separates Claude Code OAuth pa
 - Do not force LiteLLM onto `type=pi`; the Pi node can be too resource-constrained during rolling updates, and a stuck rollout leaves ingress targeting `:8080` while only the old `:4000` pod is ready. Keep LiteLLM on a memory-oriented profile (`m.nano` or larger); the process has been observed using about 1Gi at idle.
 - LiteLLM reads its YAML config at process start, and the Nginx auth-proxy mounts its config with `subPath`. When either LiteLLM ConfigMap changes, update the pod-template `checksum/config` or `checksum/auth-proxy-config` annotation in the Deployment so Flux rolls the pod and the UI/API reflects the new config.
 - Warp custom inference requests come from Warp's backend, so they cannot use the LAN-only `litellm.sargeant.co` hostname. Use `litellm-warp.sargeant.co`, a public Cloudflare Tunnel hostname that routes only `/v1/chat/completions` and `/v1/models` to `http://litellm.automation.svc.cluster.local:8080`; all other paths should remain `http_status:404`. Do not put Cloudflare Access in front unless Warp can send the required Access headers.
-- The old `litellm.sargeant.co` Cloudflare Access app/policy were intentionally removed from config when LiteLLM moved LAN-only, but the objects remained in Zero Trust state. Keep the `removed { destroy = false }` blocks in `terraform/cloudflare/zero-trust/prod/removed.tf` until Atlantis has applied them; otherwise any unrelated Zero Trust apply will try to destroy those stale resources.
+- The old `litellm.sargeant.co` Cloudflare Access app/policy were intentionally removed from config when LiteLLM moved LAN-only, but the objects remained in Zero Trust state. Keep the `removed { destroy = false }` blocks in `terraform/cloudflare/zero-trust/prod/removed.tf` until CI has applied them; otherwise any unrelated Zero Trust apply will try to destroy those stale resources.
 - The self-hosted Ollama provider is represented as `ollama-lan`: a selectorless Service plus an Endpoints object pointing at `192.168.19.69:11434`, with `ollama.sargeant.co` / `.local` ingress. Do not manage a manual EndpointSlice for it; Kubernetes mirrors the Endpoints object into EndpointSlices, and Traefik needs the Endpoints backend to avoid `503 no available server`. Its bearer token must live in OCI Vault as `litellm-ollama-lan-api-key`; never commit the value. The local `qwen2.5-coder:7b-instruct-q4_K_M` route is OpenAI-chat-compatible through LiteLLM, but keep `supports_function_calling: false` until live probes return structured OpenAI `tool_calls`; it has been observed returning tool-call-shaped JSON in message content instead.
 - DefectDojo (`kubernetes/apps/defectdojo`) uses the shared CNPG cluster and the shared authless Valkey service. The upstream chart still unconditionally mounts `defectdojo-valkey-specific:valkey-password` into Django/Celery and `defectdojo:METRICS_HTTP_AUTH_PASSWORD` into nginx, even when bundled Valkey and metrics are disabled. Keep `valkey-password-empty.yaml` as an empty non-credential Secret, and keep `defectdojo-metrics-http-auth-password` in OCI Vault via `externalsecret-app.yaml`; do not enable chart-generated Valkey secrets because an auto-generated password breaks the authless shared broker.
 - AppSec/dev tooling public hostnames are on `magmamoose.com`: `pullrequests.magmamoose.com`, `defectdojo.magmamoose.com`, `dependencytrack.magmamoose.com`, `dependencytrack-api.magmamoose.com`, `sonarqube.magmamoose.com` and `safesettings.magmamoose.com`. Keep app-level URLs and Cloudflare Tunnel ingress rules (`terraform/cloudflare/zero-trust/prod/tunnels.tf`) in sync. Terraform owns tunnel CNAMEs only for hosts without Kubernetes Ingresses (`pullrequests`, `defectdojo`); Ingress-backed hosts (`dependencytrack`, `dependencytrack-api`, `safesettings`) must carry external-dns annotations pointing at the firefly tunnel target so external-dns does not publish private Traefik IPs. Dependency-Track needs both the frontend and API host because the SPA calls the API directly from the browser. **SonarQube and the Dependency-Track UI are gated by Cloudflare Access (Caleb group)** in `terraform/cloudflare/zero-trust/prod/access_apps.tf`; `dependencytrack.magmamoose.com/api` is a deliberate `bypass` app because the chargate CI action uploads SBOMs there and has no CF-Access-header input (Dependency-Track enforces its own X-Api-Key). `dependencytrack-api.magmamoose.com` is service-token-only. The legacy `dependency-track{,-api}.sargeant.co` aliases were DELETED: a duplicate hostname on the same tunnel silently bypasses any Access app scoped to the magmamoose.com name. Never point a CI scanner at `sonarqube.magmamoose.com` — `sonar-scanner` cannot send CF-Access service-token headers; use the in-cluster Service from the `firefly` runner.
@@ -276,7 +265,7 @@ The cloudworkers leaves read three more from the environment:
 
 **Why these are wrapped in `regex()` rather than plain `get_env`**: `get_env(x, "")` returns an empty string when unset, and an empty `tenancy_ocid` makes the OCI provider fall through to `~/.oci/config`'s DEFAULT profile, which is firefly's. A forgotten variable would then plan against the **wrong tenancy** and look fine. The `regex()` asserts fail at parse time instead. Keep the groups non-capturing (`(?:...)`): HCL's `regex()` returns capture groups instead of the match when a group is present.
 
-**Atlantis has none of the `OCI_CW_*` variables**, which is why all four `oci-cloudworkers-*` projects have `autoplan: enabled: false` in `atlantis.yaml`. Plan them from a workstation that has the variables.
+**CI has none of the `OCI_CW_*` variables**, which is why `scripts/terragrunt-pipeline.sh` excludes `terraform/oci/cloudworkers/**`. Plan those leaves from a workstation that has the variables.
 
 ### Cross-Component Communication
 
@@ -425,9 +414,9 @@ workloads (GitHub-App backends) and the `postgres-oci` DB. Full detail:
   `terraform/oci/cloudworkers/prod/eu-amsterdam-1/server`
   (`oci-cloudworkers-prod-eu-amsterdam-1-server`). Each leaf's `servers` map sets
   `node_name` (registers as `ff-ociN`) and `node_labels` (the tier label).
-  Editing the **module** touches both and Atlantis won't autoplan, so run
-  `atlantis plan -p oci-prod-eu-amsterdam-1-server`; the cloudworkers projects
-  have autoplan disabled entirely and must be planned locally with `OCI_CW_*` set.
+  Editing the **module** touches both. CI replans the firefly leaf on a module
+  change, but excludes the cloudworkers leaf, which must be planned locally with
+  `OCI_CW_*` set.
   Changing `node_name`/`node_labels` **replaces** the VM (cloud-init hash changes).
 - **The k3s node-token is duplicated.** A dynamic-group policy in one tenancy
   cannot authorise an instance-principal read against a vault in another, so the
@@ -452,7 +441,7 @@ workloads (GitHub-App backends) and the `postgres-oci` DB. Full detail:
 - Understand which provider (check directory path)
 - Run `terragrunt validate-all` from repo root
 - Test with `terragrunt plan` in isolated env to avoid state mutations
-- Atlantis will auto-plan on PR
+- The Terragrunt workflow plans affected leaves on the PR
 
 ### Before Editing Kubernetes Manifests
 
@@ -492,8 +481,6 @@ This is **not** generic Kubernetes:
 |------|---------|
 | (none) | Hooks are workstation-global, not repo-local: `~/.git-hooks` + `~/.pre-commit-config.yaml` |
 | `.sops.yaml` | SOPS encryption key configuration |
-| `atlantis.yaml` | Terraform PR automation config |
-| `ATLANTIS_SETUP.md` | Deployment and secret setup guide |
 | `terraform/root.hcl` | Terragrunt inheritance root + version pins |
 | `kubernetes/clusters/firefly/kustomization.yaml` | Entry point for cluster deployment |
 | `ansible/hosts.yaml` | Inventory (IP addresses, groups) |
@@ -519,7 +506,7 @@ If you accidentally stage a secret, remove it with `git reset HEAD <file>` befor
 4. **Not running `--check`** before Ansible execution — can break system
 5. **Assuming git == deployed** — FluxCD reconciles on intervals; force with `flux reconcile`
 6. **Committing any plaintext secret to a public repo** — rotate immediately if it happens
-7. **Forgetting Atlantis/OpenTofu provider env vars** — for Cloudflare Terragrunt projects, export provider tokens with `extra_arguments` (e.g. `CLOUDFLARE_API_TOKEN`) and keep the provider block empty so Atlantis plans authenticate the same way local plans do
+7. **Forgetting OpenTofu provider env vars** — for Cloudflare Terragrunt projects, export provider tokens with `extra_arguments` (e.g. `CLOUDFLARE_API_TOKEN`) and keep the provider block empty so CI plans authenticate the same way local plans do
 8. **Pinning false Cloudflare Tunnel defaults** — the v4 Cloudflare provider omits falsey tunnel `warp_routing` blocks on readback, so setting `warp_routing { enabled = false }` can create a persistent no-op plan. Omit the block unless WARP routing is enabled.
 9. **OpenHands agent-canvas session keys** — inject a shared headless
    `X-Session-API-Key` as `OH_SESSION_API_KEYS_0`, not only as the legacy

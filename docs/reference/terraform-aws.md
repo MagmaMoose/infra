@@ -56,10 +56,8 @@ front doors take the bucket name as a dependency output rather than hardcoding i
 | `terraform/aws/brimyr/prod/eu-west-1/artifacts` | `artifacts` |
 | `terraform/aws/brimyr/prod/eu-west-1/brimyr-broker` | `chargate-broker` |
 
-!!! warning "Only two of these are Atlantis projects"
-    `atlantis.yaml` lists `aws-artifacts-prod` and `aws-nievah-frontdoor-prod` and nothing
-    else from AWS. The other seven leaves are planned by the Terragrunt workflow, which
-    discovers leaves from the filesystem. See [Terraform delivery](../operations/terraform-delivery.md).
+All of these leaves are planned by the Terragrunt workflow, which discovers leaves from
+the filesystem. See [Terraform delivery](../operations/terraform-delivery.md).
 
 ## Deploying a new Lambda version
 

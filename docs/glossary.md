@@ -21,7 +21,7 @@ Terms that appear across this repo and mean something specific here.
 | **artifact version** | The published Lambda zip a front door runs, pinned by version string. Changing it is the deployment. |
 | **ClusterSecretStore `oci-vault`** | The External Secrets Operator store that reads OCI Vault. Every `ExternalSecret` `remoteRef` in the repo is checked against it in CI. |
 | **CNPG** | CloudNativePG. One shared `postgres` cluster lives in the `database` namespace. Add `Database` and `User` CRs to it rather than standing up a new `Cluster`. |
-| **Atlantis** | The Terraform pull-request automation that used to gate this repo. Still deployed, now covers only part of the estate. See [Terraform delivery](operations/terraform-delivery.md). |
+| **Atlantis** | The Terraform pull-request automation that used to gate this repo. Removed on 2026-09-16; the Terragrunt workflow replaced it. See [Terraform delivery](operations/terraform-delivery.md). |
 | **Terragrunt workflow** | `.github/workflows/terragrunt.yml`, the Atlantis replacement that plans and applies Terraform. |
 | **ARC** | actions-runner-controller. Self-hosted GitHub runners in the cluster. Jobs match a scale set by **name**, not by label. |
 | **Flux Kustomization** | A `kustomize.toolkit.fluxcd.io` object, not a plain kustomize `kustomization.yaml`. Health checks and `dependsOn` live here. |
