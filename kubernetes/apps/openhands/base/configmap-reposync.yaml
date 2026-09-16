@@ -154,7 +154,7 @@ data:
         case "$rest" in as\ *) dir="${rest#as }"; dir="${dir%% *}" ;; esac
 
         if [ -z "$(host_api "$host")" ]; then # nosemgrep: generic.nginx.security.request-host-used.request-host-used
-          log "WARNING: $host is not in hosts.txt; skipping $owner"
+          log "WARNING: $host is not in hosts.txt; skipping $owner" # nosemgrep: generic.nginx.security.request-host-used.request-host-used
           continue
         fi
         if [ -z "$(host_tok "$host")" ]; then
