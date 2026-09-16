@@ -25,13 +25,15 @@ data:
   # directory name, which is how an org whose name does not match the local convention
   # still lands where you expect it.
   owners.txt: |
-    MagmaMoose
-    CalebSargeant
+    # `as` is used only to lowercase the two owners GitHub spells in camel case, so
+    # every directory here matches the local tree. Case matters on the API side, so
+    # the left-hand name must stay as GitHub spells it.
+    MagmaMoose as magmamoose
+    CalebSargeant as calebsargeant
     tengen-systems
-    # Work forge. The org name is not what the local tree calls it, hence the `as`.
-    # 115 active repos, roughly 7-8Gi of git data before checkout, so this is the bulk
-    # of the volume. Set SKIP_ARCHIVED=false to include the 21 archived ones too.
-    samenlevingszaken@pinkroccade.ghe.com as pinkroccade
+    # Work forge. 115 active repos, roughly 7-8Gi of git data before checkout, so this
+    # is the bulk of the volume. Set SKIP_ARCHIVED=false to add the 21 archived ones.
+    samenlevingszaken@pinkroccade.ghe.com
     # Not listed, and not oversights:
     #   MagmaMooseArchives / CalebSargeantArchives — archived work, ~31 dead repos.
     #   platform1-systems, aosis, velocity-digital — present in ~/repos but NOT visible
