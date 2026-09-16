@@ -62,23 +62,26 @@ python3 .github/actions/external-secret-vault-guard/check_external_secret_refs.p
 `--list` prints every discovered reference and exits 0 without contacting OCI —
 the fastest way to see whether your manifest is being parsed as you expect.
 
-For a full check you need the six `OCI_*` environment variables below. Without
-them the guard prints `VAULT COMPARISON SKIPPED` and exits 0.
+For a full check set `OCI_TENANCY_OCID`, `OCI_USER_OCID`, `OCI_FINGERPRINT`,
+`OCI_KEY_CONTENT`, `OCI_REGION` and `OCI_VAULT_OCID` (plus `OCI_COMPARTMENT_OCID`
+when the secrets are not in the tenancy root). Without them the guard exits `2`;
+add `--allow-skip` to get `VAULT COMPARISON SKIPPED` and exit 0 instead.
 
 ## Behaviour without credentials
 
-Fork PRs and Dependabot do not receive secrets. The guard must never fail closed
-(that reds every fork PR) and never pass silently (that makes a check look green
-while doing nothing). So:
+Missing credentials fail the run with exit `2` unless the caller passes
+`allow-skip: true`. The workflow passes it only for fork PRs and Dependabot,
+which GitHub never gives secrets. Anywhere else a missing credential is a
+misconfiguration, and the workflow names the unset repository secrets before the
+guard runs (the guard itself can only name the env vars it reads).
+
+With `allow-skip`, the guard never fails closed and never passes silently:
 
 - exit code `0`
 - the word `PASS` is **never** printed on this path; `SKIPPED` is never printed
   on a real pass. Two green outcomes, two distinct words.
 - every reference that *would* have been checked is still listed
 - a `::notice` annotation and a job-summary banner say so on every run
-
-This is also the state before the one-time OCI setup below is done. The workflow
-is safe to merge first — it just is not verifying anything yet, and says so.
 
 ## One-time OCI setup
 
@@ -124,17 +127,28 @@ resource type.
    | `OCI_GUARD_USER_OCID` | the `ci-vault-guard` user OCID |
    | `OCI_GUARD_FINGERPRINT` | API key fingerprint |
    | `OCI_GUARD_KEY_CONTENT` | the full PEM, `BEGIN`/`END` lines included |
-   | `OCI_VAULT_OCID` | vault OCID |
-   | `OCI_COMPARTMENT_OCID` | OCID of the compartment that contains the vault's secrets |
+   | `OCI_VAULT_OCID` | vault OCID (the `vault:` in the `oci-vault` ClusterSecretStore) |
+   | `OCI_COMPARTMENT_OCID` | *optional*, see below |
+
+   Set the PEM from its file so the newlines survive, then delete the file:
+
+   ```bash
+   gh secret set OCI_GUARD_KEY_CONTENT -R MagmaMoose/infra < ci-vault-guard.pem
+   ```
 
    `OCI_COMPARTMENT_OCID` is required whenever the vault's secrets live in a
-   sub-compartment rather than the tenancy root. `ListSecrets` is scoped to one
+   sub-compartment rather than the tenancy root; leave it unset while they are
+   in the root, as they are today. `ListSecrets` is scoped to one
    compartment and is **not recursive**: if this is wrong or absent the listing
    returns zero or too few secrets, trips the `min-vault-secrets` floor, and the
    guard exits 2 on every real run. Set it to the compartment shown in
    Vault → Secrets in the OCI console.
 
    Optional repo variable `OCI_REGION` (defaults to `eu-amsterdam-1`).
+
+   Do **not** reuse `terragrunt.yml`'s `OCI_USER_OCID` / `OCI_FINGERPRINT` /
+   `OCI_PRIVATE_KEY`, or the External Secrets Operator's credential: both
+   belong to principals that can do far more than list secret names.
 
 ## Verifying the guard actually works
 
@@ -169,7 +183,12 @@ was the second outage. Consume this action directly rather than copying it:
 - uses: magmamoose/infra/.github/actions/external-secret-vault-guard@<sha>
   with:
     paths: k8s
-  env:
-    OCI_TENANCY_OCID: ${{ secrets.OCI_TENANCY_OCID }}
-    # ... same five
+    # Credentials are inputs: the action maps them to env itself, overriding
+    # any step-level `env:` a caller sets.
+    oci-tenancy-ocid: ${{ secrets.OCI_TENANCY_OCID }}
+    oci-user-ocid: ${{ secrets.OCI_GUARD_USER_OCID }}
+    oci-fingerprint: ${{ secrets.OCI_GUARD_FINGERPRINT }}
+    oci-key-content: ${{ secrets.OCI_GUARD_KEY_CONTENT }}
+    oci-region: eu-amsterdam-1
+    oci-vault-ocid: ${{ secrets.OCI_VAULT_OCID }}
 ```

@@ -530,6 +530,21 @@ If you accidentally stage a secret, remove it with `git reset HEAD <file>` befor
    raw environment string (a clipboard/Vault trailing newline produces an unavoidable 401).
    Bump the non-secret pod-template session-key revision after Vault rotation so pods reload it.
 
+## Tool Use and Output Discipline
+
+These were workstation-global for Claude Code and so were invisible to agents that only read
+this file. They are repo rules, not one agent's preference — a session that ignores them burns
+its context on echoed stdout and whole-file reads and runs out before the task lands.
+
+- Build/test/lint output: summarise; don't echo full stdout unless a failure requires it
+- grep/find/glob: matching paths + relevant lines only, no surrounding context unless asked
+- Shell output >50 lines: store full to `.claude/last_output.txt`, reference by path
+- Prefer targeted line-range reads over whole-file reads
+- Don't re-read files to "verify" after a write — trust the write tool
+- Batch independent tool calls into one block; never serialise calls that don't depend on each other
+- Verify unknowns against the real source before writing code against them (model ids, API
+  shapes, live cluster state). Rework costs more than the check.
+
 ## Definition of Done
 
 **Work is not complete until documentation is updated.** Before considering any task finished:

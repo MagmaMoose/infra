@@ -6,7 +6,6 @@ resources:
   - service.yaml
   - ingress.yaml
   - pvc.yaml
-  - pv.yaml
   - configmap.yaml
   - externalsecret.yaml
 components:

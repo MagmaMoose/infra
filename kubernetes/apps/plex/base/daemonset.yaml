@@ -24,7 +24,10 @@ spec:
               cpu: "20m"
             limits:
               # Generous limit so transcoding spikes never OOM (limits don't affect scheduling).
-              memory: "1Gi"
+              # 1Gi was not enough: the nightly butler task "Generating video preview
+              # thumbnails" transcodes 4K files and was OOMKilled ~8 times an hour from
+              # 03:00 to 06:00 every night, retrying the same file after each restart.
+              memory: "3Gi"
           ports:
             - containerPort: 32400 # Plex web interface
               #            - containerPort: 1900  # Plex DLNA server

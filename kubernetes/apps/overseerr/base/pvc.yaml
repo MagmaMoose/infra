@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: overseerr-config
+  name: overseerr-data
   namespace: media
 spec:
   accessModes:
@@ -9,4 +9,10 @@ spec:
   resources:
     requests:
       storage: 2Gi
-  storageClassName: overseerr-config
+  # Longhorn (replicated, node-independent). This replaces a static hostPath PV
+  # (/mnt/nvme/overseerr-config) that resolved to whichever cloud-tier node the
+  # pod landed on. After the 2026-06-26 tiering move Overseerr started on an
+  # empty directory, back at its setup wizard with no Plex, Sonarr or Radarr,
+  # and stayed there ~12 weeks. Seeded from ff-vm1's copy. New claim name
+  # because a bound claim's storage class cannot change.
+  storageClassName: longhorn

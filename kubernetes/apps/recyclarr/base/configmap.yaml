@@ -10,6 +10,19 @@ data:
   #
   # NOTE: uses recyclarr v7 `include: template:` (TRaSH config-templates). v8
   # removed official include-templates, so the CronJob is pinned to v7.x.
+  #
+  # The image pin alone is not enough: v7 clones config-templates from `master`
+  # at run time, and upstream merged the v8 layout into master on 2026-08-07,
+  # deleting every include below. Every run since failed with "unable to find
+  # config include". settings.yml pins the templates to the last v7-layout
+  # commit; move the pin only together with a v8 migration.
+  settings.yml: |
+    resource_providers:
+      - name: config-templates-v7
+        type: config-templates
+        clone_url: https://github.com/recyclarr/config-templates.git
+        reference: 4ae377bb704fc7fd69a544ad04e91357e0b09f62
+        replace_default: true
   recyclarr.yml: |
     sonarr:
       series:

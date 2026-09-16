@@ -1,0 +1,163 @@
+# Longhorn node tags, reconciled from Git.
+#
+# Tags are what the tiered StorageClasses select on, but they live only on the
+# nodes.longhorn.io CRs, which Longhorn creates and owns. Nothing declared them, so
+# they were set by hand in the UI: ff-pi1 and ff-vm1 carried `on-prem` and ff-pi2 and
+# all four OCI nodes carried nothing. Rebuild a node and its tag is gone, which means
+# its disk silently stops being eligible for the class that targets it.
+#
+# Applying the CR wholesale from Flux would fight Longhorn for ownership of status and
+# disk config, so this patches only spec.tags and leaves the rest alone. Hourly rather
+# than once, so a re-registered node gets its tag back without anyone noticing it went.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: longhorn-node-tags
+  namespace: longhorn-system
+data:
+  # <node> <comma-separated tags>. A node absent here is left untouched rather than
+  # cleared, so this cannot strip tags someone added deliberately out-of-band.
+  tags.txt: |
+    ff-pi1   on-prem
+    ff-pi2   on-prem
+    ff-vm1   on-prem
+    ff-oci1  cloud
+    ff-oci2  cloud
+    ff-oci3  cloud
+    ff-oci4  cloud
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: longhorn-node-tagger
+  namespace: longhorn-system
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: longhorn-node-tagger
+  namespace: longhorn-system
+rules:
+  # get + patch only. No create, no delete: this may adjust a tag on a node object that
+  # already exists and nothing more.
+  - apiGroups: ["longhorn.io"]
+    resources: ["nodes"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: longhorn-node-tagger
+  namespace: longhorn-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: longhorn-node-tagger
+subjects:
+  - kind: ServiceAccount
+    name: longhorn-node-tagger
+    namespace: longhorn-system
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: longhorn-node-tagger
+  namespace: longhorn-system
+  labels:
+    placement.sargeant.co/tier: system
+  annotations:
+    checkov.io/skip1: CKV_K8S_11=CPU limits are unset estate-wide by decision; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited.
+    checkov.io/skip2: CKV_K8S_43=curlimages/curl pinned to 8.11.1; digest pinning not warranted for this home-lab reconcile job
+    checkov.io/skip3: CKV_K8S_38=SA token is intentionally mounted; the job calls the Kubernetes API directly via curl to patch Longhorn node objects
+spec:
+  schedule: "17 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: longhorn-node-tagger
+          automountServiceAccountToken: true
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: tagger
+              image: curlimages/curl:8.11.1
+              imagePullPolicy: Always
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 64Mi
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -u
+                  API=https://kubernetes.default.svc
+                  SA=/var/run/secrets/kubernetes.io/serviceaccount
+                  TOKEN="$(cat $SA/token)"
+                  BASE="$API/apis/longhorn.io/v1beta2/namespaces/longhorn-system/nodes"
+                  rc=0
+
+                  while read -r node tags; do
+                    case "$node" in ''|\#*) continue ;; esac
+                    [ -n "$tags" ] || continue
+
+                    # "a,b" -> ["a","b"] without jq, so the image stays a plain curl one.
+                    json="["
+                    sep=""
+                    for t in $(printf '%s' "$tags" | tr ',' ' '); do
+                      json="${json}${sep}\"${t}\""
+                      sep=","
+                    done
+                    json="${json}]"
+
+                    cur=$(curl -sS --cacert $SA/ca.crt -H "Authorization: Bearer $TOKEN" \
+                          -o /tmp/node.json -w '%{http_code}' "$BASE/$node")
+                    if [ "$cur" != "200" ]; then
+                      echo "[tagger] $node not found (HTTP $cur); skipping"
+                      continue
+                    fi
+                    if grep -qF "\"tags\":${json}" /tmp/node.json; then
+                      echo "[tagger] $node already ${json}"
+                      continue
+                    fi
+
+                    code=$(curl -sS --cacert $SA/ca.crt -H "Authorization: Bearer $TOKEN" \
+                           -H 'Content-Type: application/merge-patch+json' \
+                           -X PATCH -o /tmp/out -w '%{http_code}' \
+                           --data "{\"spec\":{\"tags\":${json}}}" "$BASE/$node")
+                    if [ "$code" = "200" ]; then
+                      echo "[tagger] $node -> ${json}"
+                    else
+                      echo "[tagger] FAILED $node (HTTP $code)"; cat /tmp/out; rc=1
+                    fi
+                  done < /config/tags.txt
+                  exit $rc
+              volumeMounts:
+                - name: config
+                  mountPath: /config
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: config
+              configMap:
+                name: longhorn-node-tags
+            - name: tmp
+              emptyDir: {}
