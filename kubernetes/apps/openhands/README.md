@@ -51,3 +51,31 @@ without SSH verification.
 The workspace is node-local scratch state, so a node loss discards active conversations and
 requires a new run. Keep the PVC bounded and monitor its usage; completed agent workspaces are
 not automatically garbage-collected by the V1 API.
+
+## Provisioning
+
+Everything below is applied by `configmap-bootstrap.yaml`'s seed script, which the pod's
+postStart hook runs on every start. The script is idempotent, so a rollout re-converges
+the instance and hand-edits made in the UI are overwritten on the next restart. That is
+deliberate: OpenHands keeps its settings encrypted on the state PVC, where Git cannot
+reach them, so the API is the only declarative surface available.
+
+- **LLM profiles** — one per gateway model: `gpt-5.6-luna` (active), `gpt-5.6-sol`,
+  `gpt-5.6-terra`, `deepseek-v4-pro`. All use the `litellm_proxy/` provider prefix. Using
+  `openai/` instead reaches the same endpoint but skips LiteLLM's model-group routing, so
+  budgets and the key's allow-list stop applying.
+- **Credentials** — the scoped `openhands` LiteLLM key (see the LiteLLM keyseed Job), not
+  the gateway master key. An agent with GitHub write access should not also hold admin
+  rights over the gateway every other workload shares.
+- **Git identity** — `misc_settings.app_preferences`, set from the `GIT_AUTHOR_*` env vars
+  so the Deployment stays the single source.
+- **Sub-agents** — markdown definitions in `configmap-subagents.yaml`, mounted at
+  `~/.agents/agents` (outside the PVC, so they cannot drift) and enabled via
+  `enable_sub_agents`. They default to off; mounting alone does nothing.
+- **MCP servers** — GitHub and Context7 over HTTP, Slack, ClickUp, Playwright, Mermaid and
+  Microsoft 365 over stdio. Servers whose credentials are absent are omitted rather than
+  configured broken. Microsoft 365 needs its `login` tool run once interactively; the
+  hosted MermaidChart server would need an OAuth round-trip through the UI, so the local
+  renderer is used instead.
+
+Read the seed log with `kubectl -n openhands logs deploy/openhands | grep openhands-seed`.

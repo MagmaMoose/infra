@@ -108,16 +108,35 @@ spec:
               value: 4991715+CalebSargeant@users.noreply.github.com
             # Bootstrap writes the encrypted V1 settings through /api/settings. These
             # values are not read by the agent-server directly.
+            # Scoped `openhands` virtual key, not the gateway master key. It only
+            # resolves the deepseek + gpt-5.6 model groups, so a prompt-injected agent
+            # cannot reach the Claude entries or the proxy's admin endpoints.
             - name: BOOTSTRAP_LLM_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: openhands
-                  key: llm-api-key
+                  key: litellm-key
             - name: BOOTSTRAP_GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: openhands
                   key: github-token
+            - name: BOOTSTRAP_SLACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openhands
+                  key: slack-bot-token
+            - name: BOOTSTRAP_CLICKUP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openhands
+                  key: clickup-token
+            # npx-resolved MCP servers cache here instead of in the container's ephemeral
+            # HOME, so a restart does not re-download Chromium (~150MB) and the npm tree.
+            - name: npm_config_cache
+              value: /home/openhands/.openhands/cache/npm
+            - name: PLAYWRIGHT_BROWSERS_PATH
+              value: /home/openhands/.openhands/cache/playwright
             # Nievah uses this stable key for headless REST authentication. agent-canvas
             # uses the V1 OH_SESSION_API_KEYS_0 value for its public proxy and agent server;
             # the legacy SESSION_API_KEY is ignored when that canonical key is absent and
@@ -176,6 +195,12 @@ spec:
             - name: bootstrap
               mountPath: /bootstrap
               readOnly: true
+            # Sub-agent definitions. ~/.agents/agents is the first directory
+            # load_user_agents() searches, and it sits outside the state PVC so these stay
+            # declarative: every rollout replaces them, nothing drifts into the volume.
+            - name: subagents
+              mountPath: /home/openhands/.agents/agents
+              readOnly: true
       volumes:
         - name: state
           persistentVolumeClaim:
@@ -184,3 +209,6 @@ spec:
           configMap:
             name: openhands-bootstrap
             defaultMode: 0755
+        - name: subagents
+          configMap:
+            name: openhands-subagents

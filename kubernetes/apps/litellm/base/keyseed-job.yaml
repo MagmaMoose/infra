@@ -1,0 +1,95 @@
+# Upserts the per-client virtual keys that LiteLLM stores in Postgres, which the
+# config.yaml ConfigMap cannot express — keys are DB rows, not config. Without this
+# the gateway's access model is created by hand in the UI and is not reproducible
+# from Git after a database restore.
+#
+# Idempotent: /key/update first, /key/generate on miss. The key VALUE comes from OCI
+# Vault, so re-running never rotates it and OpenHands keeps working across replays.
+#
+# Bump the name suffix (-v1, -v2, ...) whenever the payload below changes. Jobs are
+# immutable, so editing this in place would make Flux's apply fail; a new name makes
+# the change a new Job. Old completed Jobs can be deleted by hand once succeeded.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: litellm-keyseed-v1
+  namespace: automation
+spec:
+  ttlSecondsAfterFinished: 604800
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        app: litellm-keyseed
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: keyseed
+          image: curlimages/curl:8.11.1
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          env:
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm
+                  key: master-key
+            - name: OPENHANDS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm
+                  key: openhands-key
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -u
+              B=http://litellm.automation.svc.cluster.local:4000
+              # Management endpoints want the "Bearer " prefix INSIDE the custom header.
+              # general_settings.litellm_key_header_name renames the header but does not
+              # change the value grammar; sending the bare key returns "Malformed API Key".
+              H="x-litellm-api-key: Bearer ${LITELLM_MASTER_KEY}"
+
+              for i in $(seq 1 60); do
+                curl -fsS -o /dev/null "$B/health/readiness" && break
+                sleep 5
+              done
+
+              PAYLOAD=$(printf '{"key":"%s","key_alias":"openhands","models":["deepseek-v4-pro","deepseek-v4-flash","gpt-5.6-luna","gpt-5.6-sol","gpt-5.6-terra"],"metadata":{"owner":"openhands","managed_by":"litellm-keyseed Job"}}' "$OPENHANDS_KEY")
+
+              CODE=$(curl -s -o /tmp/out -w '%{http_code}' -X POST "$B/key/update" \
+                -H "$H" -H 'Content-Type: application/json' -d "$PAYLOAD")
+              if [ "$CODE" = "200" ]; then
+                echo "[keyseed] openhands key updated"
+                exit 0
+              fi
+              echo "[keyseed] update returned $CODE, creating"
+
+              CODE=$(curl -s -o /tmp/out -w '%{http_code}' -X POST "$B/key/generate" \
+                -H "$H" -H 'Content-Type: application/json' -d "$PAYLOAD")
+              if [ "$CODE" = "200" ]; then
+                echo "[keyseed] openhands key created"
+                exit 0
+              fi
+              echo "[keyseed] FAILED ($CODE):"
+              sed 's/sk-[A-Za-z0-9_-]*/sk-REDACTED/g' /tmp/out
+              exit 1
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -5,6 +5,7 @@ resources:
   - externalsecret.yaml
   - pvc.yaml
   - configmap-bootstrap.yaml
+  - configmap-subagents.yaml
   - deployment.yaml
   - service.yaml
   - ingress.yaml

@@ -11,6 +11,7 @@ resources:
   - ollama-lan-endpoints.yaml
   - ollama-lan-ingress.yaml
   - pdb.yaml
+  - keyseed-job.yaml
 # Pinned to the mini node (ff-vm1, type=mini) instead of native-cloud (ff-oci1/2).
 # The OCI free-tier ARM workers are 2-core and run ~95% CPU-requested (~75-90m free),
 # so LiteLLM's ~200m pod-template request (150m litellm + 50m auth-proxy) no longer
