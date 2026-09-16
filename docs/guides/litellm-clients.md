@@ -222,6 +222,26 @@ Management endpoints (`/key/*`, `/team/*`) still want the `Bearer ` prefix *insi
 `x-litellm-api-key`. Renaming the header via `litellm_key_header_name` does not change
 the value grammar, and sending the bare key returns "Malformed API Key".
 
+### Tenant keys and budgets
+
+A key or team for a tenant is created with `models: ["tenant-metered"]`, the access group
+on the per-token Claude and DeepSeek entries. Leaving `models` empty grants every model,
+including the `-max` subscription entries and the Ollama models, which book $0 so no budget
+ever trips on them. Put the budget on one team per tenant (`max_budget`,
+`budget_duration`) rather than on a key: without an enterprise licence a key cannot be
+regenerated, and replacing one resets its spend.
+
+- **Over budget** returns HTTP 429 with `error.type` `budget_exceeded` on every route,
+  `/v1/messages` included. Rate limits also return 429, so match on the type, not the status.
+- **Across replicas**, spend counters, budget reservations and rate limits live in
+  `valkey-oci` db 1 (`general_settings.coordination_redis`). Without it each pod counts
+  alone and a budget overshoots.
+- **Spend logs** keep spend, tokens and model, never request or response bodies
+  (`store_prompts_in_spend_logs: false`). Rows are kept forever: no retention is set.
+- **Read spend** with `/team/info`, `/key/info` (accepts the key's SHA-256),
+  `/spend/logs/v2` and `/team/daily/activity`. `/global/spend/report` and the other
+  `*/spend/report` endpoints need an enterprise licence.
+
 ## Operational note
 
 LiteLLM intentionally has no hard node selector. The Pi node can be too tight to
