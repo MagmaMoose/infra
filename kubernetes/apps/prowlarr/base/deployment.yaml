@@ -5,6 +5,10 @@ metadata:
   namespace: media
 spec:
   replicas: 1
+  # Recreate: /config is a ReadWriteOnce Longhorn volume, so a rolling update's
+  # new pod cannot attach it while the old pod still holds it on another node.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: prowlarr
@@ -58,7 +62,7 @@ spec:
       volumes:
         - name: prowlarr
           persistentVolumeClaim:
-            claimName: prowlarr
+            claimName: prowlarr-data
         - name: prowlarr-config
           configMap:
             name: prowlarr-config
