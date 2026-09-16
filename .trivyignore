@@ -117,8 +117,8 @@ AVD-DS-0026
 # pull its own image. It cannot list, watch, create or read anything else, and
 # "manage" overstates a single-object read by some distance.
 #
-# The pattern is repo-wide, not one app's: caldrith, nievah, github-contributions,
-# github-timesheet and quarry all carry the identical Role, because ghcr-pull-secret
+# The pattern is repo-wide, not one app's: caldrith, nievah, github-contributions
+# and github-timesheet all carry the identical Role, because ghcr-pull-secret
 # is SOPS-only in flux-system and has to be mirrored per namespace. A per-file
 # suppression would therefore fix only the PR in front of you and fail the next one
 # — the same reasoning as KSV-0040 above.
