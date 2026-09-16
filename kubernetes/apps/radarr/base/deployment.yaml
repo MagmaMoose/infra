@@ -13,6 +13,30 @@ spec:
       labels:
         app: radarr
     spec:
+      initContainers:
+        # config.xml must be writable, because the *arr apps persist new keys at startup.
+        # Sonarr 4.0.20 died on the read-only subPath mount; see its deployment.yaml.
+        - name: seed-config
+          image: busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - rm -f /config/config.xml && cp /seed/config.xml /config/config.xml && chmod 600 /config/config.xml
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+          resources:
+            requests:
+              cpu: 5m
+              memory: 8Mi
+            limits:
+              memory: 32Mi
+          volumeMounts:
+            - mountPath: /config
+              name: radarr
+            - mountPath: /seed
+              name: radarr-config
+              readOnly: true
       containers:
         - name: radarr
           image: linuxserver/radarr:5.28.0 # {"$imagepolicy": "flux-system:radarr"}
@@ -27,6 +51,13 @@ spec:
               cpu: "750m"
           ports:
             - containerPort: 7878 # Radarr web interface
+          # Keeps a release that cannot start from replacing the working pod; see Sonarr.
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 7878
+            initialDelaySeconds: 10
+            periodSeconds: 10
           env:
             - name: PUID
               value: "1000" # Replace with your user ID
@@ -46,9 +77,6 @@ spec:
           volumeMounts:
             - mountPath: /config
               name: radarr
-            - mountPath: /config/config.xml
-              name: radarr-config
-              subPath: config.xml
             - mountPath: /movies
               name: movies
             - mountPath: /downloads
