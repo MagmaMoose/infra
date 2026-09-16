@@ -228,4 +228,35 @@ data:
       && log "sub-agents reloaded" \
       || log "WARNING: sub-agent reload failed"
 
+    # ---- Workspaces ------------------------------------------------------------
+    # The repo mirror is useless in the UI until its directories are registered: the
+    # workspace picker lists only what /api/workspaces knows about, and it starts empty.
+    # Each owner directory is registered as a PARENT, so every repository under it is
+    # selectable and repos cloned later appear with no further registration.
+    #
+    # Directory names are derived from repo-sync's own owners.txt rather than listed
+    # here, so adding an owner is one line in one file. Reading the file instead of the
+    # filesystem also matters on first boot, when the sidecar has not created them yet.
+    # The line grammar is <owner>[@host] [as <dir>], and this must stay in step with
+    # sync.sh's parser.
+    if [ -r /reposync/owners.txt ]; then
+      PARENTS="$(awk '
+        /^[[:space:]]*(#|$)/ { next }
+        {
+          dir = $1; sub(/@.*/, "", dir)
+          if ($2 == "as" && $3 != "") dir = $3
+          print dir
+        }' /reposync/owners.txt \
+        | jq -R -s 'split("\n") | map(select(length > 0))
+                    | {parents: map({id: ., name: ., path: ("/workspace/repos/" + .)})}')"
+      echo "$PARENTS" \
+        | curl -fsS -o /dev/null -X POST "${BASE}/api/workspaces/parents" \
+            -H 'Content-Type: application/json' \
+            -H "X-Session-API-Key: ${SESSION_KEY}" --data @- \
+        && log "workspace parents registered: $(echo "$PARENTS" | jq -r '[.parents[].name] | join(", ")')" \
+        || log "WARNING: registering workspace parents failed"
+    else
+      log "WARNING: /reposync/owners.txt not mounted; workspaces not registered"
+    fi
+
     exit 0

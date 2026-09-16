@@ -1,0 +1,49 @@
+---
+# Image automation for OpenHands, in the same shape as the other apps: the policy lives
+# with the workload, and the central ImageUpdateAutomation (media, in
+# kubernetes/infrastructure/configs/flux/image-automation.yaml) scans ./kubernetes/apps
+# for {"$imagepolicy": "flux-system:openhands"} markers and commits the bump to main.
+# Both the agent and the repo-sync sidecar carry the marker, so they always move together.
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: openhands
+  namespace: flux-system
+spec:
+  image: ghcr.io/openhands/agent-canvas
+  # 6h, not the 1h most apps use. This repository publishes a tag per branch and per
+  # architecture — around 15,000 tags — and a release only every few days, so hourly
+  # scans would be heavy for no benefit.
+  interval: 6h
+  # Replaces the default list (which is just the .sig rule), so that rule is repeated.
+  # The other two keep the branch tags and the per-arch variants (1.9.0-arm64) out of
+  # the reflector's database; only the multi-arch X.Y.Z manifests are worth storing.
+  exclusionList:
+    - '^.*\.sig$'
+    - '^[^0-9].*'
+    - '^.*-(amd64|arm64)$'
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: openhands
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: openhands
+  # Plain X.Y.Z only. The arch-suffixed tags point at single-platform images, and this
+  # pod schedules on both arm64 (ff-pi2) and amd64 (ff-vm1), so picking one would break
+  # the other node.
+  filterTags:
+    pattern: '^[0-9]+\.[0-9]+\.[0-9]+$'
+    extract: '$0'
+  # Stays on major 1. Pre-2.0 projects often break on a minor, and the seed script
+  # drives /api/settings, /api/profiles, /api/sub-agents and /api/workspaces, so an API
+  # change there is the realistic failure. Every seed step logs a WARNING and continues
+  # rather than exiting, so a changed endpoint degrades one setting instead of taking the
+  # pod down. Check `kubectl -n openhands logs deploy/openhands | grep openhands-seed`
+  # after a bump.
+  policy:
+    semver:
+      range: '>=1.5.2 <2.0.0'

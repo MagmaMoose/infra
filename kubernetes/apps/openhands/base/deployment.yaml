@@ -55,7 +55,7 @@ spec:
                 - ALL
           # OpenHands V1 agent-canvas serves the UI and agent-server in one container.
           # The pod is the sandbox boundary; it intentionally has GitHub write access.
-          image: ghcr.io/openhands/agent-canvas:1.5.2
+          image: ghcr.io/openhands/agent-canvas:1.5.2 # {"$imagepolicy": "flux-system:openhands"}
           # A `claude setup-token` / clipboard-created Vault value can include one trailing
           # newline. Nievah strips HTTP-header values (required by HTTP), while agent-canvas
           # compares its raw environment value. Normalise the shared key before handing off to
@@ -204,6 +204,11 @@ spec:
             - name: skills
               mountPath: /skills
               readOnly: true
+            # The seed script reads owners.txt from here to register each mirrored owner
+            # directory as a workspace parent, so the UI and the sync share one list.
+            - name: reposync
+              mountPath: /reposync
+              readOnly: true
             - name: bootstrap
               mountPath: /bootstrap
               readOnly: true
@@ -227,8 +232,9 @@ spec:
           # could not lock the apk database, the container exited 99 on every start, and
           # because a crashlooping container marks the whole pod NotReady, the Service
           # lost its only endpoint and the agent went down with it. Nothing here should
-          # install software at runtime. Keep this tag in step with the agent above.
-          image: ghcr.io/openhands/agent-canvas:1.5.2
+          # install software at runtime. Both image lines carry the same $imagepolicy
+          # marker, so Flux image automation moves them together and they cannot drift.
+          image: ghcr.io/openhands/agent-canvas:1.5.2 # {"$imagepolicy": "flux-system:openhands"}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
