@@ -64,9 +64,12 @@ kind: CronJob
 metadata:
   name: longhorn-node-tagger
   namespace: longhorn-system
+  labels:
+    placement.sargeant.co/tier: system
   annotations:
     checkov.io/skip1: CKV_K8S_11=CPU limits are unset estate-wide by decision; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited.
     checkov.io/skip2: CKV_K8S_43=curlimages/curl pinned to 8.11.1; digest pinning not warranted for this home-lab reconcile job
+    checkov.io/skip3: CKV_K8S_38=SA token is intentionally mounted; the job calls the Kubernetes API directly via curl to patch Longhorn node objects
 spec:
   schedule: "17 * * * *"
   concurrencyPolicy: Forbid
@@ -89,6 +92,7 @@ spec:
           containers:
             - name: tagger
               image: curlimages/curl:8.11.1
+              imagePullPolicy: Always
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
@@ -129,7 +133,7 @@ spec:
                       echo "[tagger] $node not found (HTTP $cur); skipping"
                       continue
                     fi
-                    if grep -q "\"tags\":${json}" /tmp/node.json; then
+                    if grep -qF "\"tags\":${json}" /tmp/node.json; then
                       echo "[tagger] $node already ${json}"
                       continue
                     fi
