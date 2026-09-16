@@ -927,7 +927,6 @@ resource "cloudflare_zero_trust_access_application" "openhands" {
   auto_redirect_to_identity = false
   session_duration          = "8h"
 
-  # See the note appended at the end of this file.
   http_only_cookie_attribute = true
   enable_binding_cookie      = true
 
