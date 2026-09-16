@@ -14,23 +14,33 @@ kind: Job
 metadata:
   name: openhands-migrate-state-v1
   namespace: openhands
+  annotations:
+    checkov.io/skip1: CKV_K8S_11=CPU limits are unset estate-wide by decision; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited.
+    checkov.io/skip2: CKV_K8S_15=IfNotPresent is the house convention; image is tagged and pulled only when absent, not on every Job run
+    checkov.io/skip3: CKV_K8S_43=alpine:3.22 pinned to a specific tag; digest pinning not warranted for this home-lab one-shot Job
 spec:
   ttlSecondsAfterFinished: 604800
   backoffLimit: 3
   template:
     spec:
       restartPolicy: OnFailure
+      automountServiceAccountToken: false
       nodeSelector:
         kubernetes.io/hostname: ff-oci2
       securityContext:
-        runAsUser: 0
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: copy
           image: alpine:3.22
+          imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
           resources:
@@ -43,13 +53,12 @@ spec:
           args:
             - |
               set -eu
-              apk add --no-cache rsync >/dev/null
               if [ -e /new/.migrated ]; then
                 echo "[migrate] destination already seeded, nothing to do"
                 exit 0
               fi
               echo "[migrate] copying agent state"
-              rsync -a --info=stats2 /old/openhands-state/ /new/
+              cp -a /old/openhands-state/. /new/
               date -u +%FT%TZ > /new/.migrated
               echo "[migrate] done; /workspace is intentionally NOT copied (repo-sync rebuilds it)"
           volumeMounts:

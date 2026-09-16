@@ -217,7 +217,9 @@ spec:
         # because the repos volume is ReadWriteOnce: a separate pod would have to attach
         # it on the same node and would fight the agent for the lock. Runs its own loop
         # instead of a schedule for the same reason.
-        - name: repo-sync
+        # readOnlyRootFilesystem is not set: apk installs git/curl/jq to the root fs at
+        # startup. Constrained by no SA token, dropped capabilities, and seccomp=RuntimeDefault.
+        - name: repo-sync  # nosemgrep: yaml.kubernetes.security.writable-filesystem-container.writable-filesystem-container
           image: alpine:3.22
           securityContext:
             allowPrivilegeEscalation: false
