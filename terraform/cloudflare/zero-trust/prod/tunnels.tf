@@ -4,7 +4,7 @@
 # - `firefly`     — the in-cluster cloudflared DaemonSet (home k3s "firefly").
 #                   Has routes into *.svc.cluster.local for the apps the home
 #                   network actually hosts. THIS is what serves cc/cc-pro/
-#                   atlantis/zoey/overseerr/radarr.
+#                   zoey/overseerr/radarr.
 # - `firefly_oci` — cloudflared containers running on the OCI MikroTik CHRs
 #                   (see terraform/oci/modules/mikrotik/). These can't reach
 #                   the home cluster while the OCI<->home VPN is down, so they
@@ -98,15 +98,6 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "firefly" {
     ingress_rule {
       hostname = "radarr.sargeant.co"
       service  = "http://radarr.media.svc.cluster.local:7878"
-      origin_request {}
-    }
-
-    # GitHub webhooks → Atlantis (firefly cluster). This + the cloudflare
-    # tunnel auto-creates the public CNAME atlantis.sargeant.co →
-    # <tunnel-id>.cfargotunnel.com so the App's webhook URL resolves.
-    ingress_rule {
-      hostname = "atlantis.sargeant.co"
-      service  = "http://atlantis.automation.svc.cluster.local:80"
       origin_request {}
     }
 

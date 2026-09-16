@@ -7,7 +7,7 @@ metadata:
   # that runs once a day. The cluster already runs scheduled Python on a mounted ConfigMap
   # (streaming-sync, security-integrations), already reads the Slack bot token out of OCI
   # Vault through the `oci-vault` ClusterSecretStore, and already mounts OCI API signing
-  # credentials into a pod (atlantis). And a Function can only live in ONE tenancy, so the
+  # credentials into pods. And a Function can only live in ONE tenancy, so the
   # cross-tenancy credential problem would survive the move unchanged — with a build
   # pipeline bolted on top of it.
   name: oci-cost-report
@@ -151,7 +151,7 @@ spec:
               secret:
                 secretName: oci-cost-report
                 # 0440, not 0400: the file is root-owned and the process is 10001, so
-                # group-readable + fsGroup is what makes it openable (same as atlantis).
+                # group-readable + fsGroup is what makes it openable.
                 defaultMode: 0440
                 items:
                   - key: firefly-config

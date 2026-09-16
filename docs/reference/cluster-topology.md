@@ -146,19 +146,16 @@ They are ordinary `worker` nodes **plus** an extra tier label:
 
     That one module is now instantiated by **two leaves in two tenancies**:
 
-    | Leaf | Tenancy | Nodes | Atlantis project |
-    |---|---|---|---|
-    | `terraform/oci/prod/eu-amsterdam-1/server` | caleb | ff-oci1, ff-oci2 | `oci-prod-eu-amsterdam-1-server` |
-    | `terraform/oci/cloudworkers/prod/eu-amsterdam-1/server` | traceysargeant | ff-oci3, ff-oci4 | `oci-cloudworkers-prod-eu-amsterdam-1-server` |
+    | Leaf | Tenancy | Nodes |
+    |---|---|---|
+    | `terraform/oci/prod/eu-amsterdam-1/server` | caleb | ff-oci1, ff-oci2 |
+    | `terraform/oci/cloudworkers/prod/eu-amsterdam-1/server` | traceysargeant | ff-oci3, ff-oci4 |
 
-    Editing the shared **module** touches both, and Atlantis autoplan won't fire
-    for either (`when_modified` only watches each leaf's own subtree). Run
-    `atlantis plan -p oci-prod-eu-amsterdam-1-server` by hand.
-
-    The cloudworkers projects additionally have **autoplan disabled outright**.
-    Atlantis holds firefly's OCI credentials only, so an autoplan there either
-    hard-fails on the leaves' `regex()` OCID asserts or authenticates as the wrong
-    tenancy. Plan them from a workstation that has the `OCI_CW_*` variables.
+    Editing the shared **module** touches both. The Terragrunt workflow replans every
+    leaf on a module change, but `scripts/terragrunt-pipeline.sh` excludes
+    `terraform/oci/cloudworkers/**`: CI has none of the `OCI_CW_*` variables, so a
+    plan there would hard-fail on the leaves' `regex()` OCID asserts. Plan those
+    leaves from a workstation that has the variables.
 
 !!! danger "The k3s node-token lives in two vaults now"
     cloud-init reads the token with `oci --auth instance_principal`, authorised by
@@ -181,8 +178,8 @@ They are ordinary `worker` nodes **plus** an extra tier label:
   `components/node-selectors/native-cloud` component **no longer exists**; do not
   reference it. For non-app-template HelmReleases, set
   `nodeSelector: { topology.sargeant.co/tier: native-cloud }` in the chart's
-  values. Verify the image is **arm64 / multi-arch** first: several custom images
-  (`atlantis-firefly`, etc.) are amd64-only today.
+  values. Verify the image is **arm64 / multi-arch** first: some custom images are
+  amd64-only.
 - **CNPG**: a Cluster CR is **not** a Deployment/StatefulSet, so neither the
   Kyverno placement policies nor a kustomize component reaches it. Pin it via the
   Cluster's own `spec.affinity.nodeSelector`. See

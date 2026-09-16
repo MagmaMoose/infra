@@ -21,7 +21,7 @@ data:
     group and a policy to let it read usage -- all for one script that runs once a day. The
     cluster already runs scheduled Python (see security-integrations), already has the Slack
     bot token in OCI Vault reachable through the `oci-vault` ClusterSecretStore, and already
-    mounts OCI API credentials into a pod (atlantis). Only ONE of the two tenancies could
+    mounts OCI API credentials into pods. Only ONE of the two tenancies could
     host the Function anyway, so the cross-tenancy credential problem would remain exactly as
     it is here -- with a build pipeline added on top.
 

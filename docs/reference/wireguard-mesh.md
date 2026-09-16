@@ -100,10 +100,10 @@ cd terraform/mikrotik/wireguard-mesh/prod
 terragrunt apply
 ```
 
-Atlantis autoplan is disabled (project `mikrotik-wireguard-mesh-prod`): a plan opens a live
+A plan opens a live
 RouterOS session to all five routers and resolves both passwords through parse-time vault lookups.
 
-**Order matters across leaves, and Atlantis does not model it.** Apply this leaf *before* either
+**Order matters across leaves, and CI does not model it.** Apply this leaf *before* either
 `network` leaf, because those route the far tenancy's /24 at their local CHR — do it the other way
 round and the route points at a CHR with nowhere to send the packet, which bounces it back into
 the VCN it came from.

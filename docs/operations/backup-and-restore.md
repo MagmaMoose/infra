@@ -34,7 +34,7 @@ kubectl -n <namespace> get pvc <pvc-name> -o jsonpath='{.spec.volumeName}'
 
 This is deliberate. Backing up all 45 volumes would push ~41 GiB offsite, and most
 of it regenerates itself: `dependency-track` alone is 9.4 GiB of NVD mirror it
-re-downloads, and `atlantis` is 6 GiB of Terraform plan cache. Paying to store that
+re-downloads. Paying to store that
 is how a backup bill becomes a reason to switch backups off.
 
 Backups are incremental after the first full, so adding a volume later is cheap.

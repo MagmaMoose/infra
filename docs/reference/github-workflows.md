@@ -59,13 +59,12 @@ self-hosted queue.
 
 ## Container images
 
-`docker-publish.yml` builds four images from `dockerfiles/`:
+`docker-publish.yml` builds three images from `dockerfiles/`:
 
 | Image | Namespace | Platforms | Tag prefix |
 | --- | --- | --- | --- |
 | `n8n` | `calebsargeant` | `linux/amd64,linux/arm64` | `n8n-v` |
 | `openfortivpn` | `calebsargeant` | `linux/amd64,linux/arm64` | `openfortivpn-v` |
-| `atlantis-firefly` | `calebsargeant` | `linux/amd64,linux/arm64` | `atlantis-firefly-v` |
 | `mem0-server` | `magmamoose` | `linux/amd64,linux/arm64` | `mem0-server-v` |
 
 `mem0-server` is built from upstream source rather than the published `mem0/mem0-api-server`

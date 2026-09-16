@@ -5,7 +5,7 @@
 3. **New CNPG `Cluster`** — one shared `postgres` exists in `database` ns. Add `Database`+`User` CRs to it.
 4. **Over-allocating Pi pods** — ~4-8GB usable. Default `t.small`; `c.medium` only for real multi-core.
 5. **`git push` ≠ deployed** — Flux reconciles on intervals. Force: `flux reconcile kustomization <name> -n flux-system`.
-6. **Atlantis autoplan misses shared changes** — `when_modified` only sees each leaf's subtree. Edits to `root.hcl`, `region.hcl`, `modules/**` need manual `atlantis plan -p <project>` per affected leaf.
+6. **(Retired 2026-09-16) Atlantis autoplan.** Atlantis was removed; `terragrunt.yml` replans every leaf when `root.hcl`, a `region.hcl` or `modules/**` changes. The entry is kept so later numbers stay valid.
 7. **Plaintext secrets** — PUBLIC repo. Rotate immediately if leaked.
 8. **AI co-author trailers** — omit them, but do not trust a hook to catch it. The only guard is a `commit-msg` hook on one workstation that *strips* matching trailers and always exits 0. It is not in CI, not in any repo's `.pre-commit-config.yaml`, and not in any agent container. It also only fires where `core.hooksPath` resolves: a worktree-scoped `core.hooksPath` pointing at a missing directory makes git skip **every** hook silently, exit 0, no warning. See #34.
 9. **Parallel agents** — k8s + tf share one checkout; use a worktree for tf to avoid git-op collisions.

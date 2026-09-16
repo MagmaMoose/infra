@@ -373,11 +373,10 @@ the archive, and this runs the result.
 
 ---
 
-## Why there is no Atlantis project
+## Why it is applied by hand
 
-Atlantis holds one AWS credential and it is nievah's. Dün Mir is expected to live in a
-standalone account **outside the organisation**, so this is not a credential that could be
-granted — it is one that cannot exist in the current design. The leaf is applied by hand with
+Dün Mir is expected to live in a standalone account **outside the organisation**, so no
+shared CI credential could be granted to it; one cannot exist in the current design. The leaf is applied by hand with
 `AWS_PROFILE=mm-dunmir`; the deployment it exists to serve is a one-line bump of `artifact_version`.
 
 Effusion's per-run OIDC role is the real answer, and this is another argument for it.

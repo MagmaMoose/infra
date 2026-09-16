@@ -3,9 +3,10 @@
 # prefix to "terraform/gcp_project" and uses a different bucket — colocating
 # everything under sargeant-prod-terraform-state keeps state in one place.
 
-# The GCS backend below authenticates with the dedicated
-# atlantis@magmamoose-terraform service-account key (OCI Vault secret
-# atlantis-gcp-sa-key) — see kubernetes/apps/atlantis/base/atlantis/README.md.
+# The GCS backend below authenticates with the caller's Google credentials, which
+# need access to the state bucket. Until 2026-09-16 Atlantis supplied them from the
+# atlantis@magmamoose-terraform service-account key (OCI Vault atlantis-gcp-sa-key);
+# Atlantis has since been removed.
 remote_state {
   backend = "gcs"
   config = {
@@ -134,20 +135,6 @@ inputs = {
       proxied = true
     },
 
-    # Routes through the `firefly` tunnel to in-cluster Atlantis
-    # (k8s service: atlantis.automation.svc.cluster.local:80). Pairs with
-    # the ingress_rule in terraform/cloudflare/zero-trust/prod/tunnels.tf
-    # (added in #216). Must be proxied — without it CF returns the
-    # cfargotunnel.com hostname directly to GitHub and webhook delivery
-    # fails. GitHub webhooks are HTTPS-only, which is fine: the proxied
-    # CNAME terminates TLS at Cloudflare's edge.
-    {
-      name    = "atlantis.sargeant.co"
-      type    = "CNAME"
-      value   = "7694eb38-c35e-4905-bd2b-16ab7053080a.cfargotunnel.com"
-      proxied = true
-    },
-
     # Public Warp custom inference endpoint for LiteLLM. Pairs with the
     # path-scoped ingress rules in zero-trust/prod/tunnels.tf and must stay
     # proxied so Warp sees a public Cloudflare edge address, not the LAN
@@ -165,8 +152,7 @@ inputs = {
     # terraform/cloudflare/zero-trust/prod/tunnels.tf. Must be proxied so
     # Cloudflare routes via the `firefly` tunnel (a grey-cloud CNAME would hand
     # the cfargotunnel.com target straight back to the client). Without these
-    # the hosts don't resolve (same reason the atlantis record above must be
-    # proxied).
+    # the hosts don't resolve.
     {
       name    = "defectdojo.sargeant.co"
       type    = "CNAME"

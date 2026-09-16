@@ -42,7 +42,6 @@ nav:
   - Guides:
       - Deploying Applications: guides/deploying-applications.md
       - 1Password Setup: guides/1password-setup.md
-      - Atlantis Setup: guides/atlantis-setup.md
       - Gluetun Setup: guides/gluetun-setup.md
       - LiteLLM Clients: guides/litellm-clients.md
       - Warp Setup: guides/warp-setup.md

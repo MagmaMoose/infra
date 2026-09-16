@@ -252,8 +252,7 @@ The docs workflow's `push` trigger is commented out. See
 
 ## Terraform: a shared file changed and nothing was planned
 
-Atlantis decides what to plan from each project's own subtree, so edits to `terraform/root.hcl`,
-a `region.hcl`, or `terraform/modules/**` don't trigger the leaves they affect. The Terragrunt
-workflow replans every leaf in that case. See [Terraform delivery](terraform-delivery.md).
-
-If you're still driving a plan through Atlantis, trigger each affected leaf by hand.
+The Terragrunt workflow replans every leaf when `terraform/root.hcl`, a `region.hcl`, or
+`terraform/modules/**` changes, so this was an Atlantis problem. If it happens, check the run's
+`discover` job, and remember `terraform/oci/cloudworkers/**` is always excluded. See
+[Terraform delivery](terraform-delivery.md).

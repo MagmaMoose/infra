@@ -9,7 +9,7 @@
 #
 # ONE OBJECT, NOT TWO — and that differs from kubernetes/apps/holmesgpt/base/networkpolicy.yaml
 # on purpose. Holmes owns its whole namespace, so a `podSelector: {}` default-deny there costs
-# nothing. mem0 is a tenant of the SHARED `automation` namespace (atlantis, browserless, hermes,
+# nothing. mem0 is a tenant of the SHARED `automation` namespace (browserless, hermes,
 # litellm, n8n, n8n-mcp), so the same default-deny would cut ingress to all six. A single policy
 # selecting `app: mem0` is enough: in Kubernetes, a pod selected by ANY ingress policy is
 # default-deny for ingress, and pods selected by none are unaffected.
@@ -45,7 +45,7 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: holmesgpt
         # hermes is a neighbour in `automation`. A bare podSelector means "this namespace",
-        # so this admits hermes WITHOUT admitting atlantis, browserless, n8n or n8n-mcp.
+        # so this admits hermes WITHOUT admitting browserless, n8n or n8n-mcp.
         - podSelector:
             matchLabels:
               app: hermes
