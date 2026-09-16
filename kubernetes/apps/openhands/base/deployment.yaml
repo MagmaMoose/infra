@@ -217,10 +217,18 @@ spec:
         # because the repos volume is ReadWriteOnce: a separate pod would have to attach
         # it on the same node and would fight the agent for the lock. Runs its own loop
         # instead of a schedule for the same reason.
-        # readOnlyRootFilesystem is not set: apk installs git/curl/jq to the root fs at
-        # startup. Constrained by no SA token, dropped capabilities, and seccomp=RuntimeDefault.
+        # readOnlyRootFilesystem is not set: the agent image may write to the root
+        # filesystem at startup. Constrained by no SA token, dropped capabilities, and seccomp=RuntimeDefault.
         - name: repo-sync  # nosemgrep: yaml.kubernetes.security.writable-filesystem-container.writable-filesystem-container
-          image: alpine:3.22
+          # Same image as the agent, deliberately. It already ships git, curl and jq, it
+          # is already on the node so there is no second pull, and it runs as the same
+          # uid 10001 the pod enforces. The first version used alpine and ran
+          # `apk add` at startup; once the pod was hardened to runAsNonRoot the install
+          # could not lock the apk database, the container exited 99 on every start, and
+          # because a crashlooping container marks the whole pod NotReady, the Service
+          # lost its only endpoint and the agent went down with it. Nothing here should
+          # install software at runtime. Keep this tag in step with the agent above.
+          image: ghcr.io/openhands/agent-canvas:1.5.2
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -251,9 +259,9 @@ spec:
                 secretKeyRef:
                   name: openhands
                   key: ghe-token
-          command: ["/bin/sh", "-c"]
-          args:
-            - apk add --no-cache git curl jq >/dev/null && exec /scripts/sync.sh
+          # Overrides the image entrypoint, which would otherwise start a second agent
+          # server inside the sidecar.
+          command: ["/bin/sh", "/scripts/sync.sh"]
           volumeMounts:
             - name: repos
               mountPath: /workspace/repos
