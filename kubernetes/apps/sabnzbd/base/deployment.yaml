@@ -38,7 +38,10 @@ spec:
               cpu: "200m"
               ephemeral-storage: "1Gi"
             limits:
-              # generous on purpose so we never OOM; limits don't affect scheduling
+              # Limits don't affect scheduling. SABnzbd's article cache counts against
+              # this limit, and its size is app state (Config > General > Tuning > Article Cache
+              # Limit, `cache_limit` in sabnzbd.ini), not Git. At 1G it OOM-killed SABnzbd
+              # mid-download on 2026-09-16; it is now 256M. Keep it well under this limit.
               memory: "512Mi"
               cpu: "750m"
               ephemeral-storage: "4Gi"
