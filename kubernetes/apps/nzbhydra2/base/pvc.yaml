@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nzbhydra2-config
+  namespace: media
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  # Longhorn (replicated, node-independent). /config used to be a hostPath at
+  # /mnt/nvme/nzbhydra2-config, but the cloud tier spans four nodes and every
+  # node has its own copy of that directory. When the 2026-06-26 tiering moved
+  # the pod off ff-vm1 it started on an empty directory, generated a new config
+  # with no indexers and a new API key, and Sonarr/Radarr failed every query
+  # with "wrong API key" for ~12 weeks while the pod reported healthy. Seeded
+  # from ff-vm1's copy (the last one with the real indexer config).
+  storageClassName: longhorn
