@@ -1,0 +1,33 @@
+# Lets the nievah-namespace ServiceAccount `nievah-db-reader` read the ONE Secret
+# `postgres-oci-app`, the credential CloudNativePG generated for postgres-oci's `app` role. Paired
+# with the application's own SecretStore and ExternalSecret for the control-plane credentials,
+# whose `auth.serviceAccount` names this SA. Same shape as ../../dunmir/base/db-reader-rbac.yaml.
+#
+# Scoped by resourceNames to a single Secret, read-only, bound to a single SA in a single
+# namespace. It confers nothing on the Cluster itself and no superuser credential.
+#
+# kics-scan disable=b7bca5c4-1dab-4c2c-8cbe-3050b9d59b14,056ac60e-fe07-4acc-9b34-8e1d51716ab9
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: nievah-db-reader
+  namespace: database-oci
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["postgres-oci-app"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: nievah-db-reader
+  namespace: database-oci
+subjects:
+  - kind: ServiceAccount
+    name: nievah-db-reader
+    namespace: nievah
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: nievah-db-reader
