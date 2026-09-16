@@ -38,6 +38,12 @@ This guide walks you through setting up OCI Vault and configuring it for use wit
 
 ## Part 2: OCI User and API Key Setup
 
+> **Do not use your own user.** ESO only needs to read secret bundles from one
+> vault, and your API key can do whatever you can. Create a dedicated user, group
+> and vault-scoped policy instead:
+> [docs/operations/external-secrets-oci-principal.md](../../../../docs/operations/external-secrets-oci-principal.md).
+> The steps below are the original setup and are kept for reference only.
+
 ### 2.1 Get Your User OCID
 
 1. In OCI Console, click your profile icon (top right)
@@ -75,15 +81,13 @@ This guide walks you through setting up OCI Vault and configuring it for use wit
    - **Policy Builder**: Toggle to **Show manual editor**
    - **Policy Statements**:
      ```
-     Allow user [YOUR_USER_EMAIL] to read secret-family in compartment [COMPARTMENT_NAME]
-     Allow user [YOUR_USER_EMAIL] to read vaults in compartment [COMPARTMENT_NAME]
+     Allow group 'Default'/'eso-firefly-secret-readers' to read secret-bundles in tenancy where target.vault.id = '[VAULT_OCID]'
+     Allow group 'Default'/'eso-firefly-secret-readers' to read vaults in tenancy where target.vault.id = '[VAULT_OCID]'
      ```
 
-     Or if using a group:
-     ```
-     Allow group firefly-admins to read secret-family in compartment [COMPARTMENT_NAME]
-     Allow group firefly-admins to read vaults in compartment [COMPARTMENT_NAME]
-     ```
+     `read secret-bundles`, not `read secret-family`: ESO only calls
+     `GetSecretBundleByName`. Test the condition before relying on it; see the
+     runbook linked in Part 2.
 5. Click **Create**
 
 ### 3.2 Verify Permissions
