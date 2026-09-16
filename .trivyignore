@@ -213,3 +213,33 @@ AVD-KSV-0048
 KSV-0014 kubernetes/apps/openhands/base/deployment.yaml
 KSV0014 kubernetes/apps/openhands/base/deployment.yaml
 AVD-KSV-0014 kubernetes/apps/openhands/base/deployment.yaml
+
+# KSV-0020 / KSV-0021 — "container should set runAsUser/runAsGroup > 10000".
+#
+# Suppressed for the seed-config initContainer in the three *arr deployments.
+# The initContainer copies config.xml from the ConfigMap onto the PVC so the main
+# app can write to it. The file must be owned by UID/GID 1000 — the PUID/PGID that
+# linuxserver/sonarr, linuxserver/radarr and linuxserver/prowlarr run under — or the
+# main container starts with a config.xml it cannot read. Setting UID/GID > 10000
+# here would silently break the ownership hand-off without otherwise strengthening
+# the security posture of a container that only runs cp and chmod.
+# All other securityContext controls (nonRoot, no privilege escalation, drop ALL,
+# RuntimeDefault seccomp) are set on the same container.
+KSV-0020 kubernetes/apps/sonarr/base/deployment.yaml
+KSV0020 kubernetes/apps/sonarr/base/deployment.yaml
+AVD-KSV-0020 kubernetes/apps/sonarr/base/deployment.yaml
+KSV-0020 kubernetes/apps/radarr/base/deployment.yaml
+KSV0020 kubernetes/apps/radarr/base/deployment.yaml
+AVD-KSV-0020 kubernetes/apps/radarr/base/deployment.yaml
+KSV-0020 kubernetes/apps/prowlarr/base/deployment.yaml
+KSV0020 kubernetes/apps/prowlarr/base/deployment.yaml
+AVD-KSV-0020 kubernetes/apps/prowlarr/base/deployment.yaml
+KSV-0021 kubernetes/apps/sonarr/base/deployment.yaml
+KSV0021 kubernetes/apps/sonarr/base/deployment.yaml
+AVD-KSV-0021 kubernetes/apps/sonarr/base/deployment.yaml
+KSV-0021 kubernetes/apps/radarr/base/deployment.yaml
+KSV0021 kubernetes/apps/radarr/base/deployment.yaml
+AVD-KSV-0021 kubernetes/apps/radarr/base/deployment.yaml
+KSV-0021 kubernetes/apps/prowlarr/base/deployment.yaml
+KSV0021 kubernetes/apps/prowlarr/base/deployment.yaml
+AVD-KSV-0021 kubernetes/apps/prowlarr/base/deployment.yaml
