@@ -43,11 +43,12 @@ on Docker Hub has exactly **one** tag (`latest`), last pushed 2025-09-10, while 
 
 Two consequences worth knowing before editing anything:
 
-1. **It is multi-arch, and that is why the Deployment is on-prem.** The published image is
-   arm64-only; building from source provides `python:3.12-slim` which is multi-arch (amd64+arm64).
-   This allows the `placement.sargeant.co/tier` label in `base/kustomization.yaml` to be `on-prem`,
-   placing the pod on ff-vm1 beside its Postgres database, eliminating cross-VPN latency.
-   Reverting to the published arm64-only base would force mem0 back to the OCI node tier.
+1. **It is multi-arch, so it can run beside its Postgres.** The published image is arm64-only;
+   building from source on `python:3.12-slim` gives amd64+arm64, so the
+   `placement.sargeant.co/tier` label in `base/kustomization.yaml` can be `on-prem` (ff-vm1,
+   where Postgres runs). It is `cloud` for now only because ff-vm1 had no memory headroom at
+   first deploy; that file says why and when to move it back. Reverting to the published
+   arm64-only base would remove the choice.
 2. **Three pins move together**: `MEM0_REF` (the server commit), `mem0ai==` (the SDK the
    server imports — upstream's requirements float it, and server and SDK ship from the same
    repo) and the base image's **index** digest. A per-arch digest breaks the other leg.
@@ -74,14 +75,16 @@ Two consequences worth knowing before editing anything:
 
    Do not hand-build and push this from a laptop: it needs a `write:packages` token that
    no local credential here carries, and yields an artifact nobody can reproduce.
-2. **Two OCI Vault entries — the only thing still outstanding.** Neither exists yet:
+2. **Two OCI Vault entries — created 2026-09-16.**
    ```
    mem0-admin-api-key    # the X-API-Key every fleet caller presents
    mem0-jwt-secret       # required at import even though the JWT flow is unused here
    ```
-   Generate each with `openssl rand -base64 48`. Until they exist the ExternalSecret never
-   populates and the pod will not start — which is the intended failure, since the
-   alternative is the fleet's memory serving unauthenticated.
+   Each is 48 random bytes, base64-encoded, with **no trailing newline** (piping
+   `openssl rand -base64 48` straight in would store one, and every caller's `X-API-Key`
+   would then have to include it). If either goes missing the ExternalSecret stops
+   populating and the pod will not start, which is the intended failure: the alternative
+   is the fleet's memory serving unauthenticated.
 3. **LiteLLM model entries — satisfied.** The server's own default model moved to
    `gpt-5-mini`, which this gateway does not register, so `deployment.yaml` sets
    `MEM0_DEFAULT_LLM_MODEL` / `MEM0_DEFAULT_EMBEDDER_MODEL` explicitly to the two that ARE
