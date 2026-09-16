@@ -17,6 +17,36 @@ spec:
       labels:
         app: prowlarr
     spec:
+      initContainers:
+        # config.xml must be writable, because the *arr apps persist new keys at startup.
+        # Sonarr 4.0.20 died on the read-only subPath mount; see its deployment.yaml.
+        - name: seed-config
+          image: busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - rm -f /config/config.xml && cp /seed/config.xml /config/config.xml && chmod 600 /config/config.xml
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 5m
+              memory: 8Mi
+            limits:
+              memory: 32Mi
+          volumeMounts:
+            - mountPath: /config
+              name: prowlarr
+            - mountPath: /seed
+              name: prowlarr-config
+              readOnly: true
       containers:
         - name: prowlarr
           image: linuxserver/prowlarr:2.5.2 # {"$imagepolicy": "flux-system:prowlarr"}
@@ -37,6 +67,14 @@ spec:
               memory: "512Mi"
           ports:
             - containerPort: 9696 # Prowlarr web interface
+          # Recreate means no old pod to fall back on, but a release that cannot start
+          # shows as NotReady instead of a Running pod behind a 502.
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 9696
+            initialDelaySeconds: 10
+            periodSeconds: 10
           env:
             - name: PUID
               value: "1000" # Replace with your user ID
@@ -56,9 +94,6 @@ spec:
           volumeMounts:
             - mountPath: /config
               name: prowlarr
-            - mountPath: /config/config.xml
-              name: prowlarr-config
-              subPath: config.xml
       volumes:
         - name: prowlarr
           persistentVolumeClaim:

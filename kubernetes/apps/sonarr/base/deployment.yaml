@@ -13,6 +13,40 @@ spec:
       labels:
         app: sonarr
     spec:
+      initContainers:
+        # config.xml comes from Git (the SOPS ConfigMap), but Sonarr has to be able to write
+        # it: 4.0.20 persists new keys such as AllowedHosts at startup. On the old read-only
+        # subPath mount it failed with "Access to the path '/config/config.xml' is denied"
+        # and sat dead inside a Running pod. Copying the file onto the config volume on
+        # every start keeps Git authoritative (each restart overwrites it) and lets image
+        # automation keep bumping the tag. Radarr and Prowlarr do the same.
+        - name: seed-config
+          image: busybox:1.37.0
+          command:
+            - sh
+            - -c
+            - rm -f /config/config.xml && cp /seed/config.xml /config/config.xml && chmod 600 /config/config.xml
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            seccompProfile:
+              type: RuntimeDefault
+          resources:
+            requests:
+              cpu: 5m
+              memory: 8Mi
+            limits:
+              memory: 32Mi
+          volumeMounts:
+            - mountPath: /config
+              name: sonarr
+            - mountPath: /seed
+              name: sonarr-config
+              readOnly: true
       containers:
         - name: sonarr
           image: linuxserver/sonarr:4.0.20 # {"$imagepolicy": "flux-system:sonarr"}
@@ -25,6 +59,15 @@ spec:
               memory: "512Mi"
           ports:
             - containerPort: 8989 # sonarr web interface
+          # /ping needs no API key and only answers once the app has started. With the
+          # default rolling update (maxUnavailable 0 for one replica), a release that cannot
+          # start never becomes Ready, so the old pod keeps serving instead of a 502.
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: 8989
+            initialDelaySeconds: 10
+            periodSeconds: 10
           env:
             - name: PUID
               value: "1000" # Replace with your user ID
@@ -44,9 +87,6 @@ spec:
           volumeMounts:
             - mountPath: /config
               name: sonarr
-            - mountPath: /config/config.xml
-              name: sonarr-config
-              subPath: config.xml
             - mountPath: /series
               name: series
             - mountPath: /downloads
