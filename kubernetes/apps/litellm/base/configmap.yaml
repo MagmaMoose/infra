@@ -218,6 +218,57 @@ data:
           base_model: openai/gpt-5.4-mini
           billing_mode: openai-api
           credential_source: oci-vault:openai-api-key
+      # --- Fallback aliases (Nievah, and anything else that wants "the cheap fallback") ---
+      # Nievah never names a provider model for its fallback. Every model call it makes walks
+      # Claude first (the owner's Max OAuth accounts) and only then asks for one of these three
+      # names, on the budget-capped `openhands` key (keyseed-job.yaml). So THIS is the one
+      # place the fallback model is chosen: re-point `litellm_params.model` (and the pinned
+      # prices with it) and every Nievah lane follows, with no Nievah release.
+      #
+      # One alias per tier so the tiers can diverge later (a stronger model for `hard`) without
+      # touching Nievah either. Today all three are gpt-5.6-luna: its price is what LiteLLM
+      # v1.101.0 reports for it in /model/info, pinned here for the same reason as the
+      # tenant-metered entries above — a pod restart must not change what a call costs, and
+      # the openhands key's budget only trips if spend is booked at a real price.
+      - model_name: fallback-easy
+        litellm_params:
+          model: openai/gpt-5.6-luna
+          api_key: os.environ/OPENAI_API_KEY
+        model_info:
+          mode: chat
+          base_model: openai/gpt-5.6-luna
+          input_cost_per_token: 0.0000002
+          output_cost_per_token: 0.0000012
+          cache_read_input_token_cost: 0.00000002
+          billing_mode: openai-api
+          credential_source: oci-vault:openai-api-key
+          notes: "Nievah fallback alias for easy work (classify, PR descriptions). Reached only after every Claude leg failed."
+      - model_name: fallback-medium
+        litellm_params:
+          model: openai/gpt-5.6-luna
+          api_key: os.environ/OPENAI_API_KEY
+        model_info:
+          mode: chat
+          base_model: openai/gpt-5.6-luna
+          input_cost_per_token: 0.0000002
+          output_cost_per_token: 0.0000012
+          cache_read_input_token_cost: 0.00000002
+          billing_mode: openai-api
+          credential_source: oci-vault:openai-api-key
+          notes: "Nievah fallback alias for medium work (issue plans, triage, gate reviews, planner narrative). Reached only after every Claude leg failed."
+      - model_name: fallback-hard
+        litellm_params:
+          model: openai/gpt-5.6-luna
+          api_key: os.environ/OPENAI_API_KEY
+        model_info:
+          mode: chat
+          base_model: openai/gpt-5.6-luna
+          input_cost_per_token: 0.0000002
+          output_cost_per_token: 0.0000012
+          cache_read_input_token_cost: 0.00000002
+          billing_mode: openai-api
+          credential_source: oci-vault:openai-api-key
+          notes: "Nievah fallback alias for hard work (the planner, hard PR reviews). Reached only after every Claude leg failed."
       # --- Embeddings + small utility model for the mem0 fleet-memory service ---
       # mem0's default OpenAI models; registered so mem0 (which talks OpenAI-protocol to
       # this gateway) resolves them. Additive — existing clients are unaffected.

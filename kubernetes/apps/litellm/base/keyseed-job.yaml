@@ -12,7 +12,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: litellm-keyseed-v1
+  name: litellm-keyseed-v2
   namespace: automation
   annotations:
     checkov.io/skip1: CKV_K8S_11=CPU limits are unset estate-wide by decision; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited.
@@ -80,7 +80,12 @@ spec:
               # out, work moves to the per-token gpt-5.6 models, and the agent runs with
               # max_iterations 500 and confirmation_mode off. Without a ceiling a stuck
               # loop bills until someone notices. LiteLLM rejects requests past it.
-              PAYLOAD=$(printf '{"key":"%s","key_alias":"openhands","models":["deepseek-v4-pro","deepseek-v4-flash","gpt-5.6-luna","gpt-5.6-sol","gpt-5.6-terra"],"max_budget":50,"budget_duration":"30d","metadata":{"owner":"openhands","managed_by":"litellm-keyseed Job"}}' "$OPENHANDS_KEY")
+              #
+              # The same key is Nievah's FALLBACK key (LITELLM_FALLBACK_API_KEY, from the
+              # same vault entry), so every Nievah fallback call, direct or through OpenHands,
+              # draws on this one budget. fallback-easy/medium/hard are the aliases it asks for
+              # (configmap.yaml); re-pointing an alias never needs this list to change.
+              PAYLOAD=$(printf '{"key":"%s","key_alias":"openhands","models":["fallback-easy","fallback-medium","fallback-hard","deepseek-v4-pro","deepseek-v4-flash","gpt-5.6-luna","gpt-5.6-sol","gpt-5.6-terra"],"max_budget":50,"budget_duration":"30d","metadata":{"owner":"openhands","managed_by":"litellm-keyseed Job"}}' "$OPENHANDS_KEY")
 
               CODE=$(curl -s -o /tmp/out -w '%{http_code}' -X POST "$B/key/update" \
                 -H "$H" -H 'Content-Type: application/json' -d "$PAYLOAD")
