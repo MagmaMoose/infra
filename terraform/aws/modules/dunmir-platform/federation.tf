@@ -144,10 +144,14 @@ resource "aws_cognito_identity_provider" "google" {
     authorize_scopes = "openid email profile"
   }
 
+  # `hd` is present only for a Google Workspace account, and it is what lets the linking trigger
+  # (account_linking.tf) tell a Workspace address Google owns from a personal Google account
+  # somebody registered on a company address.
   attribute_mapping = {
-    email          = "email"
-    email_verified = "email_verified"
-    username       = "sub"
+    email              = "email"
+    email_verified     = "email_verified"
+    username           = "sub"
+    "custom:google_hd" = "hd"
   }
 }
 
