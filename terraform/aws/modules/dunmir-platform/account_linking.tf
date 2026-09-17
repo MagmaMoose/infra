@@ -247,7 +247,7 @@ resource "aws_iam_role_policy" "google_account_linking" {
 # the pool update that switches the trigger on, and every sign-up in between would fail with
 # Cognito unable to invoke its own trigger. `source_account` still stops a pool in some other
 # account from invoking it.
-resource "aws_lambda_permission" "google_account_linking" {
+resource "aws_lambda_permission" "google_account_linking" { # nosemgrep: terraform.aws.security.aws-lambda-permission-unrestricted-source-arn.aws-lambda-permission-unrestricted-source-arn
   count = local.links_google_accounts ? 1 : 0
 
   statement_id   = "AllowCognitoPreSignUp"
