@@ -238,6 +238,9 @@ regenerated, and replacing one resets its spend.
   alone and a budget overshoots.
 - **Spend logs** keep spend, tokens and model, never request or response bodies
   (`store_prompts_in_spend_logs: false`). Rows are kept forever: no retention is set.
+- **Prices are pinned** on the `tenant-metered` entries (`model_info` input, output and cache
+  costs, the values in LiteLLM v1.101.0's price map). Without them each pod reads the price
+  map from GitHub `main` at start, so a restart could change what a tenant is billed.
 - **Read spend** with `/team/info`, `/key/info` (accepts the key's SHA-256),
   `/spend/logs/v2` and `/team/daily/activity`. `/global/spend/report` and the other
   `*/spend/report` endpoints need an enterprise licence.

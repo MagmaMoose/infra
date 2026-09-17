@@ -18,6 +18,11 @@ data:
     # which can only use `Authorization`, get mapped onto x-litellm-api-key.)
     # See docs/guides/litellm-clients.md.
     #
+    # PINNED PRICES on the tenant-metered entries: the pods fetch LiteLLM's price map from GitHub
+    # `main` at start, so a restart could change what a tenant's call costs. These are the
+    # values in LiteLLM v1.101.0's model_prices_and_context_window.json, set in model_info so the
+    # map cannot move them. Change them here, on purpose, when a provider's price changes.
+    #
     # ACCESS GROUP `tenant-metered`: the per-token models a tenant's virtual key or team
     # may be given, by creating it with `models: ["tenant-metered"]`. A key or team
     # created with no `models` can call EVERY model, the -max subscription entries and
@@ -32,6 +37,11 @@ data:
           mode: chat
           access_groups: ["tenant-metered"]
           base_model: anthropic/claude-opus-4-8
+          input_cost_per_token: 0.000005
+          output_cost_per_token: 0.000025
+          cache_read_input_token_cost: 0.0000005
+          cache_creation_input_token_cost: 0.00000625
+          cache_creation_input_token_cost_above_1hr: 0.00001
           auth_mode: anthropic-api-key
           billing_mode: anthropic-api
           credential_source: oci-vault:litellm-anthropic-api-key
@@ -44,6 +54,11 @@ data:
           mode: chat
           access_groups: ["tenant-metered"]
           base_model: anthropic/claude-sonnet-4-6
+          input_cost_per_token: 0.000003
+          output_cost_per_token: 0.000015
+          cache_read_input_token_cost: 0.0000003
+          cache_creation_input_token_cost: 0.00000375
+          cache_creation_input_token_cost_above_1hr: 0.000006
           auth_mode: anthropic-api-key
           billing_mode: anthropic-api
           credential_source: oci-vault:litellm-anthropic-api-key
@@ -56,6 +71,11 @@ data:
           mode: chat
           access_groups: ["tenant-metered"]
           base_model: anthropic/claude-haiku-4-5
+          input_cost_per_token: 0.000001
+          output_cost_per_token: 0.000005
+          cache_read_input_token_cost: 0.0000001
+          cache_creation_input_token_cost: 0.00000125
+          cache_creation_input_token_cost_above_1hr: 0.000002
           auth_mode: anthropic-api-key
           billing_mode: anthropic-api
           credential_source: oci-vault:litellm-anthropic-api-key
@@ -229,6 +249,9 @@ data:
           mode: chat
           access_groups: ["tenant-metered"]
           base_model: deepseek/deepseek-v4-pro
+          input_cost_per_token: 0.00000132
+          output_cost_per_token: 0.00000396
+          cache_read_input_token_cost: 0.000000044
           billing_mode: deepseek-api
           credential_source: oci-vault:litellm-deepseek-api-key
       - model_name: deepseek-v4-flash
@@ -240,6 +263,9 @@ data:
           mode: chat
           access_groups: ["tenant-metered"]
           base_model: deepseek/deepseek-v4-flash
+          input_cost_per_token: 0.00000044
+          output_cost_per_token: 0.00000132
+          cache_read_input_token_cost: 0.000000014
           billing_mode: deepseek-api
           credential_source: oci-vault:litellm-deepseek-api-key
     general_settings:
