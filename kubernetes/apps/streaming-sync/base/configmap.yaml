@@ -123,7 +123,9 @@ data:
         arr(app, "POST", "command", body=cmd)
 
     def label(it):
-        return "%s (%s)" % (it.get("title", "?"), it["year"]) if it.get("year") else it.get("title", "?")
+        # Sonarr disambiguates remakes in the title itself ("One Day (2024)"); don't repeat the year.
+        title, year = it.get("title", "?"), it.get("year")
+        return "%s (%s)" % (title, year) if year and not title.endswith("(%s)" % year) else title
 
     def plan(app):
         kind = "movie" if app == "radarr" else "tv"
