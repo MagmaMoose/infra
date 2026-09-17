@@ -334,4 +334,26 @@ inputs = {
   # the apply, which is the right failure but a wasted round trip.
   slack_workspace_id = ""
   slack_channel_id   = ""
+
+  # ── The periodic full reconcile ─────────────────────────────────────────────────────────
+  #
+  # OFF, AND TURNING IT ON IS A THREE-STEP SEQUENCE IN THIS ORDER. Set here explicitly rather
+  # than left to the module default, because the thing that makes it safe is invisible from
+  # the schedule: the fire is a direct invoke carrying `{"caldrith_reconcile": "all"}`, and a
+  # producer built before that shape existed reads it as an HTTP event with no path, answers
+  # 404, and lets EventBridge record a successful invocation. A schedule that fires into a 404
+  # forever is indistinguishable from one that runs and finds nothing to do.
+  #
+  #   1. release caldrith with the scheduled invocation shape (MagmaMoose/caldrith#107);
+  #   2. bump `artifact_version` above to it and apply;
+  #   3. set this to true and apply.
+  #
+  # Then confirm against the FIRST fire, not against the apply: `producer.scheduled_queued`
+  # in the producer's log, carrying a `scheduled:<minute>` delivery id. Its absence is the
+  # whole diagnosis.
+  #
+  # Cadence lives in `reconcile_schedule_expression` (hourly at :40) and nowhere else — in
+  # particular not in `RECONCILE_CRON_MINUTES`, which drives an ARQ cron this deployment does
+  # not have and which the reconcile function warns about if it is set.
+  enable_reconcile_schedule = false
 }
