@@ -555,3 +555,38 @@ variable "entitlement_enforce" {
   type        = bool
   default     = false
 }
+
+variable "enable_reconcile_schedule" {
+  description = <<-EOT
+    Create the EventBridge schedule that fires a periodic full reconcile.
+
+    DEFAULT FALSE, AND IT IS AN INTERLOCK ON THE ARTIFACT RATHER THAN CAUTION. The fire is a
+    direct invoke carrying `{"caldrith_reconcile": "all"}`, and a producer built before that
+    shape existed reads it as an HTTP event with no path: it answers 404, EventBridge records
+    a successful invocation, and nothing anywhere says the schedule is dead. So this may only
+    be turned on once `artifact_version` names a release whose producer handles it — the
+    proof is a `producer.scheduled_queued` line in the producer's log after the first fire,
+    and its absence is the whole diagnosis.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "reconcile_schedule_expression" {
+  description = <<-EOT
+    When the periodic full reconcile fires, as an EventBridge Scheduler expression.
+
+    THIS IS THE ONLY PLACE THE CADENCE LIVES. `RECONCILE_CRON_MINUTES` drives an ARQ cron and
+    there is no ARQ here; the reconcile function logs `reconcile.cron_inert` if it is set, so
+    do not carry the interval over as well. Two systems holding one constant is how the two
+    drift apart.
+
+    Hourly at :40 by default. The minute is deliberate — away from the nievah stack's :00,
+    :07 and :20 fires, so an hour's schedules do not all arrive together.
+
+    Cost scales with the fleet, not with the cadence alone: one fire fans out to one
+    reconcile per installation and then one per managed repository.
+  EOT
+  type        = string
+  default     = "cron(40 * * * ? *)"
+}
