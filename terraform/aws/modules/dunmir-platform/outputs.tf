@@ -243,11 +243,12 @@ output "sso_reconcile_hint" {
   description = <<-EOT
     How to add a newly enabled social provider to the app client.
 
-    Terraform stops managing `supported_identity_providers` once the application has written to
-    it (see the `ignore_changes` in identity.tf, and why removing that would strip every
-    customer's connection on the next apply). So enabling one of the `enable_*` flags creates the
-    provider but does not reach the client, and the button then answers with a Cognito error that
-    says the provider is not supported by this client.
+    Terraform never updates `supported_identity_providers` after the client exists (see the
+    `ignore_changes` in identity.tf, and why removing that would strip every customer's connection
+    on the next apply). So enabling one of the `enable_*` flags creates the provider but does not
+    reach the client. The button still sends the browser to the provider, because authorize does
+    not check the client, and the sign-in fails on the way back on Cognito's own page: "Login
+    option is not available. Please try another one".
 
     This is the one command that closes the gap. It re-sends the client's whole configuration —
     Cognito's update is a full replace, so a partial one would blank the callback URLs.

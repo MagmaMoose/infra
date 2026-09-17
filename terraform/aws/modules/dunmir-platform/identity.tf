@@ -136,6 +136,33 @@ resource "aws_cognito_user_pool" "this" {
   # therefore their workspace membership is keyed on.
   deletion_protection = "ACTIVE"
 
+  # Google's `hd` claim: the Workspace domain an account belongs to, absent for a personal one.
+  # Mapped in federation.tf and read by the account-linking trigger (account_linking.tf), which
+  # links a Google sign-in to an existing account only where Google owns the address.
+  #
+  # ADDED IN PLACE, NEVER REMOVED. The provider sends AddCustomAttributes for a new schema entry
+  # rather than replacing the pool, but Cognito cannot modify or delete one, so this block stays
+  # even if linking is ever switched off. Mutable, because Cognito rewrites mapped attributes on
+  # every sign-in and refuses to on an immutable one.
+  schema {
+    name                     = "google_hd"
+    attribute_data_type      = "String"
+    mutable                  = true
+    required                 = false
+    developer_only_attribute = false
+    string_attribute_constraints {
+      min_length = "0"
+      max_length = "253"
+    }
+  }
+
+  dynamic "lambda_config" {
+    for_each = local.links_google_accounts ? [1] : []
+    content {
+      pre_sign_up = aws_lambda_function.google_account_linking[0].arn
+    }
+  }
+
   tags = { Name = local.name }
 }
 
@@ -177,8 +204,12 @@ resource "aws_cognito_user_pool_client" "console" {
   # The console needs to read and update the operator's own email; it has no business writing
   # anything else, and an attribute it cannot write is an attribute a compromised bundle cannot
   # forge.
+  #
+  # `custom:google_hd` is the exception, and not because the console writes it: Cognito sets a
+  # mapped attribute only when the app client may write it. Nothing trusts an operator's own
+  # copy of it; the linking trigger reads the value Google sent for the sign-in in progress.
   read_attributes  = ["email", "email_verified"]
-  write_attributes = ["email"]
+  write_attributes = ["email", "custom:google_hd"]
 
   # Revoking a refresh token is what makes "sign out everywhere" true rather than decorative —
   # the console calls GlobalSignOut, and without this the token stays valid until it expires.
@@ -220,13 +251,15 @@ resource "aws_cognito_user_pool_client" "console" {
     # is not drift to be corrected: it is the feature working. Without this
     # ignore, the next apply removes every customer's provider from the client —
     # the providers themselves survive, so nothing looks deleted, but every
-    # federated sign-in starts failing at the authorize step and the plan that
+    # federated sign-in starts failing on the way back from the provider (authorize
+    # does not check the client, so the redirect out still works) and the plan that
     # did it reads as a no-op change to an unrelated stack.
     #
-    # The consequence to know: adding a SOCIAL provider (the `enable_*` flags) no
-    # longer reaches the client through Terraform once this list has been written
-    # by the application. Run the reconcile command in the `sso_reconcile_hint`
-    # output, or add it in the console, after enabling one.
+    # The consequence to know: adding a SOCIAL provider (the `enable_*` flags) never
+    # reaches the client through Terraform, whether or not the application has
+    # written this list. Run the reconcile command in the `sso_reconcile_hint`
+    # output after enabling one. Skipping it left Google on the pool and off the
+    # client for nine days, failing as "Login option is not available".
     ignore_changes = [supported_identity_providers]
   }
 }
