@@ -62,7 +62,7 @@ jobs:
       # so it stays off until we actually want to block on severity. The scan that
       # matters is on the release step below, against the image that ships.
       - if: github.event_name == 'pull_request' && steps.detect.outputs.image_name != ''
-        uses: magmamoose/diatreme@5fdaad2a5e1efc4045376864613721001d53fa1a # v2.13.0
+        uses: magmamoose/diatreme@278b0758a2503093a056ccf1610f412ebe4ffff5 # v2.13.0
         with:
           mode: ci
           image_name: ${{ steps.detect.outputs.image_name }}
@@ -115,7 +115,7 @@ jobs:
       # engagement per scan type, which is DefectDojo's own data model.
       - id: release
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-        uses: magmamoose/diatreme@5fdaad2a5e1efc4045376864613721001d53fa1a # v2.13.0
+        uses: magmamoose/diatreme@278b0758a2503093a056ccf1610f412ebe4ffff5 # v2.13.0
         with:
           mode: release
           versioning-tool: gitversion
