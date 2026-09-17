@@ -45,7 +45,7 @@ spec:
               readOnly: true
       containers:
         - name: radarr
-          image: linuxserver/radarr:5.28.0 # {"$imagepolicy": "flux-system:radarr"}
+          image: linuxserver/radarr:6.3.0 # {"$imagepolicy": "flux-system:radarr"}
           resources:
             requests:
               # Right-sized: observed usage ~349Mi, request frees scheduling headroom.
