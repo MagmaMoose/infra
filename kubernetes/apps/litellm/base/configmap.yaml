@@ -252,7 +252,6 @@ data:
           input_cost_per_token: 0.00000132
           output_cost_per_token: 0.00000396
           cache_read_input_token_cost: 0.000000044
-          input_cost_per_token_cache_hit: 0.000000044
           billing_mode: deepseek-api
           credential_source: oci-vault:litellm-deepseek-api-key
       - model_name: deepseek-v4-flash
@@ -267,7 +266,6 @@ data:
           input_cost_per_token: 0.00000044
           output_cost_per_token: 0.00000132
           cache_read_input_token_cost: 0.000000014
-          input_cost_per_token_cache_hit: 0.000000014
           billing_mode: deepseek-api
           credential_source: oci-vault:litellm-deepseek-api-key
     general_settings:

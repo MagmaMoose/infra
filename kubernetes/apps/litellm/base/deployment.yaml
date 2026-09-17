@@ -21,7 +21,7 @@ spec:
         # LiteLLM parses its YAML once at process start, so this MUST be bumped
         # whenever that ConfigMap changes or Flux updates the ConfigMap in place
         # and the pods keep serving the old config.
-        checksum/config: cc4cf37b91788fa51f764944d4fd56cbaa52600c6499c355ccdecb3b36536dae
+        checksum/config: dcdca0eedab4c1c1f35ab8c0be1acffc528bef6cadd4374ef13b0147ff25057d
         checksum/auth-proxy-config: 41cbc6f2467fb10b6873fe82106f058bffdf93826ecf2fa87ffb5b6a1c8b2e05
       labels:
         app: litellm
