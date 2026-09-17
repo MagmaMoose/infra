@@ -5,3 +5,15 @@ resources:
   - configmap.yaml
   - externalsecret.yaml
   - cronjob.yaml
+# Placement: CLOUD, via the Kyverno `place-cloud` and `assign-priority-class` policies.
+# It was pinned to ff-vm1, whose memory is almost fully requested; with no priority class
+# the job was the first thing preempted, and on 2026-09-17 both attempts were killed
+# within seconds, so no sync ran and no Slack summary was sent. It only calls the
+# Sonarr/Radarr APIs, TMDB and Slack, so nothing ties it to the on-prem node.
+# includeSelectors/includeTemplates false, matching the other placement-labelled apps.
+labels:
+  - pairs:
+      placement.sargeant.co/tier: cloud
+      placement.sargeant.co/priority: low
+    includeSelectors: false
+    includeTemplates: false

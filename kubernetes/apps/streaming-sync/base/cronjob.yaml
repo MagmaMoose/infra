@@ -16,9 +16,6 @@ spec:
         spec:
           restartPolicy: Never
           automountServiceAccountToken: false
-          nodeSelector:
-            node-role.kubernetes.io/worker: ""
-            topology.sargeant.co/tier: on-prem
           containers:
             - name: streaming-sync
               image: python:3.12.14-slim # {"$imagepolicy": "flux-system:streaming-sync"}
