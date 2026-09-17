@@ -251,13 +251,15 @@ resource "aws_cognito_user_pool_client" "console" {
     # is not drift to be corrected: it is the feature working. Without this
     # ignore, the next apply removes every customer's provider from the client —
     # the providers themselves survive, so nothing looks deleted, but every
-    # federated sign-in starts failing at the authorize step and the plan that
+    # federated sign-in starts failing on the way back from the provider (authorize
+    # does not check the client, so the redirect out still works) and the plan that
     # did it reads as a no-op change to an unrelated stack.
     #
-    # The consequence to know: adding a SOCIAL provider (the `enable_*` flags) no
-    # longer reaches the client through Terraform once this list has been written
-    # by the application. Run the reconcile command in the `sso_reconcile_hint`
-    # output, or add it in the console, after enabling one.
+    # The consequence to know: adding a SOCIAL provider (the `enable_*` flags) never
+    # reaches the client through Terraform, whether or not the application has
+    # written this list. Run the reconcile command in the `sso_reconcile_hint`
+    # output after enabling one. Skipping it left Google on the pool and off the
+    # client for nine days, failing as "Login option is not available".
     ignore_changes = [supported_identity_providers]
   }
 }
