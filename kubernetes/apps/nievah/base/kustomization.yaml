@@ -8,3 +8,7 @@ resources:
   - gitrepository.yaml
   - image-automation.yaml
   - ghcr-reader-rbac.yaml
+  # The control plane's database and the grant that lets nievah read its credential. Both carry
+  # metadata.namespace database-oci, which is why this kustomization sets no namespace.
+  - database.yaml
+  - db-reader-rbac.yaml

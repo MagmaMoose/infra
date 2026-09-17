@@ -190,6 +190,42 @@ inputs = {
       proxied = false
     },
 
+    # ── Nievah vanity hostnames (Cloudflare for SaaS) ─────────────────────
+    #
+    # A customer's console hostname is a custom hostname on this zone. It CNAMEs to
+    # cname-nievah, and the zone's custom hostname fallback origin is fallback-nievah. Both are
+    # one label under the apex, so Universal SSL covers them, and both must be PROXIED: a
+    # custom hostname only reaches this zone's proxy, and the Worker route the control plane
+    # adds per bound hostname, through a proxied target.
+    #
+    # 100:: is the discard prefix. The Worker answers every request to a bound hostname and
+    # proxies its API calls to nievah.magmamoose.com, so nothing is ever sent to this origin.
+    # Neither name is advertised. The fallback origin itself is a zone setting, not a record:
+    # set it once to fallback-nievah.magmamoose.com (SSL/TLS > Custom Hostnames).
+    {
+      name    = "fallback-nievah.magmamoose.com"
+      type    = "AAAA"
+      value   = "100::"
+      proxied = true
+    },
+
+    {
+      name    = "cname-nievah.magmamoose.com"
+      type    = "CNAME"
+      value   = "fallback-nievah.magmamoose.com"
+      proxied = true
+    },
+
+    # Nievah webhook ingest tunnel record. The corresponding ingress rule is in
+    # zero-trust/prod/tunnels.tf. Proxied is required — a grey-cloud CNAME hands
+    # the cfargotunnel.com target to the client and the host does not resolve.
+    {
+      name    = "hooks-nievah.magmamoose.com"
+      type    = "CNAME"
+      value   = "7694eb38-c35e-4905-bd2b-16ab7053080a.cfargotunnel.com"
+      proxied = true
+    },
+
     # ── Chargate's token broker ────────────────────────────────────────────
     #
     # broker-chargate.magmamoose.com fronts an API Gateway HTTP API -> Lambda in chargate's

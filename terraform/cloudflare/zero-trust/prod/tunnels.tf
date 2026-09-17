@@ -208,6 +208,16 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "firefly" {
       origin_request {}
     }
 
+    # Nievah's webhook ingest on its own hostname. The console takes
+    # nievah.magmamoose.com, so GitHub Apps move their webhook URL here, with a per-tenant path
+    # (/gh/<id>). Same Service, same HMAC authentication, no Access gate. NOT
+    # hooks.nievah.magmamoose.com, the AWS API Gateway front door, one character away.
+    ingress_rule {
+      hostname = "hooks-nievah.magmamoose.com"
+      service  = "http://nievah.nievah.svc.cluster.local:8000"
+      origin_request {}
+    }
+
     # DefectDojo UI — fronted by oauth2-proxy (Google SSO, @magmamoose.com).
     # The proxy forwards to defectdojo-django and bypasses auth for /api/v2 +
     # /webhook (token/secret-authenticated, non-browser clients).

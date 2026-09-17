@@ -1,0 +1,33 @@
+# Nievah's control-plane database, on the EXISTING `postgres-oci` cluster.
+#
+# Same exception Dün Mir takes (see ../../dunmir/base/database.yaml): postgres-oci is the
+# always-online cluster pinned to the OCI native-cloud nodes for public-facing apps, and the
+# Nievah console is one. Its API runs in `nievah-backend`, which the application's prod overlay
+# pins to `topology.sargeant.co/tier: native-cloud`, so app and database are co-located. No
+# second Cluster, PGDATA volume or backup stream is created.
+#
+# This CR creates the empty database. The application's `control-migrate` init container
+# creates the tables, and every tenant table carries FORCE ROW LEVEL
+# SECURITY, which applies to `app` because postgres-oci runs without superuser access.
+#
+# OWNER `app`, for the reasons ../../dunmir/base/database.yaml gives: this CNPG operator has no
+# role CRD, and reusing the cluster's owner role adds no credential and no Vault entry.
+#
+# NAMESPACE `database-oci`, the cluster's, which is why this file is here and not in the nievah
+# repo: its overlay sets `namespace: nievah` on everything and would rewrite this CR into a
+# namespace with no postgres-oci in it.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: nievah
+  namespace: database-oci
+spec:
+  cluster:
+    name: postgres-oci
+  name: nievah
+  owner: app
+  encoding: UTF8
+  localeCollate: C
+  localeCType: C
+  # Accounts, workspaces, entitlements and the audit trail. Keep it if the CR is ever pruned.
+  databaseReclaimPolicy: retain
