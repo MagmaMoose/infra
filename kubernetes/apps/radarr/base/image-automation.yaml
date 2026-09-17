@@ -17,7 +17,7 @@ spec:
     extract: $0
   policy:
     semver:
-      range: '>=5.0.0 <6.0.0'
+      range: '>=6.0.0 <7.0.0'
 ---
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImageRepository
