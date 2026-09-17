@@ -216,6 +216,16 @@ inputs = {
       proxied = true
     },
 
+    # Nievah webhook ingest tunnel record. The corresponding ingress rule is in
+    # zero-trust/prod/tunnels.tf. Proxied is required — a grey-cloud CNAME hands
+    # the cfargotunnel.com target to the client and the host does not resolve.
+    {
+      name    = "hooks-nievah.magmamoose.com"
+      type    = "CNAME"
+      value   = "7694eb38-c35e-4905-bd2b-16ab7053080a.cfargotunnel.com"
+      proxied = true
+    },
+
     # ── Chargate's token broker ────────────────────────────────────────────
     #
     # broker-chargate.magmamoose.com fronts an API Gateway HTTP API -> Lambda in chargate's
