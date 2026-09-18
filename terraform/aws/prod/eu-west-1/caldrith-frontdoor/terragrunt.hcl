@@ -208,8 +208,16 @@ inputs = {
   # org-wide, from the moment admin uses a key it does not know. Releasing a caldrith version
   # only publishes its zips; the org runs the new code when this line changes. Both 3.1.0 objects
   # were uploaded by caldrith's publish-edge run for v3.1.0 on 2026-09-16.
+  #
+  # 3.2.0 IS REQUIRED BY admin's settings.yml FOR THE SAME REASON 3.1.0 WAS. It adds
+  # `files[].verbatim` (MagmaMoose/caldrith#106), which MagmaMoose/admin#111 uses to deliver
+  # the brand and nievah files byte for byte. `extra="forbid"` again: the moment that PR is on
+  # admin's default branch, a 3.1.0 reconcile rejects the WHOLE document and converges nothing,
+  # org-wide, with no error near the change. So this line moves BEFORE that PR merges, not
+  # after. Both 3.2.0 objects were verified present in caldrith-artifacts-483461801743 on
+  # 2026-09-17.
   # ─────────────────────────────────────────────────────────────────────────────────────────
-  artifact_version = "3.1.0"
+  artifact_version = "3.2.0"
 
   # A clean hostname for the GitHub App's webhook URL. The module requests its own REGIONAL ACM
   # certificate (see api.tf); `certificate_arn` is only for reusing one managed elsewhere.
