@@ -216,8 +216,21 @@ inputs = {
   # org-wide, with no error near the change. So this line moves BEFORE that PR merges, not
   # after. Both 3.2.0 objects were verified present in caldrith-artifacts-483461801743 on
   # 2026-09-17.
+  #
+  # 3.4.0 CARRIES THE SCHEDULED INVOCATION SHAPE (MagmaMoose/caldrith#110, first released in
+  # 3.3.0), which is step 1 of the three-step sequence for the periodic reconcile at the
+  # bottom of this file. This line is step 2; `enable_reconcile_schedule = true` is step 3 and
+  # a separate apply, so the producer is already running the new code when the first fire
+  # lands. Nothing between 3.2.0 and 3.4.0 touches the Lambda handlers beyond that: 3.2.1 is a
+  # test fix, 3.4.0 adds console CSS. Both 3.4.0 objects were published by caldrith's
+  # publish-edge run for v3.4.0 on 2026-09-18.
+  #
+  # WHY IT IS BEING BUMPED NOW. Without the schedule, a file delivered from a `source_repo`
+  # has nothing to converge on: MagmaMoose/brand#13 merged and reached none of the four
+  # consuming repos for eleven hours, every check green, until a push to admin swept the
+  # account. That is the exact failure schedule.tf was written for.
   # ─────────────────────────────────────────────────────────────────────────────────────────
-  artifact_version = "3.2.0"
+  artifact_version = "3.4.0"
 
   # A clean hostname for the GitHub App's webhook URL. The module requests its own REGIONAL ACM
   # certificate (see api.tf); `certificate_arn` is only for reusing one managed elsewhere.
