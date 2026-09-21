@@ -37,7 +37,7 @@ on:
 
 jobs:
   send-notification:
-    uses: calebsargeant/reusable-workflows/.github/workflows/server-update-notifications.yml@98676cf3b495f978b1f9dbe22719d7cbd293b5b1 # v1.15.0
+    uses: calebsargeant/reusable-workflows/.github/workflows/server-update-notifications.yml@b451e5896adab046d2056f39db267765acfd1bdd # v1.16.0
     with:
       server_name: ${{ github.event.inputs.server_name || github.event.client_payload.server_name }}
       status: ${{ github.event.inputs.status || github.event.client_payload.status }}
