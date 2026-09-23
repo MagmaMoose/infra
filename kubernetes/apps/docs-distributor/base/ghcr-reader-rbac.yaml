@@ -1,0 +1,30 @@
+# Lets the docs-distributor namespace's `docs-distributor-ghcr-reader` ServiceAccount read
+# the SOPS-managed `ghcr-pull-secret` in flux-system, paired with the SecretStore and
+# ExternalSecret in prod/workload/ghcr-pull-secret.yaml. Same pattern as the other
+# magmamoose products.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: docs-distributor-ghcr-reader
+  namespace: flux-system
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["ghcr-pull-secret"]
+    # Scoped to one named secret; ExternalSecrets needs get to mirror it.
+    # kics-scan ignore-line
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: docs-distributor-ghcr-reader
+  namespace: flux-system
+subjects:
+  - kind: ServiceAccount
+    name: docs-distributor-ghcr-reader
+    namespace: docs-distributor
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: docs-distributor-ghcr-reader

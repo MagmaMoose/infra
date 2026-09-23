@@ -1,0 +1,72 @@
+# docs-distributor: a weekly CronJob that anonymises a private docs source into one pull
+# request on the public docs site. The chart comes from MagmaMoose/docs-distributor via
+# the GitRepository in base/; the values below are firefly's.
+#
+# Nothing here names the source. It is `cloud-platform`, and its URL, its mapping and its
+# token are in the ExternalSecret-managed Secret, because this repository is public and a
+# named source would undo the anonymisation it exists to perform.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: docs-distributor
+  namespace: docs-distributor
+spec:
+  interval: 30m
+  releaseName: docs-distributor
+  chart:
+    spec:
+      chart: charts/docs-distributor
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: docs-distributor
+        namespace: flux-system
+      interval: 10m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    image:
+      repository: ghcr.io/magmamoose/docs-distributor
+      # Auto-bumped by Flux image automation; the marker is the setter.
+      tag: v0.1.0 # {"$imagepolicy": "flux-system:docs-distributor:tag"}
+    imagePullSecrets:
+      - name: ghcr-pull-secret
+    # Monday 05:17. The first run is the slow one: every new term goes to the model once,
+    # and the answers are cached on the volume for every run after it.
+    schedule: "17 5 * * 1"
+    timeZone: Europe/Amsterdam
+    priorityClassName: low
+    target:
+      repo: CalebSargeant/docs
+      base: master
+      navAfter: Platform
+    sources:
+      - name: cloud-platform
+        title: Cloud Platform
+        target: docs/cloud-platform
+        ref: main
+        auth:
+          type: token
+          tokenSecretKey: source-token-cloud-platform
+    llm:
+      backend: claude-code
+      model: claude-sonnet-4-6-max
+      # The raw listener: it keeps Authorization for the OAuth bearer and takes the
+      # gateway key on x-litellm-api-key (docs/guides/litellm-clients.md).
+      baseUrl: http://litellm.automation.svc.cluster.local:4000  # DevSkim: ignore DS137138 - in-cluster ClusterIP, not externally reachable
+    report:
+      issueRepo: MagmaMoose/docs-distributor
+    secrets:
+      existingSecret: docs-distributor
+      keys:
+        mapping: [mapping.yml, mapping-terms.yml]
+        slackWebhook: ""
+    persistence:
+      size: 1Gi
+      storageClass: longhorn
+    networkPolicy:
+      enabled: true

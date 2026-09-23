@@ -1,0 +1,36 @@
+---
+# Control plane first: the chart source, image automation, ghcr RBAC and namespace.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: prod-docs-distributor-source
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./kubernetes/apps/docs-distributor/base
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  timeout: 2m
+  wait: false
+---
+# Workload: the CronJob's HelmRelease, its OCI-Vault ExternalSecret and the ghcr pull-secret
+# mirror.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: prod-docs-distributor
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./kubernetes/apps/docs-distributor/prod/workload
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  timeout: 5m
+  wait: true
+  dependsOn:
+    - name: prod-docs-distributor-source
+    - name: infrastructure-services
