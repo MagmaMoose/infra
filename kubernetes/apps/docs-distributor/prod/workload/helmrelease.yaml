@@ -32,7 +32,7 @@ spec:
     image:
       repository: ghcr.io/magmamoose/docs-distributor
       # Auto-bumped by Flux image automation; the marker is the setter.
-      tag: v0.1.0 # {"$imagepolicy": "flux-system:docs-distributor:tag"}
+      tag: v0.0.3 # {"$imagepolicy": "flux-system:docs-distributor:tag"}
     imagePullSecrets:
       - name: ghcr-pull-secret
     # Monday 05:17. The first run is the slow one: every new term goes to the model once,
@@ -57,7 +57,7 @@ spec:
       model: claude-sonnet-4-6-max
       # The raw listener: it keeps Authorization for the OAuth bearer and takes the
       # gateway key on x-litellm-api-key (docs/guides/litellm-clients.md).
-      baseUrl: http://litellm.automation.svc.cluster.local:4000  # DevSkim: ignore DS137138 - in-cluster ClusterIP, not externally reachable
+      baseUrl: http://litellm.automation.svc.cluster.local:4000 # DevSkim: ignore DS137138 - in-cluster ClusterIP, not externally reachable
     report:
       issueRepo: MagmaMoose/docs-distributor
     secrets:
