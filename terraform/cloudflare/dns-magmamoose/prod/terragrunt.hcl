@@ -68,6 +68,33 @@ inputs = {
   # magmamoose.com zone.
   zone_id = "f04a8d6c68daf6ba1430c5645ca70cb8"
 
+  # ── DNSSEC ───────────────────────────────────────────────────────────────
+  #
+  # Signs the zone, which was unsigned (no DNSKEY served, no DS at .com). The
+  # DNS-AID records at the end of `records` need it, because their check only
+  # passes on a validated answer, and the rest of the zone gains from it anyway.
+  #
+  # APPLYING THIS IS HALF THE JOB. Resolvers validate nothing until the parent
+  # zone publishes a DS record for magmamoose.com, and that is set at the
+  # registrar, not here: the domain is registered with Tucows through the
+  # reseller Afrihost. After the apply, read the DS from
+  #   terragrunt output -json dnssec_ds_record
+  # (or the dashboard, DNS > Settings > DNSSEC) and submit it there. Until the
+  # DS is live Cloudflare shows DNSSEC as "pending" and nothing is validated.
+  #
+  # The API token needs nothing new: the DNSSEC endpoints take DNS Write, which
+  # it already has for the records.
+  #
+  # Here rather than in website-magmamoose/prod, the zone's v5 stack, because
+  # this is DNS for the records this stack owns, and it keeps the records, the
+  # signing and the DS output in one leaf. Keep it to ONE owner: two stacks
+  # managing the same zone's DNSSEC would undo each other on every apply.
+  #
+  # TURNING IT OFF: delete the DS at the registrar FIRST and wait out its TTL,
+  # then set this to false. The other order (or reverting the change that added
+  # it) makes every validating resolver SERVFAIL the entire zone.
+  enable_dnssec = true
+
   records = [
     # ── Email authentication ────────────────────────────────────────────────
     # magmamoose.com receives mail via iCloud custom email domain (MX ->
@@ -554,6 +581,67 @@ inputs = {
     # domain — its DNS is created by the Pages "Custom domains" flow, NOT here.
     # A hand-written proxied CNAME to *.pages.dev is rejected with error 1014
     # ("CNAME Cross-User Banned") even within the same account. (Reverts #287.)
+
+    # ── DNS for AI Discovery (DNS-AID) ──────────────────────────────────────
+    #
+    # draft-mozleywilliams-dnsop-dnsaid-02 advertises an agent endpoint as an
+    # SVCB record at _<protocol>._agents.<host>. isitagentready.com looks for
+    # _index, _a2a and _mcp under every host it scans, and for Magma Moose those
+    # hosts are the apex, www and docs. Only an MCP server exists, so only _mcp
+    # is published, and all three hosts point at the one public server,
+    # https://mcp.magmamoose.com/.
+    #
+    # Same shape as _mcp._agents.calebsargeant.com, which the scanner accepted as
+    # a valid ServiceMode record (priority 1; 0 would be AliasMode). Target and
+    # SvcParams are written the way the API stores them, trailing dot and quoted
+    # values (the provider's SVCB acceptance test round-trips `foo.` and
+    # `alpn="h3,h2"`), so a refresh reads back the same strings.
+    #
+    # DNS-ONLY, and it has to be: Cloudflare proxies A, AAAA and CNAME only. TTL
+    # is the module default, automatic.
+    #
+    # PUBLISHING THESE IS NOT ENOUGH TO PASS. The check also wants the answer
+    # DNSSEC-validated (AD=true), and it keeps failing until the DS record is
+    # live at the registrar. See enable_dnssec at the top of the inputs.
+    #
+    # WHY HERE and not in cloudflare/website-magmamoose/prod, even though that
+    # is the zone's only provider v5 stack and v5 has SVCB `data` built in: that
+    # stack owns the apex, its redirect to www and a font setting for the
+    # website, and says it owns nothing else. These records are not the
+    # website's (one is for docs), and this is where every other magmamoose.com
+    # record lives. So the cloudflare-dns module gained an optional `data`
+    # object instead. Records that set `value` keep their keys, so nothing
+    # already in state moves.
+    {
+      name    = "_mcp._agents.magmamoose.com"
+      type    = "SVCB"
+      proxied = false
+      data = {
+        priority = 1
+        target   = "mcp.magmamoose.com."
+        value    = "alpn=\"mcp,h2,h3\" port=\"443\""
+      }
+    },
+    {
+      name    = "_mcp._agents.www.magmamoose.com"
+      type    = "SVCB"
+      proxied = false
+      data = {
+        priority = 1
+        target   = "mcp.magmamoose.com."
+        value    = "alpn=\"mcp,h2,h3\" port=\"443\""
+      }
+    },
+    {
+      name    = "_mcp._agents.docs.magmamoose.com"
+      type    = "SVCB"
+      proxied = false
+      data = {
+        priority = 1
+        target   = "mcp.magmamoose.com."
+        value    = "alpn=\"mcp,h2,h3\" port=\"443\""
+      }
+    },
   ]
 
   # Records that already exist in the dashboard, brought under management rather than

@@ -24,6 +24,13 @@ stays in the repo for the direct/local case. The site's CSP already permits the
 rewrite (`style-src 'unsafe-inline'`, `font-src 'self'`) and keeps the Google
 origins for the un-rewritten case — don't remove them.
 
+**DNSSEC is not here**, even though it is zone-level. It lives in
+[`../../dns-magmamoose/prod`](../../dns-magmamoose/prod/terragrunt.hcl) with the
+zone's other Terraform-managed records, including the DNS-AID `_mcp._agents` SVCB
+records that need it, and that leaf outputs the DS record for the registrar. Do not
+add a `cloudflare_zone_dnssec` here as well: two stacks owning one zone setting undo
+each other on every apply.
+
 Attaching a custom domain is part of `wrangler deploy`, and Cloudflare provisions
 that DNS record and certificate in the same call. Modelling `www` here as well would
 put two systems on the same record, so the split is: **www = wrangler,

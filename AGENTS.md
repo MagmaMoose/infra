@@ -516,6 +516,13 @@ If you accidentally stage a secret, remove it with `git reset HEAD <file>` befor
    Nievah correctly strips HTTP-header values, while the agent server otherwise compares the
    raw environment string (a clipboard/Vault trailing newline produces an unavoidable 401).
    Bump the non-secret pod-template session-key revision after Vault rotation so pods reload it.
+10. **Turning DNSSEC off while the registrar still publishes a DS**: `enable_dnssec` in the
+    `cloudflare-dns` module (on for magmamoose.com in `dns-magmamoose/prod`) only signs the
+    zone. Validation starts once the DS from that leaf's `dnssec_ds_record` output is added at
+    the registrar (Tucows, through Afrihost). The reverse order is the dangerous one: disabling
+    signing, or reverting the change that enabled it, while the parent still has the DS makes
+    every validating resolver SERVFAIL the whole zone. Remove the DS first, wait out its TTL,
+    then turn signing off. SVCB/HTTPS records in that module take `data`, not `value`.
 
 ## Tool Use and Output Discipline
 
