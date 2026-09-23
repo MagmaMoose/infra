@@ -22,13 +22,13 @@ resources:
   - ./n8n-mcp
   - ./renovate
   # magmamoose products (open-core; external-repo + image automation)
+  # docs-distributor: weekly anonymised docs sync into the public docs site.
+  - ./docs-distributor
   # Dün Mir Pro. The only PRIVATE source repo in this group — its GitRepository
   # needs github-app-magmamoose for read access, not just rate-limit headroom.
   # Migrated off Cloudflare Workers (Workers Free caps CPU at 10ms; Pro's PBKDF2
   # login costs ~190ms), so the cluster is now the only place it runs.
   - ./dunmir
-  # docs-distributor: weekly anonymised docs sync into the public docs site.
-  - ./docs-distributor
   - ./github-contributions
   - ./github-timesheet
   - ./github-usage-dashboard
