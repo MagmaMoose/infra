@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-16T00:00:00Z",
+  "generated": "2026-09-23T00:00:00Z",
   "summary": "Monolithic infrastructure-as-code repo for a Raspberry Pi home lab plus multi-cloud (GCP/OCI/Cloudflare/AWS). Terragrunt-wrapped Terraform provisions cloud, Ansible bootstraps systems, FluxCD reconciles TWO k3s clusters: 'firefly' (Pi + OCI nodes) and 'franklinhouse' (6 VMs on a 3-node Proxmox cluster, folded in from calebsargeant/infra-v2 on 2026-08-13).",
   "entrypoints": [
     "kubernetes/clusters/firefly/kustomization.yaml",
@@ -167,15 +167,15 @@
       "purpose": "Reusable kustomize Components (label-targeted patches)",
       "components": [
         "node-selectors",
-        "resource-profiles",
         "gluetun-sidecar",
         "wireguard-sidecar",
         "vpn-routed-proxy",
+        "pod-gateway-client",
         "helm-releases",
         "helm-release-standards",
         "ingress-standards"
       ],
-      "notes": "resource-profiles map AWS-style names (t.small, c.medium, m.large) to Pi-constrained requests/limits. node-selectors: system/worker (+ legacy pi/mini) and native-cloud (topology.sargeant.co/tier=native-cloud, the OCI ff-oci tier)"
+      "notes": "node-selectors: system/worker (+ legacy pi/mini) and native-cloud (topology.sargeant.co/tier=native-cloud, the OCI ff-oci tier). pod-gateway-client: injects pod-gateway client sidecar for VPN routing. resource-profiles was removed; resource limits are now applied directly per workload."
     },
     "kubernetes-clusters": {
       "path": "kubernetes/clusters",
