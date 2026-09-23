@@ -27,6 +27,8 @@ resources:
   # Migrated off Cloudflare Workers (Workers Free caps CPU at 10ms; Pro's PBKDF2
   # login costs ~190ms), so the cluster is now the only place it runs.
   - ./dunmir
+  # docs-distributor: weekly anonymised docs sync into the public docs site.
+  - ./docs-distributor
   - ./github-contributions
   - ./github-timesheet
   - ./github-usage-dashboard
