@@ -44,10 +44,11 @@ resource "cloudflare_record" "this" {
   # already has in state, so existing records plan as no-ops.
   dynamic "data" {
     for_each = each.value.data == null ? [] : [each.value.data]
+    iterator = rec
     content {
-      priority = data.value.priority
-      target   = data.value.target
-      value    = data.value.value
+      priority = rec.value.priority
+      target   = rec.value.target
+      value    = rec.value.value
     }
   }
 }
