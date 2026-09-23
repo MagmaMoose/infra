@@ -57,7 +57,7 @@ spec:
       model: claude-sonnet-4-6-max
       # The raw listener: it keeps Authorization for the OAuth bearer and takes the
       # gateway key on x-litellm-api-key (docs/guides/litellm-clients.md).
-      baseUrl: http://litellm.automation.svc.cluster.local:4000
+      baseUrl: http://litellm.automation.svc.cluster.local:4000  # DevSkim: ignore DS137138 - in-cluster ClusterIP, not externally reachable
     report:
       issueRepo: MagmaMoose/docs-distributor
     secrets:
