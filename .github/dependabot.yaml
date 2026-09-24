@@ -16,6 +16,8 @@ updates:
     directory: /dockerfiles/hermes
     schedule:
       interval: daily
+    cooldown:
+      default-days: 7
   - package-ecosystem: terraform
     directory: /terraform/gcp/prod/europe-west4/project
     schedule:
