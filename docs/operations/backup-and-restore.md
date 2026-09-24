@@ -11,7 +11,7 @@ exists now and how to get data back.
 | Longhorn volumes (local) | `daily-snapshot` recurring job | on the Longhorn disks | 7 snapshots |
 | Longhorn volumes (offsite) | `weekly-backup` recurring job | OCI `longhorn-backups` | 4 backups |
 | Postgres (CNPG) | Barman continuous archiving | OCI `postgres-backups` | per cluster spec |
-| MinIO buckets | `minio-backup` CronJob (`mc mirror`) | OCI `minio-backups` | additive |
+| MinIO buckets | `minio-backup` CronJob (`rclone copy`) | OCI `minio-backups` | additive |
 
 Local snapshots cover **every** volume, including newly created ones: the job is
 attached to Longhorn's `default` group. They cost nothing offsite and handle the
@@ -88,5 +88,5 @@ enabled, every "deleted" object stayed billable.
   `backup/timemachine-share`, …) lives on NFS, not Longhorn, and is far beyond any
   offsite budget here.
 - **`thanos-metrics`** (~62 GiB in MinIO) holds up to a year of downsampled history
-  that exists nowhere else, since Prometheus keeps only 7 days. The `mc mirror`
+  that exists nowhere else, since Prometheus keeps only 7 days. The `minio-backup`
   CronJob covers a fraction of it. Treat long-range metrics as best-effort.

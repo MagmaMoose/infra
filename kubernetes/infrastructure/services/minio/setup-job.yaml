@@ -12,6 +12,11 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: mc
+          # Not pullable any more (MinIO stopped publishing images), and left as-is
+          # on purpose: this Job completed on 2026-08-07 and never reruns while the
+          # object exists, and a Job's pod template is immutable, so a new image
+          # here fails Flux's apply for all of infrastructure-services. Change it
+          # only together with deleting the Job, e.g. when rebuilding MinIO.
           image: minio/mc:latest
           command:
             - /bin/sh
