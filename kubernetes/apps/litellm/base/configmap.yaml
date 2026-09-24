@@ -218,23 +218,33 @@ data:
           base_model: openai/gpt-5.4-mini
           billing_mode: openai-api
           credential_source: oci-vault:openai-api-key
-      # --- Fallback aliases (Nievah, and anything else that wants "the cheap fallback") ---
-      # Nievah never names a provider model for its fallback. Every model call it makes walks
-      # Claude first (the owner's Max OAuth accounts) and only then asks for one of these three
-      # names, on the budget-capped `openhands` key (keyseed-job.yaml). So THIS is the one
-      # place the fallback model is chosen: re-point `litellm_params.model` (and the pinned
-      # prices with it) and every Nievah lane follows, with no Nievah release.
+      # --- Tiers and roles: the ONE place the house agents' provider is chosen ---
+      # Nievah's fallback, Hermes and HolmesGPT never name a provider model. Each calls a ROLE
+      # name below, and every role points at one of three TIERS. A tier is written exactly once,
+      # as the YAML anchors on the `tier-*` entries (&light, &standard, &heavy for the params,
+      # &light-info and so on for the prices); each role copies them in with `<<: *anchor`.
       #
-      # One alias per tier so the tiers can diverge later (a stronger model for `hard`) without
-      # touching Nievah either. Today all three are gpt-5.6-luna: its price is what LiteLLM
-      # v1.101.0 reports for it in /model/info, pinned here for the same reason as the
-      # tenant-metered entries above — a pod restart must not change what a call costs, and
-      # the openhands key's budget only trips if spend is booked at a real price.
-      - model_name: fallback-easy
-        litellm_params:
+      # So moving provider (OpenAI today, whoever is cheaper or better tomorrow) is editing the
+      # three tier entries here: `model`, `api_key`, and the pinned prices. Every role follows on
+      # the next reconcile, with no Nievah release and no change in the Hermes or Holmes repos.
+      # Moving ONE agent to another tier is changing which anchor its role uses.
+      #
+      # PRICES ARE PINNED for the reason given for the tenant-metered entries above: a pod
+      # restart must not change what a call costs, and a key's budget only trips if spend is
+      # booked at a real price. These are LiteLLM v1.101.0's /model/info values for the gpt-5.6
+      # family on 2026-09-24. Update them together with `model` when the tier moves.
+      #
+      # Roles, and who calls them:
+      #   fallback-easy / -medium / -hard  Nievah, after every Claude leg failed (openhands key)
+      #   agent-chat                       Hermes, every conversation and cron run
+      #   agent-investigate                HolmesGPT, every investigation (Nievah's alerts too)
+      #   agent-light                      cheap summarising work that does not need standard
+      #   speech-to-text / text-to-speech  Hermes voice on Slack
+      - model_name: tier-light
+        litellm_params: &light
           model: openai/gpt-5.6-luna
           api_key: os.environ/OPENAI_API_KEY
-        model_info:
+        model_info: &light-info
           mode: chat
           base_model: openai/gpt-5.6-luna
           input_cost_per_token: 0.0000002
@@ -242,33 +252,90 @@ data:
           cache_read_input_token_cost: 0.00000002
           billing_mode: openai-api
           credential_source: oci-vault:openai-api-key
+      - model_name: tier-standard
+        litellm_params: &standard
+          model: openai/gpt-5.6-terra
+          api_key: os.environ/OPENAI_API_KEY
+        model_info: &standard-info
+          mode: chat
+          base_model: openai/gpt-5.6-terra
+          input_cost_per_token: 0.000002
+          output_cost_per_token: 0.000012
+          cache_read_input_token_cost: 0.0000002
+          billing_mode: openai-api
+          credential_source: oci-vault:openai-api-key
+      - model_name: tier-heavy
+        litellm_params: &heavy
+          model: openai/gpt-5.6-sol
+          api_key: os.environ/OPENAI_API_KEY
+        model_info: &heavy-info
+          mode: chat
+          base_model: openai/gpt-5.6-sol
+          input_cost_per_token: 0.000004
+          output_cost_per_token: 0.00002
+          cache_read_input_token_cost: 0.0000004
+          billing_mode: openai-api
+          credential_source: oci-vault:openai-api-key
+      # Nievah's three fallback names stay separate so they can diverge (a stronger tier for
+      # `hard`) without touching Nievah. All three are on light today, as they were before.
+      - model_name: fallback-easy
+        litellm_params:
+          <<: *light
+        model_info:
+          <<: *light-info
           notes: "Nievah fallback alias for easy work (classify, PR descriptions). Reached only after every Claude leg failed."
       - model_name: fallback-medium
         litellm_params:
-          model: openai/gpt-5.6-luna
-          api_key: os.environ/OPENAI_API_KEY
+          <<: *light
         model_info:
-          mode: chat
-          base_model: openai/gpt-5.6-luna
-          input_cost_per_token: 0.0000002
-          output_cost_per_token: 0.0000012
-          cache_read_input_token_cost: 0.00000002
-          billing_mode: openai-api
-          credential_source: oci-vault:openai-api-key
+          <<: *light-info
           notes: "Nievah fallback alias for medium work (issue plans, triage, gate reviews, planner narrative). Reached only after every Claude leg failed."
       - model_name: fallback-hard
         litellm_params:
-          model: openai/gpt-5.6-luna
+          <<: *light
+        model_info:
+          <<: *light-info
+          notes: "Nievah fallback alias for hard work (the planner, hard PR reviews). Reached only after every Claude leg failed."
+      - model_name: agent-chat
+        litellm_params:
+          <<: *standard
+        model_info:
+          <<: *standard-info
+          notes: "Hermes: every Slack and Telegram conversation and every cron run."
+      - model_name: agent-investigate
+        litellm_params:
+          <<: *standard
+        model_info:
+          <<: *standard-info
+          notes: "HolmesGPT: every investigation, including the ones Nievah asks for on firing alerts."
+      - model_name: agent-light
+        litellm_params:
+          <<: *light
+        model_info:
+          <<: *light-info
+          notes: "Cheap summarising work, such as digests, that does not need the standard tier."
+      # Speech is its own provider choice: the chat tiers above do not transcribe or speak.
+      # Priced by LiteLLM's own map, since no budget-capped key is given these today.
+      - model_name: speech-to-text
+        litellm_params:
+          model: openai/gpt-4o-mini-transcribe
           api_key: os.environ/OPENAI_API_KEY
         model_info:
-          mode: chat
-          base_model: openai/gpt-5.6-luna
-          input_cost_per_token: 0.0000002
-          output_cost_per_token: 0.0000012
-          cache_read_input_token_cost: 0.00000002
+          mode: audio_transcription
+          base_model: openai/gpt-4o-mini-transcribe
           billing_mode: openai-api
           credential_source: oci-vault:openai-api-key
-          notes: "Nievah fallback alias for hard work (the planner, hard PR reviews). Reached only after every Claude leg failed."
+          notes: "Hermes: transcribes voice messages sent on Slack."
+      - model_name: text-to-speech
+        litellm_params:
+          model: openai/gpt-4o-mini-tts
+          api_key: os.environ/OPENAI_API_KEY
+        model_info:
+          mode: audio_speech
+          base_model: openai/gpt-4o-mini-tts
+          billing_mode: openai-api
+          credential_source: oci-vault:openai-api-key
+          notes: "Hermes: spoken replies on Slack, when voice replies are switched on."
       # --- Embeddings + small utility model for the mem0 fleet-memory service ---
       # mem0's default OpenAI models; registered so mem0 (which talks OpenAI-protocol to
       # this gateway) resolves them. Additive — existing clients are unaffected.

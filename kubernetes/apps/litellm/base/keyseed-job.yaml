@@ -12,12 +12,12 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: litellm-keyseed-v2
+  name: litellm-keyseed-v3
   namespace: automation
   annotations:
     checkov.io/skip1: CKV_K8S_11=CPU limits are unset estate-wide by decision; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited.
     checkov.io/skip2: CKV_K8S_15=IfNotPresent is the house convention; image is tagged and pulled only when absent, not on every Job run
-    checkov.io/skip3: CKV_K8S_35=LITELLM_MASTER_KEY and OPENHANDS_KEY are consumed directly by curl in a single-use shell script; there is no file-based credential path without rewriting the script
+    checkov.io/skip3: CKV_K8S_35=LITELLM_MASTER_KEY and the seeded client keys are consumed directly by curl in a single-use shell script; there is no file-based credential path without rewriting the script
     checkov.io/skip4: CKV_K8S_43=curlimages/curl pinned to 8.11.1; digest pinning not warranted for this home-lab one-shot Job
 spec:
   ttlSecondsAfterFinished: 604800
@@ -61,6 +61,16 @@ spec:
                 secretKeyRef:
                   name: litellm
                   key: openhands-key
+            - name: HERMES_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm
+                  key: hermes-key
+            - name: HOLMES_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm
+                  key: holmes-key
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -76,6 +86,28 @@ spec:
                 sleep 5
               done
 
+              # seed ALIAS KEY MODELS_JSON MAX_BUDGET: upsert one key with a 30-day budget.
+              seed() {
+                PAYLOAD=$(printf '{"key":"%s","key_alias":"%s","models":%s,"max_budget":%s,"budget_duration":"30d","metadata":{"owner":"%s","managed_by":"litellm-keyseed Job"}}' "$2" "$1" "$3" "$4" "$1")
+                CODE=$(curl -s -o /tmp/out -w '%{http_code}' -X POST "$B/key/update" \
+                  -H "$H" -H 'Content-Type: application/json' -d "$PAYLOAD")
+                if [ "$CODE" = "200" ]; then
+                  echo "[keyseed] $1 key updated"
+                  return 0
+                fi
+                echo "[keyseed] $1 update returned $CODE, creating"
+                CODE=$(curl -s -o /tmp/out -w '%{http_code}' -X POST "$B/key/generate" \
+                  -H "$H" -H 'Content-Type: application/json' -d "$PAYLOAD")
+                if [ "$CODE" = "200" ]; then
+                  echo "[keyseed] $1 key created"
+                  return 0
+                fi
+                echo "[keyseed] $1 FAILED ($CODE):"
+                sed 's/sk-[A-Za-z0-9_-]*/sk-REDACTED/g' /tmp/out
+                return 1
+              }
+              FAILED=0
+
               # max_budget matters most in the case this key exists for: Claude quota runs
               # out, work moves to the per-token gpt-5.6 models, and the agent runs with
               # max_iterations 500 and confirmation_mode off. Without a ceiling a stuck
@@ -85,25 +117,17 @@ spec:
               # same vault entry), so every Nievah fallback call, direct or through OpenHands,
               # draws on this one budget. fallback-easy/medium/hard are the aliases it asks for
               # (configmap.yaml); re-pointing an alias never needs this list to change.
-              PAYLOAD=$(printf '{"key":"%s","key_alias":"openhands","models":["fallback-easy","fallback-medium","fallback-hard","deepseek-v4-pro","deepseek-v4-flash","gpt-5.6-luna","gpt-5.6-sol","gpt-5.6-terra"],"max_budget":50,"budget_duration":"30d","metadata":{"owner":"openhands","managed_by":"litellm-keyseed Job"}}' "$OPENHANDS_KEY")
+              seed openhands "$OPENHANDS_KEY" '["fallback-easy","fallback-medium","fallback-hard","deepseek-v4-pro","deepseek-v4-flash","gpt-5.6-luna","gpt-5.6-sol","gpt-5.6-terra"]' 50 || FAILED=1
 
-              CODE=$(curl -s -o /tmp/out -w '%{http_code}' -X POST "$B/key/update" \
-                -H "$H" -H 'Content-Type: application/json' -d "$PAYLOAD")
-              if [ "$CODE" = "200" ]; then
-                echo "[keyseed] openhands key updated"
-                exit 0
-              fi
-              echo "[keyseed] update returned $CODE, creating"
-
-              CODE=$(curl -s -o /tmp/out -w '%{http_code}' -X POST "$B/key/generate" \
-                -H "$H" -H 'Content-Type: application/json' -d "$PAYLOAD")
-              if [ "$CODE" = "200" ]; then
-                echo "[keyseed] openhands key created"
-                exit 0
-              fi
-              echo "[keyseed] FAILED ($CODE):"
-              sed 's/sk-[A-Za-z0-9_-]*/sk-REDACTED/g' /tmp/out
-              exit 1
+              # Hermes and HolmesGPT used to call the gateway with the MASTER key, which no
+              # budget applies to, so a looping cron job or a runaway investigation billed
+              # without limit. Each now has its own key, capped at $25 per 30 days and allowed
+              # only its ROLE names (configmap.yaml, tiers and roles), never a provider model,
+              # so a provider switch never needs these lists to change either. Past the cap
+              # LiteLLM answers 429 `budget_exceeded` until the window resets.
+              seed hermes "$HERMES_KEY" '["agent-chat","agent-light","speech-to-text","text-to-speech"]' 25 || FAILED=1
+              seed holmes "$HOLMES_KEY" '["agent-investigate","agent-light"]' 25 || FAILED=1
+              exit "$FAILED"
           volumeMounts:
             - name: tmp
               mountPath: /tmp

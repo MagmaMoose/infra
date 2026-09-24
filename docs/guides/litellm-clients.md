@@ -245,6 +245,25 @@ regenerated, and replacing one resets its spend.
   `/spend/logs/v2` and `/team/daily/activity`. `/global/spend/report` and the other
   `*/spend/report` endpoints need an enterprise licence.
 
+## Role aliases: switching provider in one place
+
+The house agents never name a provider model. Each asks for a role, and every role points
+at one of three tiers defined once in the `model_list` (the `tier-*` entries, reused through
+YAML anchors):
+
+| Role | Called by | Tier today |
+|---|---|---|
+| `fallback-easy`, `fallback-medium`, `fallback-hard` | Nievah, after its Claude legs fail | light (gpt-5.6-luna) |
+| `agent-chat` | Hermes: conversations and cron runs | standard (gpt-5.6-terra) |
+| `agent-investigate` | HolmesGPT, including Nievah's alert investigations | standard (gpt-5.6-terra) |
+| `agent-light` | cheap summarising work | light (gpt-5.6-luna) |
+| `speech-to-text`, `text-to-speech` | Hermes voice on Slack | gpt-4o-mini-transcribe, gpt-4o-mini-tts |
+
+To move provider, edit the three `tier-*` entries (`model`, `api_key` and the pinned prices)
+and update the Deployment's `checksum/config`. Nievah, Hermes and Holmes follow on the next
+rollout with no change in their own configs. To move one agent to another tier, change
+which anchor its role uses. A new agent should get a new role, not a provider model name.
+
 ## Operational note
 
 LiteLLM intentionally has no hard node selector. The Pi node can be too tight to

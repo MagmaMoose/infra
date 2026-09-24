@@ -39,35 +39,33 @@ spec:
 
     # All inference goes through the in-cluster LiteLLM gateway (single entry point for
     # billing/keys). modelList is a litellm model registry: `openai/<name>` + the :8080
-    # OpenAI-compat proxy + the master key (Bearer -> x-litellm-api-key inside the proxy).
-    # DEEPSEEK, NOT CLAUDE. Holmes reaches LiteLLM with a KEY in the header, which is the
-    # per-token path: per docs/guides/litellm-clients.md the Claude Max subscription is
-    # reachable only by forwarding Claude Code's OAuth bearer, so Holmes can never ride it.
-    # That leaves it on whichever provider account has credit, and measured against the
-    # gateway on 2026-08-25 that is DeepSeek alone:
+    # OpenAI-compat proxy + Holmes's own capped key (Bearer -> x-litellm-api-key inside the proxy).
+    # A ROLE NAME, NOT A PROVIDER MODEL. Holmes asks LiteLLM for `agent-investigate`, and the
+    # LiteLLM config decides which provider and model that is (the tiers-and-roles section of
+    # kubernetes/apps/litellm/base/configmap.yaml). Switching provider is an edit there, not
+    # here. This used to name deepseek-v4-pro directly; when that balance ran out every
+    # investigation came back as HTTP 500 and Nievah posted alerts with "HolmesGPT did not
+    # answer" until this file was changed too.
     #
-    #   deepseek-v4-flash  200 OK
-    #   deepseek-v4-pro    200 OK
-    #   gpt-5.4-mini       RateLimitError: You have no credits remaining
-    #   claude-haiku-4-5   BadRequestError: credit balance is too low
-    #   claude-sonnet-4-6  BadRequestError: credit balance is too low
+    # Holmes reaches LiteLLM with a KEY in the header, which is the per-token path: per
+    # docs/guides/litellm-clients.md the Claude Max subscription is reachable only by
+    # forwarding Claude Code's OAuth bearer, so Holmes can never ride it.
     #
-    # The Claude entries are removed rather than kept as a fallback. Holmes only knows the
-    # names in THIS map; an unknown name silently falls back to the first entry, so leaving a
-    # dead model here means a typo lands on a route that 500s with a billing error rather than
-    # failing loudly. Restore them when the Anthropic account has credit, not before.
+    # Nievah leaves HOLMES_MODEL empty, so the FIRST entry is what every investigation uses.
+    # `agent-light` is the cheap role, by name only. Holmes only knows the names in THIS map
+    # and an unknown name silently falls back to the first entry.
     modelList:
-      deepseek-v4-pro:
-        model: openai/deepseek-v4-pro
+      agent-investigate:
+        model: openai/agent-investigate
         api_base: http://litellm.automation.svc.cluster.local:8080/v1
-        api_key: "{{ env.LITELLM_MASTER_KEY }}"
-      deepseek-v4-flash:
-        model: openai/deepseek-v4-flash
+        api_key: "{{ env.LITELLM_API_KEY }}"
+      agent-light:
+        model: openai/agent-light
         api_base: http://litellm.automation.svc.cluster.local:8080/v1
-        api_key: "{{ env.LITELLM_MASTER_KEY }}"
+        api_key: "{{ env.LITELLM_API_KEY }}"
 
     # PROMETHEUS_URL points the prometheus/metrics toolset at the kube-prometheus-stack
-    # Prometheus (observability ns). LITELLM_MASTER_KEY is injected from the ExternalSecret.
+    # Prometheus (observability ns). LITELLM_API_KEY is injected from the ExternalSecret.
     additionalEnvVars:
       - name: PROMETHEUS_URL
         value: http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090
