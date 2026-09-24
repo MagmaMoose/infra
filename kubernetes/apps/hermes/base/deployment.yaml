@@ -45,6 +45,11 @@ spec:
               cp -f /seed-files/mem0_mcp.py "$HERMES_HOME/mcp/mem0_mcp.py"
               # Last, and allowed to fail: a broken cron seed must not keep Hermes down.
               cd /opt/hermes && /opt/hermes/.venv/bin/python /seed-files/seed_cron.py || echo "[seed-cron] failed; Hermes starts without the git-managed cron jobs"
+              # This container runs as root, and Hermes writes jobs.json 0600 to its
+              # owner, while the gateway reads it as the hermes user (UID 10000). Left
+              # root-owned, every scheduler tick failed with "Permission denied" and no
+              # job ever ran. Hand the cron store back, seeded or not.
+              chown -R 10000:10000 "$HERMES_HOME/cron" 2>/dev/null || true
           env:
             - name: HERMES_HOME
               value: /opt/data
