@@ -13,7 +13,9 @@ The following tools are required for managing the infrastructure:
 - [Helm](https://helm.sh/docs/intro/install/) - Kubernetes package manager
 - [Kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl-macos/) - Kubernetes CLI
 - [Docker](https://docs.docker.com/docker-for-mac/install/) - Container runtime
-- [Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli-macos) - Azure management
+- [Kustomize](https://kubectl.docs.kubernetes.io/installation/kustomize/) - Kubernetes manifest customization
+- [Flux CLI](https://fluxcd.io/flux/installation/) - GitOps continuous delivery
+- [SOPS](https://github.com/getsops/sops) - Secrets encryption
 
 ## Installation
 
@@ -24,10 +26,7 @@ The following tools are required for managing the infrastructure:
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
 # Install core tools
-brew install ansible terraform terragrunt helm kubectl docker
-
-# Install Azure CLI
-brew install azure-cli
+brew install ansible terraform terragrunt helm kubectl docker kustomize flux sops
 ```
 
 ## Hardware Requirements (for Kubernetes)
