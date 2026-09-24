@@ -144,6 +144,15 @@ spec:
           value: "defectdojo.magmamoose.com,defectdojo.sargeant.local,localhost,defectdojo-django,defectdojo-django.security,defectdojo-django.security.svc,defectdojo-django.security.svc.cluster.local" # DevSkim: ignore DS162092 — localhost is a valid ALLOWED_HOSTS entry for Django health probes, not debug code
         - name: DD_CSRF_TRUSTED_ORIGINS
           value: "https://defectdojo.magmamoose.com,https://defectdojo.sargeant.local"
+        # TLS terminates at Cloudflare; cloudflared -> oauth2-proxy -> the in-pod
+        # nginx all speak plain HTTP, so without this Django reports
+        # request.is_secure() == False. CSRF then only passed by grace of
+        # CSRF_TRUSTED_ORIGINS (Django compares Origin against
+        # "http://<host>"), the Referer check for HTTPS POSTs never ran, and
+        # build_absolute_uri() emitted http:// links. oauth2-proxy runs with
+        # --reverse-proxy=true, so X-Forwarded-Proto: https reaches uwsgi.
+        - name: DD_SECURE_PROXY_SSL_HEADER
+          value: "true"
 
       # ── Bootstrap init container: Slack + GitHub config (DB-only, no REST/chart) ─
       # Runs the ORM reconcile in configmap-bootstrap.yaml on every (re)deploy.
