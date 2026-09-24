@@ -215,7 +215,7 @@
     },
     "scripts": {
       "path": "scripts/",
-      "purpose": "Ad-hoc utility scripts; Linux/ and Windows/ subdirs; tooling for AWS SSO, OCI inspection, auto-shutdown, terraform imports"
+      "purpose": "Ad-hoc utility scripts; Linux/, Windows/ and macOS/ subdirs (macOS/bluebubbles: Hermes' iMessage bridge on the Mac mini); tooling for AWS SSO, OCI inspection, auto-shutdown, terraform imports"
     },
     "docs": {
       "path": "docs/",

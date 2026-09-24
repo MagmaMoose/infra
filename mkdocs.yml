@@ -44,6 +44,7 @@ nav:
       - 1Password Setup: guides/1password-setup.md
       - Gluetun Setup: guides/gluetun-setup.md
       - LiteLLM Clients: guides/litellm-clients.md
+      - iMessage for Hermes: guides/bluebubbles-imessage.md
       - Warp Setup: guides/warp-setup.md
   - Operations:
       - AppSec and Dev Tooling: operations/appsec-dev-tooling.md

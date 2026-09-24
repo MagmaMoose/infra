@@ -16,8 +16,10 @@ otherwise. The ones that touch real hosts follow the repo convention and take `-
 | `terraform-import-commands.sh` | Generated `terraform import` commands for OCI resources. |
 | `setup-auto-shutdown.sh` | Set up automatic shutdown after 30 minutes of inactivity, on macOS. See [Auto shutdown](../operations/auto-shutdown.md). |
 | `1password-ssh-config-editor-key-merger.sh` | Merge 1Password SSH keys into an SSH config. |
+| `macOS/bluebubbles/install.sh` | Install BlueBubbles Server on the Mac mini and stage its bot user's setup. Takes `--check`. See [iMessage for Hermes](../guides/bluebubbles-imessage.md). |
+| `macOS/bluebubbles/configure-user.sh` | Configure BlueBubbles from inside the bot user's own login. Same page. |
 
-`scripts/Linux` and `scripts/Windows` hold platform-specific helpers.
+`scripts/Linux`, `scripts/Windows` and `scripts/macOS` hold platform-specific helpers.
 
 ## `oci-vault-secrets.py`
 
