@@ -5,7 +5,8 @@
 # the cluster (see .claude/decisions/2026-08-24-holmes-cluster-autonomy.md). Its API takes no
 # credential of its own: reaching it IS the authorisation. Without an ingress policy every pod
 # in all 46 namespaces can call it, so granting Holmes a write verb would grant that verb to
-# everything running. This policy is what makes "two callers" true rather than aspirational.
+# everything running. This policy is what makes "only the callers listed below" true rather
+# than aspirational.
 #
 # TWO OBJECTS, deliberately. A default-deny with no companion allow is a silent outage; an
 # allow with no default-deny is decoration. Kustomize applies both or neither.
@@ -54,6 +55,13 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: observability
+        # The Holmes operator, which runs the scheduled health checks. A bare podSelector
+        # matches only in this namespace, so the label grants nothing to a pod anywhere
+        # else. The questions it asks are the ScheduledHealthChecks in git: only a cluster
+        # admin can create one, since the chart aggregates no role over them.
+        - podSelector:
+            matchLabels:
+              app: holmes-operator
       ports:
         - port: 5050
           protocol: TCP

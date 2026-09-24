@@ -20,6 +20,19 @@ spec:
   upgrade:
     remediation:
       retries: 3
+  # The chart's operator Deployment has no priorityClassName value (only the Holmes one
+  # does, below), so the operator gets `low` the way defectdojo's workloads do: by patching
+  # the rendered output.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+              name: holmesgpt-operator
+            patch: |
+              - op: add
+                path: /spec/template/spec/priorityClassName
+                value: low
   values:
     # Priority class, per the desired-state table in cleanup.md.
     # Set in chart values because the Kyverno assign-priority-class policy
@@ -92,11 +105,35 @@ spec:
     # Read access to the cluster for the kubernetes toolset (chart creates the SA + RBAC).
     createServiceAccount: true
 
-    # Operator (HealthCheck/ScheduledHealthCheck CRDs for 24/7 detection) OFF for now —
-    # this deploys Holmes as an on-demand investigation API (reachable in-cluster, e.g. by
-    # Hermes). Enable later for scheduled health checks.
+    # The operator runs the ScheduledHealthChecks in ../checks: on each schedule it creates
+    # a HealthCheck, which it runs by POSTing the question to this Holmes's
+    # /api/checks/execute, and it records pass/fail and Holmes's findings in the
+    # ScheduledHealthCheck's status. That is Holmes looking without waiting for an alert.
+    #
+    # It sends nothing itself. The checks run in `monitor` mode, with no Slack token here:
+    # kube-state-metrics exports each check's last result, and a failed check becomes the
+    # critical alert HolmesHealthCheckFailed (kube-prometheus-stack), which reaches the
+    # owner the way every critical does, through Nievah's alert lane.
     operator:
-      enabled: false
+      enabled: true
+      # Pinned by digest: the index for 0.33.0 (arm64 and amd64).
+      image: holmes-operator:0.33.0@sha256:810fe4193b21e9d50570403b73b5e0159d10f125878f6a8ae3c45673806a63c5
+      # The operator only waits on Holmes, so a small python process. The chart's defaults
+      # (256Mi request, 100m CPU) would reserve more than Holmes's own CPU request.
+      resources:
+        requests:
+          cpu: 10m
+          memory: 128Mi
+        limits:
+          memory: 256Mi
+      # Every run creates a HealthCheck object. The findings are kept in the
+      # ScheduledHealthCheck's own history, so the per-run objects can go after two days
+      # rather than pile up at several a day forever.
+      cleanupCompletedChecks: true
+      completedCheckTTLHours: 48
+      # Same reason as Holmes's own nodeSelector above: off the control-plane Pi.
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
 
     # CPU request, no CPU limit (CFS-throttle false alarms); memory bounded.
     resources:
