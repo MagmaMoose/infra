@@ -17,7 +17,7 @@ spec:
         # Rolls the pod (→ re-seed) whenever the git-managed config.yaml changes.
         # sha256 of kubernetes/apps/hermes/base/configmap.yaml (there is no nested
         # hermes/ dir; the old path in this comment pointed at nothing).
-        checksum/config: 2b3e5ad607554e33c76e75032fd5aea65d23b8cd6506b68fe973175740830cf2
+        checksum/config: 5fde300b9c7532a63e903e79884e9c0b7bf6ed1487f65180ec7113011617ba23
         # Same idea for the nievah-relay plugin, which the initContainer copies in at
         # boot: sha256 of kubernetes/apps/hermes/base/plugin-nievah-relay.yaml.
         checksum/plugin-nievah-relay: 81a8994c7838f879dfa60c8f4348faf86a1ee1ce89dbce4f0071ed3ac38b4d4d
@@ -88,7 +88,7 @@ spec:
             # --- Model: in-cluster LiteLLM gateway (OpenAI-compatible). Mirrors the
             # config.yaml model block; OPENAI_API_KEY is the LiteLLM master key. ---
             - name: HERMES_INFERENCE_MODEL
-              value: claude-sonnet-4-6
+              value: gpt-5.6-terra
             - name: OPENAI_BASE_URL
               value: http://litellm.automation.svc.cluster.local:8080/v1
             - name: OPENAI_API_KEY
