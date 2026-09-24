@@ -50,7 +50,11 @@ def main() -> None:
         if (have.get("schedule") or {}).get("expr") != want["schedule"]:
             updates["schedule"] = want["schedule"]
         if updates:
-            jobs.update_job(have["id"], updates)
+            job_id = have.get("id")
+            if not job_id:
+                print(f"[seed-cron] {want['name']}: no id, skipping update")
+                continue
+            jobs.update_job(job_id, updates)
             print(f"[seed-cron] updated {want['name']}: {', '.join(sorted(updates))}")
         else:
             print(f"[seed-cron] {want['name']} unchanged")
