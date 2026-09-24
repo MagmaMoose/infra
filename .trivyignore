@@ -194,6 +194,19 @@ KSV-0048
 KSV0048
 AVD-KSV-0048
 
+# DS-0002 — "Specify at least 1 USER command in Dockerfile with non-root user".
+#
+# Suppressed for the hermes Dockerfile only. The upstream hermes-agent image uses
+# s6-overlay: /init runs as PID 1, remaps the hermes user (UID 10000 by default), and
+# drops every managed service to that user with s6-setuidgid before exec. The build-time
+# root is also required to write the ddgs packages into the venv (which is root-owned and
+# chmod a-w in the upstream image). Setting USER to a non-root value here would break
+# s6-overlay's init sequence and is explicitly documented as intentional in the Dockerfile.
+# KICS counterpart (b03a748a) is suppressed inline; CKV_DOCKER_3 is suppressed inline
+# with #checkov:skip.
+DS-0002 dockerfiles/hermes/Dockerfile
+AVD-DS-0002 dockerfiles/hermes/Dockerfile
+
 # KSV-0014 — "container should set securityContext.readOnlyRootFilesystem: true".
 #
 # Suppressed for the repo-sync sidecar in the OpenHands Deployment only. That
