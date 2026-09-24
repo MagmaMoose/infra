@@ -40,31 +40,27 @@ spec:
     # All inference goes through the in-cluster LiteLLM gateway (single entry point for
     # billing/keys). modelList is a litellm model registry: `openai/<name>` + the :8080
     # OpenAI-compat proxy + the master key (Bearer -> x-litellm-api-key inside the proxy).
-    # OPENAI, NOT CLAUDE OR DEEPSEEK. Holmes reaches LiteLLM with a KEY in the header, which
-    # is the per-token path: per docs/guides/litellm-clients.md the Claude Max subscription is
-    # reachable only by forwarding Claude Code's OAuth bearer, so Holmes can never ride it.
-    # That leaves it on whichever provider account has credit. It ran on DeepSeek from
-    # 2026-08-25 until that balance ran out, after which every investigation came back as
-    # HTTP 500 and Nievah posted alerts with "HolmesGPT did not answer". Measured against the
-    # gateway on 2026-09-24:
+    # A ROLE NAME, NOT A PROVIDER MODEL. Holmes asks LiteLLM for `agent-investigate`, and the
+    # LiteLLM config decides which provider and model that is (the tiers-and-roles section of
+    # kubernetes/apps/litellm/base/configmap.yaml). Switching provider is an edit there, not
+    # here. This used to name deepseek-v4-pro directly; when that balance ran out every
+    # investigation came back as HTTP 500 and Nievah posted alerts with "HolmesGPT did not
+    # answer" until this file was changed too.
     #
-    #   gpt-5.6-terra      200 OK
-    #   deepseek-v4-pro    402 Insufficient Balance
-    #   claude-sonnet-4-6  400 credit balance is too low
+    # Holmes reaches LiteLLM with a KEY in the header, which is the per-token path: per
+    # docs/guides/litellm-clients.md the Claude Max subscription is reachable only by
+    # forwarding Claude Code's OAuth bearer, so Holmes can never ride it.
     #
-    # Nievah leaves HOLMES_MODEL empty, so the FIRST entry is what every investigation uses:
-    # terra, the middle gpt-5.6 tier, because an investigation is many tool calls deep; luna
-    # is the cheap tier, by name only. Holmes only knows the names in THIS map and an unknown
-    # name silently falls back to the first entry, so dead models are removed rather than kept
-    # as a fallback: a typo must not land on a route that 500s with a billing error. Put
-    # DeepSeek back first if that account is topped up; it costs a fraction of terra.
+    # Nievah leaves HOLMES_MODEL empty, so the FIRST entry is what every investigation uses.
+    # `agent-light` is the cheap role, by name only. Holmes only knows the names in THIS map
+    # and an unknown name silently falls back to the first entry.
     modelList:
-      gpt-5.6-terra:
-        model: openai/gpt-5.6-terra
+      agent-investigate:
+        model: openai/agent-investigate
         api_base: http://litellm.automation.svc.cluster.local:8080/v1
         api_key: "{{ env.LITELLM_MASTER_KEY }}"
-      gpt-5.6-luna:
-        model: openai/gpt-5.6-luna
+      agent-light:
+        model: openai/agent-light
         api_base: http://litellm.automation.svc.cluster.local:8080/v1
         api_key: "{{ env.LITELLM_MASTER_KEY }}"
 
