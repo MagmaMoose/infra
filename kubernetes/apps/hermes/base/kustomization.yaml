@@ -8,6 +8,15 @@ resources:
   - deployment.yaml
   - service.yaml
   - ingress.yaml
+# files/ ships as one ConfigMap with a content-hash suffix, so a change to the mem0 MCP
+# server, the cron seed or a cron prompt rolls the pod without a checksum annotation.
+configMapGenerator:
+  - name: hermes-seed-files
+    namespace: automation
+    files:
+      - files/mem0_mcp.py
+      - files/seed_cron.py
+      - files/daily-brief.md
 # Pin to the ON-PREM worker (ff-vm1, amd64), not native-cloud: the upstream
 # nousresearch/hermes-agent image is amd64-only, so on the arm64 OCI nodes it
 # CrashLoops with an OCI-runtime exec error. State is on Longhorn, so it's not
