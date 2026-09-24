@@ -3,6 +3,7 @@ kind: Kustomization
 resources:
   - statefulset.yaml
   - service.yaml
+  - servicemonitor.yaml
 patches:
   # Homelab runs a single Thanos Store replica (base declares 2 for HA; one is
   # enough to serve long-term blocks from MinIO on this 2-node cluster). Was 0,
