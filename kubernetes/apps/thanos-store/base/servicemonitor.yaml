@@ -1,0 +1,15 @@
+# Scraped so a dead Thanos Store shows up (the chart's TargetDown) and its metrics
+# reach Grafana.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: thanos-store
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: thanos-store
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: thanos-store
+  endpoints:
+    - port: http

@@ -75,12 +75,20 @@ spec:
         # ~1.7Gi / ~150m here, was over-provisioned at 8Gi/2 cores). No CPU limit
         # (KRR rec: cpu limit -> unset) to avoid CFS throttling on the 16-core
         # ff-vm1 node; memory limit keeps headroom above observed usage.
+        #
+        # Limit raised 3Gi -> 4Gi for the Longhorn scrape (additionalServiceMonitors
+        # below). The working set was already 2.46Gi on 2026-09-24, and Prometheus
+        # keeps every series it drops at scrape time in a per-target cache so it can
+        # skip relabelling them next time. The Longhorn managers serve ~800k series
+        # that get dropped (~280MB of cache), and that grows while they stay up.
+        # Request unchanged: a limit is not reserved by the scheduler
+        # (COMMON_MISTAKES #14).
         resources:
           requests:
             cpu: 250m
             memory: 2Gi
           limits:
-            memory: 3Gi
+            memory: 4Gi
         
         # Thanos sidecar configuration
         thanos:
@@ -112,7 +120,57 @@ spec:
         enabled: true
         type: ClusterIP
         port: 10901
-      
+
+      # Scrape targets for two controllers in the infrastructure-controllers tier.
+      # They live here, not next to their controllers, because of ordering. The
+      # ServiceMonitor/PrometheusRule CRDs come from THIS chart (apps tier), and a
+      # Flux Kustomization whose dry-run meets an unknown kind applies none of its
+      # objects. On a rebuild the controllers tier would wait for these CRDs, this
+      # chart would wait for external-secrets (its ExternalSecrets), and
+      # external-secrets is in the controllers tier: nothing would ever apply.
+      # Helm installs a chart's CRDs before its templates, so there is no ordering
+      # to get wrong here. Their rules are in additionalPrometheusRulesMap for the
+      # same reason.
+      additionalServiceMonitors:
+        # Longhorn's documented ServiceMonitor: longhorn-backend, port manager (9500).
+        #
+        # The drop is load-bearing. longhorn-manager 1.11 labels its client-go
+        # histograms with the full request URL, and client-go puts a random 5-10m
+        # watch timeout into that URL, so a manager keeps adding series for weeks
+        # after it starts: the four up for 3-12 weeks served 48-76MB per scrape, up
+        # to ~250k series each, of which only ~2k are Longhorn's own. Fixed in Longhorn
+        # 1.12, which strips the query string. sampleLimit fails the scrape
+        # (TargetDown) instead of filling Prometheus if another family like it
+        # appears.
+        - name: longhorn-manager
+          selector:
+            matchLabels:
+              app: longhorn-manager
+          namespaceSelector:
+            matchNames:
+              - longhorn-system
+          sampleLimit: 20000
+          endpoints:
+            - port: manager
+              # Each scrape is tens of MB until 1.12. 1m halves that cost against the
+              # 30s default and is still well inside the Longhorn rules' `for:`.
+              interval: 1m
+              metricRelabelings:
+                - sourceLabels: [__name__]
+                  regex: longhorn_rest_client_.+
+                  action: drop
+        # cert-manager's controller: certificate expiry and readiness.
+        - name: cert-manager
+          selector:
+            matchLabels:
+              app.kubernetes.io/name: cert-manager
+              app.kubernetes.io/component: controller
+          namespaceSelector:
+            matchNames:
+              - cert-manager
+          endpoints:
+            - port: tcp-prometheus-servicemonitor
+
       # Ingress for Prometheus (optional)
       ingress:
         enabled: false
@@ -278,10 +336,14 @@ spec:
           group_interval: 5m
           repeat_interval: 4h
           routes:
+            # No `continue` here. With it, a critical CNPG backup alert went on to
+            # match the CNPGBackup route below too and was posted to the same
+            # channel twice.
             - receiver: slack-critical
               matchers:
                 - 'severity="critical"'
-              continue: true
+            # Now only sees the CNPG backup alerts that are not critical
+            # (CNPGBackupMetricMissing), which still belong in slack-critical.
             - receiver: slack-critical
               matchers:
                 - 'alertname=~"CNPGBackup.*"'
@@ -475,6 +537,222 @@ spec:
                     the container was DOING when it died before raising the limit — a
                     scan, rebuild or repair needs far more than steady state.
 
+      # ---- CronJobs ------------------------------------------------------------------
+      # One alert per CronJob that has stopped succeeding, replacing KubeJobFailed's one
+      # per failed Job object (see defaultRules.disabled). "Stopped succeeding" means no
+      # successful run within two of its own intervals, counted from creation if it has
+      # never succeeded. That covers runs that fail, runs that hang (concurrencyPolicy
+      # Forbid then skips every later one) and runs that are never scheduled.
+      #
+      # The interval is NOT kube-state-metrics' next-run time minus its last-run time.
+      # kube-state-metrics 2.14 works a schedule out in UTC and ignores spec.timeZone,
+      # while k3s runs a CronJob with no timeZone in the control-plane node's local time
+      # (UTC+2 in summer). For "0 4 * * *" it puts the next run 2h after the last one,
+      # not 24h. Built that way, this rule flagged 26 CronJobs on 2026-09-24 instead of
+      # 11, two healthy Longhorn backup jobs among them at critical. Only a schedule
+      # whose hour field is "*" is safe from a whole-hour offset, so kube-state-metrics
+      # is used for those. Every other schedule gets the longest gap its fields allow
+      # (every N hours, daily, weekly, monthly), which can make an alert late but never
+      # early.
+      cronjobs:
+        groups:
+          - name: cronjobs
+            rules:
+              - record: cronjob:schedule_interval:seconds
+                expr: |
+                  # Hour field "*": kube-state-metrics is right. Measured from
+                  # creation until the first run.
+                  (
+                    max by (namespace, cronjob) (kube_cronjob_next_schedule_time)
+                    - (
+                      max by (namespace, cronjob) (kube_cronjob_status_last_schedule_time)
+                      or max by (namespace, cronjob) (kube_cronjob_created)
+                    )
+                  )
+                  and on (namespace, cronjob) kube_cronjob_info{schedule=~`\S+ \* \* \* \*|@hourly|@every .+`}
+                  # Every N hours.
+                  or max by (namespace, cronjob) (kube_cronjob_info{schedule=~`\S+ \*/2 \* \* \*`}) * 2 * 3600
+                  or max by (namespace, cronjob) (kube_cronjob_info{schedule=~`\S+ \*/3 \* \* \*`}) * 3 * 3600
+                  or max by (namespace, cronjob) (kube_cronjob_info{schedule=~`\S+ \*/4 \* \* \*`}) * 4 * 3600
+                  or max by (namespace, cronjob) (kube_cronjob_info{schedule=~`\S+ \*/6 \* \* \*`}) * 6 * 3600
+                  or max by (namespace, cronjob) (kube_cronjob_info{schedule=~`\S+ \*/8 \* \* \*`}) * 8 * 3600
+                  or max by (namespace, cronjob) (kube_cronjob_info{schedule=~`\S+ \*/12 \* \* \*`}) * 12 * 3600
+                  # Set hours, every day. This pattern also matches everything above it,
+                  # and the next one matches this; "or" keeps the first match, so the
+                  # order is load-bearing.
+                  or max by (namespace, cronjob) (kube_cronjob_info{schedule=~`\S+ \S+ \* \* \*|@daily|@midnight`}) * 86400
+                  # Set days of the week.
+                  or max by (namespace, cronjob) (kube_cronjob_info{schedule=~`\S+ \S+ \* \* \S+|@weekly`}) * 7 * 86400
+                  # Anything else sets a day of the month. Catch-all: uses 31-day
+                  # interval, giving a 62-day alert threshold. Conservative by design —
+                  # monthly schedules span 28–31 days, and 2× is the smallest safe window.
+                  or max by (namespace, cronjob) (kube_cronjob_info) * 31 * 86400
+              # Seconds since each non-suspended CronJob last succeeded, or since it was
+              # created if it never has.
+              - record: cronjob:since_last_success:seconds
+                expr: |
+                  (
+                    time() - (
+                      max by (namespace, cronjob) (kube_cronjob_status_last_successful_time)
+                      or max by (namespace, cronjob) (kube_cronjob_created)
+                    )
+                  )
+                  and on (namespace, cronjob) max by (namespace, cronjob) (kube_cronjob_spec_suspend) == 0
+              # Backups get their own alert name, not KubeCronJobNotSucceeding at
+              # critical: the default inhibit rule mutes a warning while a critical with
+              # the same alertname fires in the same namespace, which would hide every
+              # other CronJob there.
+              - alert: BackupCronJobNotSucceeding
+                expr: |
+                  cronjob:since_last_success:seconds{cronjob=~".*(backup|snapshot).*"}
+                    > 2 * cronjob:schedule_interval:seconds
+                for: 15m
+                labels:
+                  severity: critical
+                annotations:
+                  summary: 'Backup CronJob {{ $labels.namespace }}/{{ $labels.cronjob }} has not succeeded for {{ $value | humanizeDuration }}'
+                  description: >-
+                    No run has succeeded within two of its scheduled intervals (or since
+                    it was created), so there is no fresh backup. Check `kubectl -n
+                    {{ $labels.namespace }} describe cronjob {{ $labels.cronjob }}` and
+                    the logs of its most recent Job.
+              - alert: KubeCronJobNotSucceeding
+                expr: |
+                  cronjob:since_last_success:seconds{cronjob!~".*(backup|snapshot).*"}
+                    > 2 * cronjob:schedule_interval:seconds
+                for: 15m
+                labels:
+                  severity: warning
+                annotations:
+                  summary: 'CronJob {{ $labels.namespace }}/{{ $labels.cronjob }} has not succeeded for {{ $value | humanizeDuration }}'
+                  description: >-
+                    No run has succeeded within two of its scheduled intervals (or since
+                    it was created): its runs fail, hang or are not being scheduled.
+                    Check `kubectl -n {{ $labels.namespace }} describe cronjob
+                    {{ $labels.cronjob }}` and the logs of its most recent Job.
+              # The chart's KubeJobFailed minus the Jobs a CronJob owns, which the two
+              # rules above cover. A one-off Job (a migration, a bootstrap) that fails
+              # still needs a human.
+              - alert: KubeJobFailed
+                expr: |
+                  # kube_job_failed is the Job's Failed condition (boolean), not
+                  # kube_job_status_failed (pod retry counter). Fires once, not on each retry.
+                  kube_job_failed{job="kube-state-metrics"} > 0
+                  unless on (namespace, job_name) kube_job_owner{owner_kind="CronJob"}
+                for: 15m
+                labels:
+                  severity: warning
+                annotations:
+                  summary: 'Job {{ $labels.namespace }}/{{ $labels.job_name }} failed'
+                  description: >-
+                    A Job that no CronJob owns failed to complete. Deleting the Job
+                    after investigating clears this alert.
+
+      # ---- Longhorn (scraped by additionalServiceMonitors: longhorn-manager) ----------
+      longhorn:
+        groups:
+          - name: longhorn
+            rules:
+              # One series per state, 1 on the current one (Longhorn 1.11; older releases
+              # had one series valued 0-3). A detached volume reports "unknown".
+              - alert: LonghornVolumeFaulted
+                expr: longhorn_volume_robustness{state="faulted"} == 1
+                for: 5m
+                labels:
+                  severity: critical
+                annotations:
+                  summary: 'Longhorn volume {{ $labels.volume }} ({{ $labels.pvc_namespace }}/{{ $labels.pvc }}) is faulted'
+                  description: >-
+                    It has no usable replica left, so its workload cannot read or write
+                    it. Check `kubectl -n longhorn-system get replicas.longhorn.io -l
+                    longhornvolume={{ $labels.volume }}`.
+              - alert: LonghornVolumeDegraded
+                expr: longhorn_volume_robustness{state="degraded"} == 1
+                for: 30m
+                labels:
+                  severity: warning
+                annotations:
+                  summary: 'Longhorn volume {{ $labels.volume }} ({{ $labels.pvc_namespace }}/{{ $labels.pvc }}) has been degraded for 30m'
+                  description: >-
+                    It runs on fewer healthy replicas than it asks for and has not
+                    rebuilt. One more replica failure faults it.
+              # 0 New, 1 Pending, 2 InProgress, 3 Completed, 4 Error, 5 Unknown
+              # (metrics_collector/backup_collector.go, v1.11.3). Longhorn deletes a
+              # failed backup after failed-backup-ttl (1440 minutes here), so this
+              # resolving means the record is gone, not that a later backup worked.
+              - alert: LonghornBackupFailed
+                expr: longhorn_backup_state == 4
+                for: 5m
+                labels:
+                  severity: critical
+                annotations:
+                  summary: 'Longhorn backup of volume {{ $labels.volume }} failed'
+                  description: >-
+                    Backup {{ $labels.backup }} (recurring job
+                    "{{ $labels.recurring_job }}") is in Error state. The error is in
+                    `kubectl -n longhorn-system get backups.longhorn.io
+                    {{ $labels.backup }} -o yaml`.
+              # 85% is where Longhorn stops placing replicas on a disk
+              # (storageMinimalAvailablePercentage: 15 in its HelmRelease).
+              - alert: LonghornNodeStorageHigh
+                expr: longhorn_node_storage_usage_bytes / longhorn_node_storage_capacity_bytes > 0.85
+                for: 15m
+                labels:
+                  severity: warning
+                annotations:
+                  summary: 'Longhorn storage on {{ $labels.node }} is {{ $value | humanizePercentage }} used'
+                  description: >-
+                    Past 85%, new and rebuilding replicas no longer fit on this node.
+                    Usage counts everything on the disk's filesystem, not only
+                    Longhorn's data.
+
+      # ---- cert-manager (scraped by additionalServiceMonitors: cert-manager) ----------
+      # A certificate's own namespace arrives as exported_namespace: with honorLabels
+      # off, the scrape's namespace label (cert-manager) wins the clash.
+      cert-manager:
+        groups:
+          - name: cert-manager
+            rules:
+              # Stops at 3 days, where the critical below takes over. The names differ,
+              # so the default inhibit rule would not drop the duplicate.
+              - alert: CertManagerCertExpirySoon
+                expr: |
+                  certmanager_certificate_expiration_timestamp_seconds - time() < 14 * 86400
+                  and certmanager_certificate_expiration_timestamp_seconds - time() >= 3 * 86400
+                for: 1h
+                labels:
+                  severity: warning
+                annotations:
+                  summary: 'Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} expires in {{ $value | humanizeDuration }}'
+                  description: >-
+                    cert-manager renews these at least 30 days before expiry, so this one
+                    has been failing to renew for over two weeks. Check `kubectl -n
+                    {{ $labels.exported_namespace }} describe certificate
+                    {{ $labels.name }}` and its latest CertificateRequest.
+              - alert: CertManagerCertExpiryCritical
+                expr: certmanager_certificate_expiration_timestamp_seconds - time() < 3 * 86400
+                for: 15m
+                labels:
+                  severity: critical
+                annotations:
+                  summary: 'Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} expires in {{ $value | humanizeDuration }}'
+                  description: >-
+                    Renewal has been failing for almost four weeks, and TLS for every
+                    host on it breaks when it expires. Check `kubectl -n
+                    {{ $labels.exported_namespace }} describe certificate
+                    {{ $labels.name }}` and its latest CertificateRequest.
+              - alert: CertManagerCertNotReady
+                expr: certmanager_certificate_ready_status{condition!="True"} == 1
+                for: 1h
+                labels:
+                  severity: critical
+                annotations:
+                  summary: 'Certificate {{ $labels.exported_namespace }}/{{ $labels.name }} has not been Ready for 1h'
+                  description: >-
+                    cert-manager cannot issue it. Check `kubectl -n
+                    {{ $labels.exported_namespace }} describe certificate
+                    {{ $labels.name }}` and its latest CertificateRequest and Order.
+
     # ---- k3s control-plane scrape targets -------------------------------------------
     # k3s does not run the scheduler, controller-manager and kube-proxy as separate
     # labelled pods — they live INSIDE the k3s process, and their metrics bind to
@@ -546,6 +824,15 @@ spec:
     # Default rules and alerts
     defaultRules:
       create: true
+      # KubeJobFailed fires once per failed Job object, and a failed Job stays until
+      # something deletes it: 33 of 41 CronJobs set no ttlSecondsAfterFinished and most
+      # keep 3 failed Jobs (some 5). So one broken CronJob was up to five alerts that
+      # outlived its recovery, and on 2026-09-24 KubeJobFailed was 53 of the 66 alerts
+      # firing.
+      # Replaced by the per-CronJob rules in additionalPrometheusRulesMap.cronjobs,
+      # plus a KubeJobFailed there for Jobs no CronJob owns.
+      disabled:
+        KubeJobFailed: true
       rules:
         alertmanager: true
         etcd: true

@@ -111,6 +111,7 @@ it is a physically separate k3s cluster and cannot reach firefly's `postgres`.
 - Kustomizations labeled `app.kubernetes.io/sops=enabled` carry an inline `decryption:` block referencing the `sops-keys` Secret in `flux-system`.
 - Resource profiles (`components/resource-profiles/c.medium`: 500m-2 CPU, 1-4Gi memory etc.) are kustomize Components targeting labels on workloads.
 - GitHub App-backed Flux `GitRepository` resources must use the matching App installation for the repository owner. In particular, the shared infra image automation uses `github-app-magmamoose` for `MagmaMoose/infra` (not the legacy `buxfer-sync-github-app` credential); installation tokens cannot write outside their installation.
+- A `ServiceMonitor` or `PrometheusRule` for a component in `infrastructure/controllers` goes in the kube-prometheus-stack HelmRelease values (`prometheus.additionalServiceMonitors`, `additionalPrometheusRulesMap`), never beside the controller. Those CRDs come from that chart in the apps tier, and a Flux Kustomization that meets an unknown kind applies nothing, so on a rebuild the controllers tier would never apply. App-tier components keep theirs beside the app (e.g. `apps/thanos-compactor/base/`). See `docs/operations/observability-stack.md#alerting`.
 
 ### 3. Secret Management (Preferred → Fallback Order)
 

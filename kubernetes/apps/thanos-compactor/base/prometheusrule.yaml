@@ -1,0 +1,43 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: thanos-compactor
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: thanos-compactor
+spec:
+  groups:
+    - name: thanos-compactor
+      rules:
+        # A halted compactor stays Running and Ready, so no pod-level alert sees it.
+        # It just stops compacting, downsampling and applying retention, and the
+        # bucket keeps growing.
+        - alert: ThanosCompactHalted
+          expr: thanos_compact_halted{job="thanos-compactor"} == 1
+          for: 15m
+          labels:
+            severity: critical
+          annotations:
+            summary: 'Thanos compactor {{ $labels.pod }} has halted'
+            description: >-
+              It hit a critical error and will not compact, downsample or apply
+              retention until the cause is fixed and it is restarted. The cause is the
+              "critical error detected; halting" line in `kubectl -n observability logs
+              {{ $labels.pod }}`.
+        # --wait-interval=3h, so a working compactor finishes several iterations a day.
+        # Quiet while halted, because ThanosCompactHalted already covers that.
+        - alert: ThanosCompactHasNotRun
+          expr: |
+            increase(thanos_compact_iterations_total{job="thanos-compactor"}[24h]) == 0
+            unless on (namespace, pod) thanos_compact_halted{job="thanos-compactor"} == 1
+          # for:15m fires briefly after a restart while the first iteration is still
+          # running (no history in the 24h window yet). Self-resolves once it completes.
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: 'Thanos compactor {{ $labels.pod }} has not completed an iteration in 24h'
+            description: >-
+              It is running but not finishing its compaction loop: stuck, restarting,
+              or unable to reach the bucket. Check `kubectl -n observability logs
+              {{ $labels.pod }}`.
