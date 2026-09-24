@@ -153,9 +153,17 @@ data:
         transport: streamable-http
       # The owner's public profile and docs, the same server calebsargeant.com's chat
       # reads. Open, and served at the root of that host, not at /mcp.
+      #
+      # The Accept header is load-bearing. Before connecting, Hermes probes the URL
+      # with a plain HEAD and refuses anything that answers 200 with a non-MCP content
+      # type. This Worker answers a plain HEAD or GET with its markdown landing page
+      # (200 text/markdown), so without the header the server was skipped as "a web
+      # page". With it, the probe gets 405 and steps aside for the real handshake.
       calebsargeant:
         url: https://mcp.calebsargeant.com/
         transport: streamable-http
+        headers:
+          Accept: "application/json, text/event-stream"
       # ClickUp's hosted MCP. OAuth only (it refuses API tokens), with dynamic client
       # registration, so there is no secret to wire: sign in once with
       #   kubectl -n automation exec -it deploy/hermes -- hermes mcp login clickup
@@ -185,6 +193,29 @@ data:
     plugins:
       enabled:
         - nievah-relay
+
+    # Nievah's events to the owner. Nievah POSTs a signed JSON event to
+    # /webhooks/nievah on :8644 (ClusterIP only, never behind the ingress) when
+    # something needs the owner or closes a loop they started: a critical alert it
+    # filed a fix for, a plan waiting for approval, a PR opened, merged or failed.
+    # deliver_only means no model runs: Nievah writes the whole message, and `{text}`
+    # is posted verbatim to the Slack home channel (the owner's DM), so it arrives at
+    # once and costs nothing. Every message names its exact reference (owner/repo#n),
+    # because a delivered message is not part of the DM's conversation: a reply like
+    # "approve owner/repo#n" works from the reference alone. HMAC-SHA256 of the raw body
+    # in X-Webhook-Signature, keyed with the vault entry Nievah signs with; X-Request-ID
+    # makes a retried event a no-op.
+    platforms:
+      webhook:
+        enabled: true
+        extra:
+          port: 8644
+          routes:
+            nievah:
+              secret: ${NIEVAH_EVENTS_SECRET}
+              deliver: slack
+              deliver_only: true
+              prompt: "{text}"
 
     dashboard:
       host: 0.0.0.0
