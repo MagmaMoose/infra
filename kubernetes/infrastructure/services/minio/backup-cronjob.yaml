@@ -63,6 +63,7 @@ spec:
                 - name: RCLONE_CONFIG_SRC_PROVIDER
                   value: Minio
                 - name: RCLONE_CONFIG_SRC_ENDPOINT
+                  # trivy:ignore:DS137138 — in-cluster MinIO endpoint; TLS not available inside the cluster
                   value: "http://minio:9000"
                 - name: RCLONE_CONFIG_SRC_ACCESS_KEY_ID
                   value: backup
@@ -95,6 +96,22 @@ spec:
                     secretKeyRef:
                       name: minio-backup-oci
                       key: ACCESS_SECRET_KEY
+                - name: RCLONE_CACHE_DIR
+                  value: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65534
+                runAsGroup: 65534
+                capabilities:
+                  drop:
+                    - ALL
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
               # mc was OOMKilled at 256Mi. The limit is headroom, not a measurement.
               # The request stays at 128Mi: ff-vm1 is ~98% memory-requested, and a
               # limit is not scheduler-reserved, so raising only the limit is free.
@@ -104,3 +121,7 @@ spec:
                   memory: 128Mi
                 limits:
                   memory: 1Gi
+          volumes:
+            - name: tmp
+              emptyDir:
+                medium: Memory
