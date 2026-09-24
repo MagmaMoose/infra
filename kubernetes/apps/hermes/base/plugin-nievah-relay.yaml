@@ -1,0 +1,143 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hermes-plugin-nievah-relay
+  namespace: automation
+data:
+  # A Hermes plugin that hands Nievah's Slack button clicks to Nievah.
+  #
+  # WHY IT EXISTS. Hermes and Nievah post as ONE Slack app, and Hermes holds that app's
+  # Socket Mode connection. With Socket Mode on, Slack sends every click to the socket and
+  # never to the Interactivity Request URL, so Approve/Reject, the merge-conflict A/B/C
+  # buttons and the clarification box on Nievah's cards all arrived at Hermes. Hermes has
+  # no listener for them, so slack_bolt logged `Unhandled request` and never acked, Slack
+  # showed the click as failed, and Nievah's /slack/interactions saw nothing. Separate apps
+  # would also fix it, at the cost of a second bot identity in every channel.
+  #
+  # WHAT IT DOES. Claims Nievah's action ids, acks inside Slack's three seconds, and POSTs
+  # the click to Nievah's /slack/interactions exactly as Slack would have over HTTP: a
+  # form-encoded `payload`, signed with the v0 scheme. Nievah needs no change.
+  #
+  # The initContainer copies these two keys into $HERMES_HOME/plugins/nievah-relay/ on
+  # every boot, config.yaml's plugins.enabled turns it on (Hermes plugins are opt-in), and
+  # the Deployment's checksum/plugin-nievah-relay annotation rolls the pod when this file
+  # changes.
+  plugin.yaml: |
+    name: nievah-relay
+    version: 1.0.0
+    description: Hand Nievah's Slack button clicks (issue approval, merge conflicts, clarifications) to Nievah.
+    author: magmamoose
+  __init__.py: |
+    """Hand Nievah's Slack button clicks to Nievah.
+
+    Hermes holds Socket Mode on the Slack app Nievah also posts with, so every click on a
+    Nievah card is delivered here instead of to Nievah's Request URL. This acks it and
+    replays it to Nievah's /slack/interactions as the HTTP request Slack would otherwise
+    have sent. The ConfigMap this ships in has the full story.
+    """
+
+    from __future__ import annotations
+
+    import hashlib
+    import hmac
+    import json
+    import logging
+    import os
+    import re
+    import time
+    from typing import Any
+    from urllib.parse import urlencode
+
+    import httpx
+
+    logger = logging.getLogger(__name__)
+
+    # Every action id Nievah puts on a card: issue approval (nievah/notify.py), the
+    # merge-conflict choices (conflict_card.ACTION_PREFIX) and the clarification box
+    # (notify.CLARIFY_*). Hermes's own buttons are all hermes_*, so the sets cannot overlap.
+    NIEVAH_ACTIONS = re.compile(
+        r"^(?:issue_approve|issue_reject|clarify_send|clarify_answer|conflict_.+)$"
+    )
+
+    # East-west on the ClusterIP, like the nievah MCP entry in config.yaml.
+    NIEVAH_URL = "http://nievah.nievah.svc.cluster.local:8000/slack/interactions"  # DevSkim: ignore DS137138 - in-cluster ClusterIP, no external exposure
+    TIMEOUT_SECONDS = 10.0
+
+
+    def encode(payload: dict[str, Any]) -> bytes:
+        """The body Slack POSTs for an interaction: one form field, ``payload``, holding JSON."""
+        return urlencode({"payload": json.dumps(payload, separators=(",", ":"))}).encode()
+
+
+    def sign(body: bytes, secret: str, *, now: float | None = None) -> dict[str, str]:
+        """Headers that make ``body`` pass Slack's v0 signature check."""
+        timestamp = str(int(time.time() if now is None else now))
+        base = b"v0:" + timestamp.encode() + b":" + body
+        digest = hmac.new(secret.encode(), base, hashlib.sha256).hexdigest()
+        return {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Slack-Request-Timestamp": timestamp,
+            "X-Slack-Signature": f"v0={digest}",
+        }
+
+
+    def _client() -> httpx.AsyncClient:
+        return httpx.AsyncClient(timeout=TIMEOUT_SECONDS)
+
+
+    async def _tell_clicker(client: httpx.AsyncClient, body: dict[str, Any], text: str) -> None:
+        """An ephemeral note to whoever clicked, since the ack already told Slack it landed."""
+        response_url = body.get("response_url")
+        if not response_url:
+            return
+        try:
+            await client.post(
+                response_url,
+                json={"response_type": "ephemeral", "replace_original": False, "text": text},
+            )
+        except httpx.HTTPError as exc:
+            logger.warning("[nievah-relay] could not reach response_url: %s", exc)
+
+
+    async def forward(ack, body, action) -> None:
+        """Ack the click, then replay it to Nievah."""
+        # First, always. slack_bolt answers the socket the moment ack() is called and runs
+        # the rest of this afterwards, so Nievah's own latency never counts against Slack's
+        # three seconds.
+        await ack()
+        action_id = (action or {}).get("action_id", "")
+        secret = os.environ.get("NIEVAH_SLACK_SIGNING_SECRET", "")
+        async with _client() as client:
+            if not secret:
+                logger.error(
+                    "[nievah-relay] NIEVAH_SLACK_SIGNING_SECRET is unset; dropped %s", action_id
+                )
+                await _tell_clicker(
+                    client, body, ":warning: This click could not be passed to Nievah, so nothing happened."
+                )
+                return
+            raw = encode(body)
+            try:
+                response = await client.post(NIEVAH_URL, content=raw, headers=sign(raw, secret))
+            except httpx.HTTPError as exc:
+                logger.error("[nievah-relay] %s: Nievah unreachable: %s", action_id, exc)
+                await _tell_clicker(
+                    client, body, ":warning: Nievah could not be reached, so nothing happened. Try again in a minute."
+                )
+                return
+            if response.is_error:
+                # A 401 means this side and Nievah hold different signing keys.
+                logger.error(
+                    "[nievah-relay] %s: Nievah answered HTTP %s", action_id, response.status_code
+                )
+                await _tell_clicker(
+                    client,
+                    body,
+                    f":warning: Nievah refused this click (HTTP {response.status_code}), so nothing happened.",
+                )
+                return
+            logger.info("[nievah-relay] forwarded %s: %s", action_id, response.text[:200])
+
+
+    def register(ctx) -> None:
+        ctx.register_slack_action_handler(NIEVAH_ACTIONS, forward)

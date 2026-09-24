@@ -107,6 +107,13 @@ data:
         headers:
           Authorization: "Bearer ${NIEVAH_MCP_TOKEN}"
 
+    # Hermes plugins are opt-in: nothing under $HERMES_HOME/plugins loads unless it is
+    # named here. nievah-relay hands Nievah's Slack button clicks to Nievah, because this
+    # gateway holds Socket Mode on the app both post with (plugin-nievah-relay.yaml).
+    plugins:
+      enabled:
+        - nievah-relay
+
     dashboard:
       host: 0.0.0.0
       port: 9119
