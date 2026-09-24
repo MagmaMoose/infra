@@ -63,8 +63,7 @@ spec:
                 - name: RCLONE_CONFIG_SRC_PROVIDER
                   value: Minio
                 - name: RCLONE_CONFIG_SRC_ENDPOINT
-                  # trivy:ignore:DS137138 — in-cluster MinIO endpoint; TLS not available inside the cluster
-                  value: "http://minio:9000"
+                  value: "http://minio:9000" # DevSkim: ignore DS137138 - in-cluster MinIO svc, TLS not configured for pod-to-pod traffic
                 - name: RCLONE_CONFIG_SRC_ACCESS_KEY_ID
                   value: backup
                 - name: RCLONE_CONFIG_SRC_SECRET_ACCESS_KEY
