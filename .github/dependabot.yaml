@@ -12,6 +12,10 @@ updates:
     directory: /dockerfiles/openfortivpn
     schedule:
       interval: daily
+  - package-ecosystem: docker
+    directory: /dockerfiles/hermes
+    schedule:
+      interval: daily
   - package-ecosystem: terraform
     directory: /terraform/gcp/prod/europe-west4/project
     schedule:
