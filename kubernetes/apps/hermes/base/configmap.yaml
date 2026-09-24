@@ -83,14 +83,14 @@ data:
       provider: openai
       openai:
         model: speech-to-text
-        base_url: http://litellm.automation.svc.cluster.local:8080/v1
+        base_url: http://litellm.automation.svc.cluster.local:8080/v1  # DevSkim: ignore DS137138 - in-cluster ClusterIP, no external exposure
         api_key: ${OPENAI_API_KEY}
     tts:
       provider: openai
       openai:
         model: text-to-speech
         voice: alloy
-        base_url: http://litellm.automation.svc.cluster.local:8080/v1
+        base_url: http://litellm.automation.svc.cluster.local:8080/v1  # DevSkim: ignore DS137138 - in-cluster ClusterIP, no external exposure
 
     mcp_servers:
       home-assistant:
