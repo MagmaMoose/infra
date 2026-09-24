@@ -100,7 +100,10 @@ syncs working trees detached from their own history.
 The sidecar never touches work in progress. A repository with uncommitted changes, on a
 non-default branch, or ahead of its remote is fetched and then left alone. Repositories
 the API stops returning are moved to `/workspace/repos/.attic`, never deleted, so a
-rate-limited or partial API response cannot destroy local work. Owners are listed in
+rate-limited or partial API response cannot destroy local work. The only deletions are
+a failed transfer's leftover `tmp_pack_*` files, and a clone that never finished and has
+nothing checked out (HEAD still on git's `refs/heads/.invalid` placeholder, or no pack
+at all), which the next pass re-clones. Neither can hold work. Owners are listed in
 `configmap-reposync.yaml`.
 
 Migration: `openhands-migrate-state-v1` copies the old local-path state across once. It
