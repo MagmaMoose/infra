@@ -16,6 +16,7 @@ otherwise. The ones that touch real hosts follow the repo convention and take `-
 | `terraform-import-commands.sh` | Generated `terraform import` commands for OCI resources. |
 | `setup-auto-shutdown.sh` | Set up automatic shutdown after 30 minutes of inactivity, on macOS. See [Auto shutdown](../operations/auto-shutdown.md). |
 | `1password-ssh-config-editor-key-merger.sh` | Merge 1Password SSH keys into an SSH config. |
+| `cloudworkers-await-a1.sh` | Retry a Terraform apply against OCI A1 capacity until it succeeds or hits a real error. |
 
 `scripts/Linux` and `scripts/Windows` hold platform-specific helpers.
 
@@ -103,3 +104,28 @@ scripts/aws-sso-auto-login.sh [setup|login|status|startup|install|uninstall|logs
 
 Configures and manages AWS SSO login with browser cleanup. Run `help` for the current
 subcommand list.
+
+## `cloudworkers-await-a1.sh`
+
+Retries a Terraform apply against the `terraform/oci/cloudworkers/prod/eu-amsterdam-1/server`
+leaf until OCI A1 capacity is available and both `ff-oci3` and `ff-oci4` reach `RUNNING` state,
+or until a non-transient error occurs.
+
+```bash
+scripts/cloudworkers-await-a1.sh [-i <interval>] [-n <max_attempts>]
+```
+
+| Flag | Values | Effect |
+| --- | --- | --- |
+| `-i` | seconds (default 60) | Interval between retries |
+| `-n` | count (default 0) | Maximum attempts (0 = unlimited) |
+| `-h` | none | Print help |
+
+OCI does not guarantee A1.Flex capacity on demand, and applies will fail with "Out of host
+capacity". This script keeps retrying until capacity becomes available. It checks quota every
+tenth attempt to distinguish capacity issues from service limit problems. Run from a machine
+that stays on; the script runs indefinitely until both nodes are `RUNNING`.
+
+!!! warning "Concurrency"
+    Do not run two instances of this script at once, or one while applying the leaf manually.
+    They share a GCS state lock and concurrent applies will fail.
