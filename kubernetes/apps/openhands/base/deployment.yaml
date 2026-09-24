@@ -244,7 +244,11 @@ spec:
               cpu: 25m
               memory: 96Mi
             limits:
-              memory: 512Mi
+              # 1536Mi, not 512Mi: git got this container OOMKilled at 512Mi, and a git
+              # killed part-way leaves its partial pack and an unfinished clone behind
+              # (see clean_leftovers in sync.sh). Only the limit is raised, since
+              # ff-vm1 is ~98% memory-requested and a limit is not scheduler-reserved.
+              memory: 1536Mi
           env:
             - name: HOME
               value: /home/sync
