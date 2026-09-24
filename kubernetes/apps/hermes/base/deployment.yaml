@@ -151,7 +151,10 @@ spec:
             # Hermes is actually used in. Set here rather than with `/hermes sethome`,
             # which writes it to /opt/data/.env on the PVC, outside git.
             - name: SLACK_HOME_CHANNEL
-              value: D0B56PGJJG5
+              valueFrom:
+                secretKeyRef:
+                  name: hermes
+                  key: slack-home-channel
             # --- Home Assistant MCP bearer (substituted into ${HA_MCP_TOKEN}). ---
             - name: HA_MCP_TOKEN
               valueFrom:
