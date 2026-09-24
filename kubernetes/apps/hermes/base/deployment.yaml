@@ -17,7 +17,7 @@ spec:
         # Rolls the pod (→ re-seed) whenever the git-managed config.yaml changes.
         # sha256 of kubernetes/apps/hermes/base/configmap.yaml (there is no nested
         # hermes/ dir; the old path in this comment pointed at nothing).
-        checksum/config: 5fde300b9c7532a63e903e79884e9c0b7bf6ed1487f65180ec7113011617ba23
+        checksum/config: 61b8c8f890fdbdd8d2d00723b26ef0603a9357c7ea191634a78ad2736fb0bb13
         # Same idea for the nievah-relay plugin, which the initContainer copies in at
         # boot: sha256 of kubernetes/apps/hermes/base/plugin-nievah-relay.yaml.
         checksum/plugin-nievah-relay: 81a8994c7838f879dfa60c8f4348faf86a1ee1ce89dbce4f0071ed3ac38b4d4d
@@ -179,6 +179,17 @@ spec:
                 secretKeyRef:
                   name: hermes
                   key: nievah-slack-signing-secret
+            # --- Browser: drive the in-cluster Browserless (chromium v2) over CDP instead
+            # of launching Chromium inside this pod, on the CPU-tight ff-vm1. Hermes passes
+            # a ws URL carrying ?token= through unchanged; $(BROWSERLESS_TOKEN) is expanded
+            # by Kubernetes from the entry above it. ---
+            - name: BROWSERLESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hermes
+                  key: browserless-token
+            - name: BROWSER_CDP_URL
+              value: ws://browserless.automation.svc.cluster.local:3000?token=$(BROWSERLESS_TOKEN)  # DevSkim: ignore DS137138 - in-cluster ClusterIP, no external exposure
           resources:
             # Python agent — heavier than the old Node assistant. No CPU limit
             # (CFS-throttle false alarms). CPU REQUEST dropped 200m -> 50m: ff-vm1

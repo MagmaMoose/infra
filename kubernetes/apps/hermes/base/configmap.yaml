@@ -113,6 +113,15 @@ data:
         transport: streamable-http
         headers:
           Authorization: "Bearer ${NIEVAH_MCP_TOKEN}"
+      # Public, read-only and unauthenticated, so there is no secret to wire: the
+      # Magma Moose product docs (the MagmaMoose/mcp Worker; an anonymous token would
+      # only raise its rate limit) and Context7's current library and framework docs.
+      magmamoose-docs:
+        url: https://mcp.magmamoose.com/mcp
+        transport: streamable-http
+      context7:
+        url: https://mcp.context7.com/mcp
+        transport: streamable-http
 
     # Hermes plugins are opt-in: nothing under $HERMES_HOME/plugins loads unless it is
     # named here. nievah-relay hands Nievah's Slack button clicks to Nievah, because this
