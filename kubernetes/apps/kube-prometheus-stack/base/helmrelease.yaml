@@ -583,7 +583,9 @@ spec:
                   or max by (namespace, cronjob) (kube_cronjob_info{schedule=~`\S+ \S+ \* \* \*|@daily|@midnight`}) * 86400
                   # Set days of the week.
                   or max by (namespace, cronjob) (kube_cronjob_info{schedule=~`\S+ \S+ \* \* \S+|@weekly`}) * 7 * 86400
-                  # Anything else sets a day of the month.
+                  # Anything else sets a day of the month. Catch-all: uses 31-day
+                  # interval, giving a 62-day alert threshold. Conservative by design —
+                  # monthly schedules span 28–31 days, and 2× is the smallest safe window.
                   or max by (namespace, cronjob) (kube_cronjob_info) * 31 * 86400
               # Seconds since each non-suspended CronJob last succeeded, or since it was
               # created if it never has.
@@ -633,6 +635,8 @@ spec:
               # still needs a human.
               - alert: KubeJobFailed
                 expr: |
+                  # kube_job_failed is the Job's Failed condition (boolean), not
+                  # kube_job_status_failed (pod retry counter). Fires once, not on each retry.
                   kube_job_failed{job="kube-state-metrics"} > 0
                   unless on (namespace, job_name) kube_job_owner{owner_kind="CronJob"}
                 for: 15m

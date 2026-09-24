@@ -30,6 +30,8 @@ spec:
           expr: |
             increase(thanos_compact_iterations_total{job="thanos-compactor"}[24h]) == 0
             unless on (namespace, pod) thanos_compact_halted{job="thanos-compactor"} == 1
+          # for:15m fires briefly after a restart while the first iteration is still
+          # running (no history in the 24h window yet). Self-resolves once it completes.
           for: 15m
           labels:
             severity: warning
