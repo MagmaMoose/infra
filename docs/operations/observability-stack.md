@@ -74,7 +74,7 @@ flowchart TD
     Prom -->|sidecar uploads TSDB blocks| MinIO
     TStore -->|reads historical blocks| MinIO
     TCompact <-->|compact / downsample| MinIO
-    MinIO -->|nightly mc mirror| OCI
+    MinIO -->|nightly rclone copy| OCI
 
     FB -->|push logs| Loki
     Alloy -->|push logs| Loki
@@ -147,10 +147,10 @@ Resources are sized from the weekly **KRR** report (`apps/krr/`). The convention
 ### Storage & backup
 
 Observability PVCs use `local-path` on `ff-vm1`. Durability comes from object storage, not volume
-replication: the `minio-backup` CronJob `mc mirror`s `thanos-metrics`, `loki-chunks` and
-`loki-ruler` to **OCI Object Storage** nightly (additive: historical blocks are retained even
-after the source compacts them). The OCI `minio-backups` bucket is provisioned by the terraform
-`backups` module.
+replication: the `minio-backup` CronJob copies `thanos-metrics`, `loki-chunks` and `loki-ruler`
+to **OCI Object Storage** nightly with `rclone copy` (additive: historical blocks are retained
+even after the source compacts them). The OCI `minio-backups` bucket is provisioned by the
+terraform `backups` module.
 
 ### Alerting
 

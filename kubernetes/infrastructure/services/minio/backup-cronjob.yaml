@@ -7,13 +7,22 @@ metadata:
   labels:
     app.kubernetes.io/name: minio-backup
 spec:
-  schedule: "0 4 * * *" # daily 04:00 (after the 03:00 CNPG backup)
+  # No timeZone, so this is 04:00 in the controller-manager's zone (Europe/Amsterdam
+  # on ff-pi1): 02:00 UTC in summer, 03:00 UTC in winter. That is BEFORE the 03:00
+  # UTC CNPG backup, not after it. Nothing depends on the order: CNPG writes to OCI
+  # itself, and this job only copies the Thanos/Loki buckets.
+  schedule: "0 4 * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
       backoffLimit: 2
+      # Forbid means one stuck run blocks every run after it. A Job sat in
+      # ImagePullBackOff for 38h once the mc image vanished, and nothing ended it.
+      # 6h caps a hung run; the first full copy can span several nights, since
+      # each run skips what an earlier one already uploaded.
+      activeDeadlineSeconds: 21600
       template:
         metadata:
           labels:
@@ -23,42 +32,95 @@ spec:
           nodeSelector:
             kubernetes.io/hostname: ff-vm1 # co-locate with MinIO, whose data is a hostPath on this node
           containers:
-            - name: mc
-              image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+            - name: rclone
+              # MinIO stopped publishing images and docker.io/minio/mc is gone
+              # ("repository does not exist"), so the copy runs on rclone instead.
+              image: rclone/rclone:1.75.1
               command: ["/bin/sh", "-c"]
               args:
                 - |
                   set -eu
-                  mc alias set src "http://minio:9000" backup "$MINIO_BACKUP_PASSWORD"
-                  mc alias set oci "$OCI_ENDPOINT" "$OCI_ACCESS_KEY" "$OCI_SECRET_KEY"
-                  # Additive mirror (no --remove): the OCI copy keeps historical
+                  # Additive copy (copy, never sync): the OCI copy keeps historical
                   # Thanos/Loki blocks even after the source compacts/expires them.
+                  # --update --use-server-modtime compares upload times from the
+                  # listing. rclone's default modtime check reads object metadata,
+                  # one HEAD per object on both ends, which does not scale to
+                  # loki-chunks. No --fast-list: it holds the whole listing in
+                  # memory (~1KiB per object).
                   for b in thanos-metrics loki-chunks loki-ruler; do
-                    echo "==> mirroring $b -> oci/minio-backups/$b"
-                    mc mirror --overwrite "src/$b" "oci/minio-backups/$b"
+                    echo "==> copying $b -> oci:minio-backups/$b"
+                    rclone copy "src:$b" "oci:minio-backups/$b" \
+                      --update --use-server-modtime --no-update-modtime \
+                      --stats 10m --stats-one-line --stats-log-level NOTICE
                   done
                   echo "minio backup complete"
+              # rclone builds the "src" and "oci" remotes from RCLONE_CONFIG_<REMOTE>_*,
+              # so there is no config file, and the credentials come from the same
+              # Secret keys mc used.
               env:
-                - name: MINIO_BACKUP_PASSWORD
+                - name: RCLONE_CONFIG_SRC_TYPE
+                  value: s3
+                - name: RCLONE_CONFIG_SRC_PROVIDER
+                  value: Minio
+                - name: RCLONE_CONFIG_SRC_ENDPOINT
+                  value: "http://minio:9000" # DevSkim: ignore DS137138 - in-cluster MinIO svc, TLS not configured for pod-to-pod traffic
+                - name: RCLONE_CONFIG_SRC_ACCESS_KEY_ID
+                  value: backup
+                - name: RCLONE_CONFIG_SRC_SECRET_ACCESS_KEY
                   valueFrom:
                     secretKeyRef:
                       name: minio-credentials
                       key: backup-password
-                - name: OCI_ACCESS_KEY
+                - name: RCLONE_CONFIG_OCI_TYPE
+                  value: s3
+                - name: RCLONE_CONFIG_OCI_PROVIDER
+                  value: Other
+                - name: RCLONE_CONFIG_OCI_ENDPOINT
+                  value: "https://axn3gwpaabzc.compat.objectstorage.eu-amsterdam-1.oraclecloud.com"
+                # OCI only accepts a blank/us-east-1 signing region in the tenancy's
+                # home region, so name the bucket's region explicitly.
+                - name: RCLONE_CONFIG_OCI_REGION
+                  value: eu-amsterdam-1
+                # terraform owns the bucket and this key may not create buckets, so
+                # skip rclone's check-or-create step.
+                - name: RCLONE_CONFIG_OCI_NO_CHECK_BUCKET
+                  value: "true"
+                - name: RCLONE_CONFIG_OCI_ACCESS_KEY_ID
                   valueFrom:
                     secretKeyRef:
                       name: minio-backup-oci
                       key: ACCESS_KEY_ID
-                - name: OCI_SECRET_KEY
+                - name: RCLONE_CONFIG_OCI_SECRET_ACCESS_KEY
                   valueFrom:
                     secretKeyRef:
                       name: minio-backup-oci
                       key: ACCESS_SECRET_KEY
-                - name: OCI_ENDPOINT
-                  value: "https://axn3gwpaabzc.compat.objectstorage.eu-amsterdam-1.oraclecloud.com"
+                - name: RCLONE_CACHE_DIR
+                  value: /tmp
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                runAsNonRoot: true
+                runAsUser: 65534
+                runAsGroup: 65534
+                capabilities:
+                  drop:
+                    - ALL
+                seccompProfile:
+                  type: RuntimeDefault
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+              # mc was OOMKilled at 256Mi. The limit is headroom, not a measurement.
+              # The request stays at 128Mi: ff-vm1 is ~98% memory-requested, and a
+              # limit is not scheduler-reserved, so raising only the limit is free.
               resources:
                 requests:
                   cpu: 50m
                   memory: 128Mi
                 limits:
-                  memory: 256Mi
+                  memory: 1Gi
+          volumes:
+            - name: tmp
+              emptyDir:
+                medium: Memory
