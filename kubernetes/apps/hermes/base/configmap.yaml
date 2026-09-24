@@ -38,14 +38,15 @@ data:
   config.yaml: |
     model:
       provider: custom
-      # OpenAI through LiteLLM, on OPENAI_API_KEY. It was claude-sonnet-4-6 until the
-      # Anthropic API key it bills ran out of credit (HTTP 400 "credit balance is too
-      # low"). The -max aliases are not an option here: they pass a Claude subscription
-      # OAuth token through, and Anthropic only permits those in Claude Code and
-      # claude.ai, not in another agent. gpt-5.6-terra is the middle of the 5.6 tiers
-      # (luna < terra < sol), the closest match to Sonnet on price. Keep
-      # HERMES_INFERENCE_MODEL in the Deployment equal to this.
-      default: gpt-5.6-terra
+      # A ROLE, NOT A PROVIDER MODEL. `agent-chat` is defined in the LiteLLM config's
+      # tiers-and-roles section (kubernetes/apps/litellm/base/configmap.yaml), which is the
+      # one place the provider is chosen; moving provider never touches this file. It was
+      # claude-sonnet-4-6 until that Anthropic API key ran out of credit, then
+      # gpt-5.6-terra by name. The Claude -max aliases are not an option: they pass a
+      # Claude subscription OAuth token through, and Anthropic only permits those in
+      # Claude Code and claude.ai, not in another agent. Keep HERMES_INFERENCE_MODEL in the
+      # Deployment equal to this.
+      default: agent-chat
       base_url: http://litellm.automation.svc.cluster.local:8080/v1
       api_mode: chat_completions
       # MUST be stated here. The OPENAI_API_KEY env is NOT a fallback for a
@@ -68,6 +69,34 @@ data:
 
     cron:
       enabled: true
+
+    # Cron schedules (the daily brief is seeded by files/seed_cron.py) run in this zone.
+    timezone: Europe/Amsterdam
+
+    # Voice on Slack: an audio message is transcribed, and replies are spoken once
+    # `/voice on` is set in a chat. Both go through LiteLLM's speech roles, so the provider
+    # is chosen there like the chat model's. The image lacks the local defaults
+    # (faster-whisper, edge-tts), so the provider must be `openai`. STT only honours
+    # base_url when api_key is also set here; TTS takes its key from OPENAI_API_KEY.
+    stt:
+      enabled: true
+      provider: openai
+      openai:
+        model: speech-to-text
+        base_url: http://litellm.automation.svc.cluster.local:8080/v1  # DevSkim: ignore DS137138 - in-cluster ClusterIP, no external exposure
+        api_key: ${OPENAI_API_KEY}
+    tts:
+      provider: openai
+      openai:
+        model: text-to-speech
+        voice: alloy
+        base_url: http://litellm.automation.svc.cluster.local:8080/v1  # DevSkim: ignore DS137138 - in-cluster ClusterIP, no external exposure
+
+    # Web search through DuckDuckGo: no key and no account. The `ddgs` package it needs is
+    # not in upstream's image, which is why this Deployment runs ghcr.io/magmamoose/hermes
+    # (dockerfiles/hermes). ddgs searches but cannot read pages; the browser does that.
+    web:
+      search_backend: ddgs
 
     mcp_servers:
       home-assistant:
@@ -122,6 +151,33 @@ data:
       context7:
         url: https://mcp.context7.com/mcp
         transport: streamable-http
+      # The owner's public profile and docs, the same server calebsargeant.com's chat
+      # reads. Open, and served at the root of that host, not at /mcp.
+      calebsargeant:
+        url: https://mcp.calebsargeant.com/
+        transport: streamable-http
+      # ClickUp's hosted MCP. OAuth only (it refuses API tokens), with dynamic client
+      # registration, so there is no secret to wire: sign in once with
+      #   kubectl -n automation exec -it deploy/hermes -- hermes mcp login clickup
+      # and paste the redirect URL back. The token lands in $HERMES_HOME/mcp-tokens on the
+      # PVC. Until then this server fails to connect and Hermes carries on without it;
+      # servers connect independently.
+      clickup:
+        url: https://mcp.clickup.com/mcp
+        transport: streamable-http
+        auth: oauth
+      # Shared memory with the other agents (Claude Code, and later Holmes and OpenHands),
+      # over the in-cluster mem0 API. files/mem0_mcp.py, copied to $HERMES_HOME/mcp by the
+      # initContainer. A stdio server only sees the env it is given here, so the key is
+      # passed through explicitly. mem0's NetworkPolicy admits pods labelled app=hermes.
+      mem0:
+        command: /opt/hermes/.venv/bin/python
+        args: ["/opt/data/mcp/mem0_mcp.py"]
+        env:
+          MEM0_BASE_URL: http://mem0.automation.svc.cluster.local:8000  # DevSkim: ignore DS137138 - in-cluster ClusterIP, no external exposure
+          MEM0_API_KEY: ${MEM0_API_KEY}
+          MEM0_USER_ID: owner
+          MEM0_AGENT_ID: hermes
 
     # Hermes plugins are opt-in: nothing under $HERMES_HOME/plugins loads unless it is
     # named here. nievah-relay hands Nievah's Slack button clicks to Nievah, because this
