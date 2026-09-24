@@ -38,7 +38,14 @@ data:
   config.yaml: |
     model:
       provider: custom
-      default: claude-sonnet-4-6
+      # OpenAI through LiteLLM, on OPENAI_API_KEY. It was claude-sonnet-4-6 until the
+      # Anthropic API key it bills ran out of credit (HTTP 400 "credit balance is too
+      # low"). The -max aliases are not an option here: they pass a Claude subscription
+      # OAuth token through, and Anthropic only permits those in Claude Code and
+      # claude.ai, not in another agent. gpt-5.6-terra is the middle of the 5.6 tiers
+      # (luna < terra < sol), the closest match to Sonnet on price. Keep
+      # HERMES_INFERENCE_MODEL in the Deployment equal to this.
+      default: gpt-5.6-terra
       base_url: http://litellm.automation.svc.cluster.local:8080/v1
       api_mode: chat_completions
       # MUST be stated here. The OPENAI_API_KEY env is NOT a fallback for a
