@@ -28,6 +28,10 @@ metadata:
   namespace: general-system
   labels:
     app.kubernetes.io/name: seaweedfs-migration
+  annotations:
+    checkov.io/skip1: CKV_K8S_11=CPU limits are unset estate-wide by decision; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited.
+    checkov.io/skip2: CKV_K8S_15=IfNotPresent is the house convention; the image is pinned by digest, so a pull can only ever fetch the same bytes
+    checkov.io/skip3: CKV_K8S_35=rclone builds both remotes from RCLONE_CONFIG_* env, as the MinIO backup CronJob does; a file would mean writing a config with the keys in it
 spec:
   # No ttlSecondsAfterFinished: Flux would re-create a Job the TTL deleted, and run it again.
   backoffLimit: 6
@@ -39,6 +43,8 @@ spec:
     spec:
       restartPolicy: OnFailure
       priorityClassName: low
+      # rclone never talks to the Kubernetes API.
+      automountServiceAccountToken: false
       # Both ends run on ff-vm1, so the copy never leaves the node.
       nodeSelector:
         kubernetes.io/hostname: ff-vm1
@@ -50,7 +56,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: rclone
-          image: rclone/rclone:1.75.1
+          image: rclone/rclone:1.75.1@sha256:45401ad7410db1d67ffdb58e19059ad20b0d8e0285a60e38bbec55cc1019c7a5
           command: ["/bin/sh", "-c"]
           args:
             - |

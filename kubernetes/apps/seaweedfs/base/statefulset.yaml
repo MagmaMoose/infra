@@ -29,6 +29,8 @@ metadata:
   namespace: general-system
   labels:
     app.kubernetes.io/name: seaweedfs
+  annotations:
+    checkov.io/skip1: CKV_K8S_11=CPU limits are unset estate-wide by decision; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited.
 spec:
   serviceName: seaweedfs
   replicas: 1
@@ -43,6 +45,8 @@ spec:
       # `critical`, set directly for the reason MinIO's manifest gives: the data plane must
       # not depend on Kyverno being up to avoid being the first thing preempted.
       priorityClassName: critical
+      # SeaweedFS never talks to the Kubernetes API.
+      automountServiceAccountToken: false
       # The node that mounts the NAS at /mnt/raid.
       nodeSelector:
         kubernetes.io/hostname: ff-vm1
@@ -88,7 +92,9 @@ spec:
             - -master.dir=/meta
             - -volume.dir.idx=/meta/idx
             - -ip=127.0.0.1
-            - -ip.bind=0.0.0.0
+            # All interfaces of the POD, not the node: the ClusterIP Service reaches it on
+            # the pod IP, and its own parts talk over 127.0.0.1 (-ip).
+            - -ip.bind=0.0.0.0 # DevSkim: ignore DS162092 - pod network namespace; only the ClusterIP Service fronts it
             # 5 GB volumes rather than the 30 GB default: vacuuming a volume rewrites it, and
             # a smaller rewrite is a gentler job for the NAS. 0 sizes the count from free space.
             - -master.volumeSizeLimitMB=5000
