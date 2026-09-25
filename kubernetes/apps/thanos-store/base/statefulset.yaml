@@ -30,7 +30,8 @@ spec:
             - name: OBJSTORE_CONFIG
               valueFrom:
                 secretKeyRef:
-                  name: thanos-objstore-config
+                  # SeaweedFS; thanos-objstore-config is MinIO's, kept for rollback.
+                  name: thanos-objstore-seaweedfs
                   key: objstore.yml
           ports:
             - name: http

@@ -30,7 +30,7 @@ spec:
         spec:
           restartPolicy: OnFailure
           nodeSelector:
-            kubernetes.io/hostname: ff-vm1 # co-locate with MinIO, whose data is a hostPath on this node
+            kubernetes.io/hostname: ff-vm1 # co-locate with SeaweedFS, which runs on this node
           containers:
             - name: rclone
               # MinIO stopped publishing images and docker.io/minio/mc is gone
@@ -42,18 +42,23 @@ spec:
                   set -eu
                   # Additive copy (copy, never sync): the OCI copy keeps historical
                   # Thanos/Loki blocks even after the source compacts/expires them.
-                  # --update --use-server-modtime compares upload times from the
-                  # listing. rclone's default modtime check reads object metadata,
-                  # one HEAD per object on both ends, which does not scale to
-                  # loki-chunks. No --fast-list: it holds the whole listing in
-                  # memory (~1KiB per object).
+                  #
+                  # The source is SeaweedFS since the MinIO cutover, and the OCI side
+                  # keeps its minio-backups name so the copy carries on where it was.
+                  # --size-only, not --update --use-server-modtime: every object came
+                  # into SeaweedFS by a copy, so its upload time there is newer than
+                  # its copy in OCI, and a time check would upload all 205 GiB again.
+                  # Size alone is exact here: Thanos blocks and Loki chunks and index
+                  # files are written once and never changed. It also needs no HEAD
+                  # per object, which is what did not scale to loki-chunks. No
+                  # --fast-list: it holds the whole listing in memory (~1KiB per object).
                   for b in thanos-metrics loki-chunks loki-ruler; do
                     echo "==> copying $b -> oci:minio-backups/$b"
                     rclone copy "src:$b" "oci:minio-backups/$b" \
-                      --update --use-server-modtime --no-update-modtime \
+                      --size-only \
                       --stats 10m --stats-one-line --stats-log-level NOTICE
                   done
-                  echo "minio backup complete"
+                  echo "seaweedfs backup complete"
               # rclone builds the "src" and "oci" remotes from RCLONE_CONFIG_<REMOTE>_*,
               # so there is no config file, and the credentials come from the same
               # Secret keys mc used.
@@ -61,9 +66,11 @@ spec:
                 - name: RCLONE_CONFIG_SRC_TYPE
                   value: s3
                 - name: RCLONE_CONFIG_SRC_PROVIDER
-                  value: Minio
+                  value: SeaweedFS
+                # SeaweedFS's read-only `backup` identity, which reuses MinIO's backup user
+                # and its vault entry (so the key is still read from minio-credentials).
                 - name: RCLONE_CONFIG_SRC_ENDPOINT
-                  value: "http://minio:9000" # DevSkim: ignore DS137138 - in-cluster MinIO svc, TLS not configured for pod-to-pod traffic
+                  value: "http://seaweedfs:8333" # DevSkim: ignore DS137138 - in-cluster SeaweedFS svc, TLS not configured for pod-to-pod traffic
                 - name: RCLONE_CONFIG_SRC_ACCESS_KEY_ID
                   value: backup
                 - name: RCLONE_CONFIG_SRC_SECRET_ACCESS_KEY

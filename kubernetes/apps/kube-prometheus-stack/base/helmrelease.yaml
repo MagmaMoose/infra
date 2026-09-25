@@ -97,9 +97,11 @@ spec:
           # Chart 68.2.2 expects the `existingSecret` form here; the flat name/key
           # form is silently dropped by the chart, leaving the Prometheus CR with no
           # objectStorageConfig and the sidecar logging "uploads will be disabled".
+          # SeaweedFS since the MinIO cutover. thanos-objstore-config is MinIO's, kept for
+          # rollback (see externalsecret-thanos-objstore-seaweedfs.yaml).
           objectStorageConfig:
             existingSecret:
-              name: thanos-objstore-config
+              name: thanos-objstore-seaweedfs
               key: objstore.yml
           resources:
             requests:

@@ -21,6 +21,14 @@ spec:
           image: grafana/loki:3.3.2
           args:
             - -config.file=/etc/loki/loki.yaml
+            # Fills ${LOKI_S3_SECRET_ACCESS_KEY} in the config from the env below.
+            - -config.expand-env=true
+          env:
+            - name: LOKI_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: loki-s3
+                  key: secret-access-key
           ports:
             - name: http
               containerPort: 3100
