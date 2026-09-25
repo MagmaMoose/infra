@@ -1,4 +1,4 @@
-# The copy of every MinIO bucket into SeaweedFS (kubernetes/infrastructure/services/seaweedfs),
+# The copy of every MinIO bucket into SeaweedFS (kubernetes/apps/seaweedfs),
 # run while MinIO is still serving. Nothing is switched by this Job: Thanos, Loki and the
 # backup keep using MinIO until the cutover change points them at SeaweedFS.
 #
