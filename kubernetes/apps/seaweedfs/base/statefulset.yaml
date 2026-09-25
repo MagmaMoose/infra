@@ -91,10 +91,13 @@ spec:
             # The filer's embedded leveldb goes under -master.dir too (filerldb2).
             - -master.dir=/meta
             - -volume.dir.idx=/meta/idx
-            - -ip=127.0.0.1
+            # Its own parts (master, volume, filer, S3) find each other at this address, and
+            # all run in this one process. Not debug config: it is what keeps their traffic
+            # inside the pod.
+            - -ip=127.0.0.1 # DevSkim: ignore DS162092 - intra-pod address of weed's own components
             # All interfaces of the POD, not the node: the ClusterIP Service reaches it on
-            # the pod IP, and its own parts talk over 127.0.0.1 (-ip).
-            - -ip.bind=0.0.0.0 # DevSkim: ignore DS162092 - pod network namespace; only the ClusterIP Service fronts it
+            # the pod IP.
+            - -ip.bind=0.0.0.0
             # 5 GB volumes rather than the 30 GB default: vacuuming a volume rewrites it, and
             # a smaller rewrite is a gentler job for the NAS. 0 sizes the count from free space.
             - -master.volumeSizeLimitMB=5000
