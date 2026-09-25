@@ -66,9 +66,14 @@ spec:
 
     # PROMETHEUS_URL points the prometheus/metrics toolset at the kube-prometheus-stack
     # Prometheus (observability ns). LITELLM_API_KEY is injected from the ExternalSecret.
+    #
+    # The service is `prometheus-prometheus`: the stack sets fullnameOverride, so there is
+    # no `kube-prometheus-stack-prometheus`. With the wrong name the toolset cannot resolve
+    # Prometheus and Holmes falls back to the API server's services/proxy, which its
+    # read-only role forbids, so every alert question failed.
     additionalEnvVars:
       - name: PROMETHEUS_URL
-        value: http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090
+        value: http://prometheus-prometheus.observability.svc.cluster.local:9090  # DevSkim: ignore DS137138 - in-cluster ClusterIP, no external exposure
     additional_env_froms:
       - secretRef:
           name: holmesgpt-litellm
