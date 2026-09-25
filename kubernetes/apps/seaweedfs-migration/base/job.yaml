@@ -9,8 +9,13 @@
 #     the block that replaced it, and overlapping blocks halt the compactor.
 #   - Loki's chunks and index files only ever arrive; its retention deletes chunks by index,
 #     so a chunk copied after Loki deleted it is at worst unreferenced garbage.
-# So after the cutover, running this again (a new Job name, -2) picks up whatever landed in
-# MinIO between this run and the switch, and nothing it copies can conflict.
+# So after the cutover, running this again (a new Job name) picks up whatever landed in MinIO
+# between this run and the switch, and nothing it copies can conflict.
+#
+# -2, not -1: the first run OOMKilled SeaweedFS with four transfers each splitting a 512 MB
+# chunk file into parallel parts. Two transfers, one stream each and two 16 MB parts at a time
+# keep the bytes in flight small, and SeaweedFS now caps its own. The -1 Job was suspended, and
+# what it copied is skipped here.
 #
 # 205 GiB and ~130k objects on 2026-09-25, read from the NAS through a MinIO that throttles
 # itself, so this takes hours. Progress is the stats line every five minutes in its log.
@@ -24,7 +29,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: seaweedfs-copy-from-minio-1
+  name: seaweedfs-copy-from-minio-2
   namespace: general-system
   labels:
     app.kubernetes.io/name: seaweedfs-migration
@@ -65,7 +70,8 @@ spec:
                 echo "==> $b"
                 rclone mkdir "dst:$b"
                 rclone copy "src:$b" "dst:$b" \
-                  --fast-list --transfers 4 --checkers 8 \
+                  --fast-list --transfers 2 --checkers 8 \
+                  --multi-thread-streams 0 --s3-chunk-size 16M --s3-upload-concurrency 2 \
                   --retries 10 --low-level-retries 30 \
                   --stats 5m --stats-one-line --stats-log-level NOTICE
               done
