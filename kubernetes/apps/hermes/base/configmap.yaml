@@ -205,6 +205,15 @@ data:
     # "approve owner/repo#n" works from the reference alone. HMAC-SHA256 of the raw body
     # in X-Webhook-Signature, keyed with the vault entry Nievah signs with; X-Request-ID
     # makes a retried event a no-op.
+    #
+    # NO `secret:` HERE, ON PURPOSE. The route takes its key from the WEBHOOK_SECRET env
+    # (the Deployment), which the gateway applies as the webhook platform's global secret.
+    # `${VAR}` does NOT work in this block: the gateway reads `platforms` with a plain
+    # yaml.safe_load, and only the agent's own config loader (model, mcp_servers) expands
+    # env vars. Written as `secret: ${NIEVAH_EVENTS_SECRET}`, the key was that literal
+    # string, public in this repo: Nievah's real signature got a 401, and anything in the
+    # cluster could have signed a message into the owner's DM. A `secret:` on the route
+    # would also override the env one, so none belongs here.
     platforms:
       webhook:
         enabled: true
@@ -212,7 +221,6 @@ data:
           port: 8644
           routes:
             nievah:
-              secret: ${NIEVAH_EVENTS_SECRET}
               deliver: slack
               deliver_only: true
               prompt: "{text}"
