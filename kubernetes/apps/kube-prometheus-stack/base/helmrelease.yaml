@@ -510,6 +510,56 @@ spec:
           memory: 384Mi
         limits:
           memory: 384Mi
+      # Holmes's scheduled health checks (kubernetes/apps/holmesgpt/checks) keep their
+      # result in a ScheduledHealthCheck's status and nowhere else: the operator has no
+      # metrics endpoint. These three series are what the holmes-health-checks rules
+      # below alert on. The chart adds the CRD list/watch this needs on its own; the
+      # extra rule is for the objects themselves.
+      #
+      # finding_info carries Holmes's findings as a label, so the alert can quote them.
+      # It is one series per check, replaced when a run's findings change, and the
+      # alert only reads it in an annotation, so new findings never make a new alert.
+      rbac:
+        extraRules:
+          - apiGroups: ["holmesgpt.dev"]
+            resources: ["scheduledhealthchecks"]
+            verbs: ["list", "watch"]
+      customResourceState:
+        enabled: true
+        config:
+          kind: CustomResourceStateMetrics
+          spec:
+            resources:
+              - groupVersionKind:
+                  group: holmesgpt.dev
+                  kind: ScheduledHealthCheck
+                  version: v1alpha1
+                metricNamePrefix: holmes_healthcheck
+                labelsFromPath:
+                  check: [metadata, name]
+                  namespace: [metadata, namespace]
+                metrics:
+                  - name: last_result
+                    help: "Result of the check's last run: pass, fail or error."
+                    each:
+                      type: StateSet
+                      stateSet:
+                        labelName: result
+                        path: [status, lastResult]
+                        list: [pass, fail, error]
+                  - name: last_run_timestamp_seconds
+                    help: "When the check last ran."
+                    each:
+                      type: Gauge
+                      gauge:
+                        path: [status, lastScheduleTime]
+                  - name: finding_info
+                    help: "Holmes's findings from the check's last run."
+                    each:
+                      type: Info
+                      info:
+                        labelsFromPath:
+                          message: [status, message]
 
     # kube-prometheus-stack ships no OOMKilled alert. Three separate OOM bugs surfaced
     # on 2026-08-31 (one container OOMKilled mid-scan at 256Mi, another running against
@@ -752,6 +802,54 @@ spec:
                     cert-manager cannot issue it. Check `kubectl -n
                     {{ $labels.exported_namespace }} describe certificate
                     {{ $labels.name }}` and its latest CertificateRequest and Order.
+
+      # ---- Holmes scheduled health checks (kubernetes/apps/holmesgpt/checks) ---------
+      # From kube-state-metrics' customResourceState above. The checks look only for
+      # things that need someone to act and that no other rule here catches, so a failed
+      # one is critical: that is what puts it in Nievah's alert lane, which asks Holmes
+      # about it, files the fix and tells the owner.
+      holmes-health-checks:
+        groups:
+          - name: holmes-health-checks
+            rules:
+              # The findings are read into the description, never into a label. So a
+              # check that keeps failing is ONE alert, investigated once, not a new one
+              # every run. The price: a new problem that turns up while an older one is
+              # still unfixed raises no new alert. The description always shows the
+              # latest run, and so does the daily brief.
+              - alert: HolmesHealthCheckFailed
+                expr: holmes_healthcheck_last_result{result="fail"} == 1
+                labels:
+                  severity: critical
+                annotations:
+                  summary: 'Holmes health check {{ $labels.check }} found a problem'
+                  description: >-
+                    {{ with printf `holmes_healthcheck_finding_info{namespace="%s", check="%s"}` $labels.namespace $labels.check | query }}{{ . | first | label "message" }}{{ end }}
+                    The check's question: `kubectl -n {{ $labels.namespace }} get
+                    scheduledhealthcheck {{ $labels.check }} -o yaml`.
+              # Holmes could not answer at all (LiteLLM down or Holmes's budget spent,
+              # Holmes restarting). That says nothing about the cluster, so a warning.
+              - alert: HolmesHealthCheckErrored
+                expr: holmes_healthcheck_last_result{result="error"} == 1
+                labels:
+                  severity: warning
+                annotations:
+                  summary: 'Holmes health check {{ $labels.check }} could not run'
+                  description: >-
+                    {{ with printf `holmes_healthcheck_finding_info{namespace="%s", check="%s"}` $labels.namespace $labels.check | query }}{{ . | first | label "message" }}{{ end }}
+                    Check `kubectl -n holmesgpt logs deploy/holmesgpt-holmes`.
+              # The longest schedule is daily, so 26h is one missed run plus slack.
+              - alert: HolmesHealthCheckNotRunning
+                expr: time() - holmes_healthcheck_last_run_timestamp_seconds > 26 * 3600
+                for: 15m
+                labels:
+                  severity: warning
+                annotations:
+                  summary: 'Holmes health check {{ $labels.check }} has not run for {{ $value | humanizeDuration }}'
+                  description: >-
+                    The Holmes operator starts each run. Check `kubectl -n holmesgpt logs
+                    deploy/holmesgpt-operator`, and that the check's spec.enabled is not
+                    false.
 
     # ---- k3s control-plane scrape targets -------------------------------------------
     # k3s does not run the scheduler, controller-manager and kube-proxy as separate
