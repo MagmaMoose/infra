@@ -1,0 +1,73 @@
+# Loki's config, in plain text. It used to be SOPS-encrypted whole (configmap.enc.yaml) only
+# because the MinIO secret key sat in it. The key now comes from the loki-s3 Secret
+# (externalsecret.yaml) as LOKI_S3_SECRET_ACCESS_KEY, expanded at start (-config.expand-env),
+# so nothing here is secret and a change to it can be reviewed.
+#
+# Chunks and index live in SeaweedFS (kubernetes/apps/seaweedfs), which replaced MinIO, in the
+# `loki` bucket. Loki started that bucket empty: MinIO could not list its 112k chunk files off
+# the NAS in useful time, and a fresh start cost only the last week of logs (retention is 7
+# days). The old logs are still in MinIO's loki-chunks, untouched.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: observability
+data:
+  loki.yaml: |
+    auth_enabled: false
+    server:
+      http_listen_port: 3100
+      grpc_listen_port: 9096
+    common:
+      path_prefix: /loki
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+    schema_config:
+      configs:
+      - from: 2024-01-01
+        store: tsdb
+        object_store: s3
+        schema: v13
+        index:
+          prefix: loki_index_
+          period: 24h
+    storage_config:
+      aws:
+        endpoint: seaweedfs.general-system.svc.cluster.local:8333
+        bucketnames: loki
+        access_key_id: loki
+        secret_access_key: ${LOKI_S3_SECRET_ACCESS_KEY}
+        s3forcepathstyle: true
+        insecure: true
+      tsdb_shipper:
+        active_index_directory: /loki/index
+        cache_location: /loki/index_cache
+    limits_config:
+      retention_period: 168h
+      max_query_series: 10000
+      max_query_lookback: 168h
+      ingestion_rate_mb: 16
+      ingestion_burst_size_mb: 32
+      per_stream_rate_limit: 8MB
+      per_stream_rate_limit_burst: 24MB
+    compactor:
+      working_directory: /loki/compactor
+      compaction_interval: 10m
+      delete_request_store: s3
+      retention_enabled: true
+      retention_delete_delay: 2h
+      retention_delete_worker_count: 150
+    query_range:
+      align_queries_with_step: true
+      cache_results: true
+    ingester:
+      chunk_idle_period: 5m
+      max_chunk_age: 1h
+      chunk_target_size: 1572864
+      flush_op_timeout: 10s
