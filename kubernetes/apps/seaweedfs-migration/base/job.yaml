@@ -1,0 +1,113 @@
+# The copy of every MinIO bucket into SeaweedFS (kubernetes/infrastructure/services/seaweedfs),
+# run while MinIO is still serving. Nothing is switched by this Job: Thanos, Loki and the
+# backup keep using MinIO until the cutover change points them at SeaweedFS.
+#
+# COPY, NOT SYNC. Nothing is deleted on either side. What makes a later pass safe:
+#   - Thanos's compactor is paused for the whole migration (replicas 0 in its StatefulSet),
+#     so MinIO's thanos-metrics only GROWS (the sidecar uploads new 2h blocks). A block the
+#     compactor had merged and deleted mid-copy would otherwise survive in SeaweedFS next to
+#     the block that replaced it, and overlapping blocks halt the compactor.
+#   - Loki's chunks and index files only ever arrive; its retention deletes chunks by index,
+#     so a chunk copied after Loki deleted it is at worst unreferenced garbage.
+# So after the cutover, running this again (a new Job name, -2) picks up whatever landed in
+# MinIO between this run and the switch, and nothing it copies can conflict.
+#
+# 205 GiB and ~130k objects on 2026-09-25, read from the NAS through a MinIO that throttles
+# itself, so this takes hours. Progress is the stats line every five minutes in its log.
+# rclone skips what is already there (size and modtime), so a restart resumes rather than
+# starts over.
+#
+# Both sides use the admin identity (MinIO's root user; SeaweedFS's `admin`, which is the same
+# vault entry): only admin can create buckets, and postgres-backups is readable by no other
+# user. Buckets: all four MinIO has, postgres-backups included although CloudNativePG now
+# writes its backups to OCI, so that nothing is left behind only in MinIO.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seaweedfs-copy-from-minio-1
+  namespace: general-system
+  labels:
+    app.kubernetes.io/name: seaweedfs-migration
+spec:
+  # No ttlSecondsAfterFinished: Flux would re-create a Job the TTL deleted, and run it again.
+  backoffLimit: 6
+  activeDeadlineSeconds: 172800
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: seaweedfs-migration
+    spec:
+      restartPolicy: OnFailure
+      priorityClassName: low
+      # Both ends run on ff-vm1, so the copy never leaves the node.
+      nodeSelector:
+        kubernetes.io/hostname: ff-vm1
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: rclone
+          image: rclone/rclone:1.75.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              for b in thanos-metrics loki-chunks loki-ruler postgres-backups; do
+                echo "==> $b"
+                rclone mkdir "dst:$b"
+                rclone copy "src:$b" "dst:$b" \
+                  --fast-list --transfers 4 --checkers 8 \
+                  --retries 10 --low-level-retries 30 \
+                  --stats 5m --stats-one-line --stats-log-level NOTICE
+              done
+              echo "copy from minio complete"
+          env:
+            - name: RCLONE_CONFIG_SRC_TYPE
+              value: s3
+            - name: RCLONE_CONFIG_SRC_PROVIDER
+              value: Minio
+            - name: RCLONE_CONFIG_SRC_ENDPOINT
+              value: "http://minio.general-system.svc.cluster.local:9000" # DevSkim: ignore DS137138 - in-cluster ClusterIP, TLS not configured for pod-to-pod traffic
+            - name: RCLONE_CONFIG_SRC_ACCESS_KEY_ID
+              value: admin
+            - name: RCLONE_CONFIG_SRC_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: root-password
+            - name: RCLONE_CONFIG_DST_TYPE
+              value: s3
+            - name: RCLONE_CONFIG_DST_PROVIDER
+              value: SeaweedFS
+            - name: RCLONE_CONFIG_DST_ENDPOINT
+              value: "http://seaweedfs.general-system.svc.cluster.local:8333" # DevSkim: ignore DS137138 - in-cluster ClusterIP, TLS not configured for pod-to-pod traffic
+            - name: RCLONE_CONFIG_DST_ACCESS_KEY_ID
+              value: admin
+            - name: RCLONE_CONFIG_DST_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: root-password
+            - name: RCLONE_CACHE_DIR
+              value: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 1Gi
+      volumes:
+        - name: tmp
+          emptyDir: {}
