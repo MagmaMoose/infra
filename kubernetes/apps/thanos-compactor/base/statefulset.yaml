@@ -7,7 +7,13 @@ metadata:
     app.kubernetes.io/name: thanos-compactor
 spec:
   serviceName: thanos-compactor
-  replicas: 1
+  # PAUSED (0, normally 1) while thanos-metrics is copied from MinIO to SeaweedFS
+  # (kubernetes/apps/seaweedfs-migration). Compaction merges blocks and deletes the
+  # originals; mid-copy, SeaweedFS would keep both and the compactor would later halt on the
+  # overlap. With it paused the bucket only grows, so copying again after the cutover is
+  # safe. Back to 1 in the cutover change. Nothing is lost while it is off: raw blocks keep
+  # arriving from the sidecar, and compaction and downsampling catch up afterwards.
+  replicas: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: thanos-compactor

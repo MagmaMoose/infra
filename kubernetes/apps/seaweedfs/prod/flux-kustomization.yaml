@@ -1,0 +1,22 @@
+---
+# SeaweedFS, in its own Kustomization rather than beside MinIO in infrastructure-services:
+# that one waits on everything in it and 17 apps depend on it, so a new component that fails
+# to come up there would hold all of them back. Here a failure stops only this and the copy.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: prod-seaweedfs
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./kubernetes/apps/seaweedfs/base
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  timeout: 5m
+  wait: true
+  # general-system, Longhorn and the oci-vault store all come from the infrastructure tiers.
+  dependsOn:
+    - name: infrastructure-services
+# No `decryption` block: the only secret is an ExternalSecret (OCI Vault).

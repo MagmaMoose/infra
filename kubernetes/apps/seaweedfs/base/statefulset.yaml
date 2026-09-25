@@ -1,0 +1,174 @@
+# kics-scan disable=4a20ebac-1060-4c81-95d1-1f7f620e983b,48a5beba-e4c0-4584-a2aa-e6894e4cf424
+#
+# SeaweedFS: the in-cluster S3 that replaces MinIO (general-system/minio) for Thanos's
+# blocks and Loki's chunks.
+#
+# WHY IT REPLACES MINIO. MinIO keeps its data on the NAS (192.168.19.5:/mnt/raid5, mounted
+# at /mnt/raid on ff-vm1), which MinIO does not support: it writes one metadata file and at
+# least one part file per object, with an fsync each, and when the drive is slow it throttles
+# itself. Over NFS that showed up as 503 SlowDown, RequestTimeTooSkewed on uploads that had
+# waited too long, a Thanos block written with a truncated chunk segment (the compactor halted
+# on it, 2026-09-25), and a backup Job that could not finish. SeaweedFS packs objects into a
+# few large append-only volume files and keeps a small index, which is the access pattern a
+# NAS handles well. The data stays on the NAS, on purpose: RAID5 and 3.7 TB free.
+#
+# ONE PROCESS. `weed server` runs the master, one volume server, the filer and the S3 gateway
+# together, which is the right size for one node and 200 GB. Everything talks over 127.0.0.1
+# inside the pod; only the S3 port is a Service port anyone should use.
+#
+# WHAT GOES WHERE:
+#   /data  the NAS (hostPath, like MinIO): the volume .dat files, i.e. the objects.
+#   /meta  a Longhorn volume (2 replicas, on-prem): the master's state, the filer's leveldb
+#          (the map from S3 key to where the bytes are) and the volume .idx files. leveldb
+#          must not sit on NFS, and losing this map orphans every object, hence Longhorn's
+#          two replicas rather than the NAS or a single local disk.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: seaweedfs
+  namespace: general-system
+  labels:
+    app.kubernetes.io/name: seaweedfs
+  annotations:
+    checkov.io/skip1: CKV_K8S_11=CPU limits are unset estate-wide by decision; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited.
+spec:
+  serviceName: seaweedfs
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: seaweedfs
+    spec:
+      # `critical`, set directly for the reason MinIO's manifest gives: the data plane must
+      # not depend on Kyverno being up to avoid being the first thing preempted.
+      priorityClassName: critical
+      # SeaweedFS never talks to the Kubernetes API.
+      automountServiceAccountToken: false
+      # The node that mounts the NAS at /mnt/raid.
+      nodeSelector:
+        kubernetes.io/hostname: ff-vm1
+      # 65534 is what the NAS maps root to (root_squash): MinIO's files there are owned by
+      # nobody:nogroup. Running as it from the start keeps the ownership the same either way.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      # weed exits at start if -volume.dir.idx does not exist, and a fresh Longhorn volume
+      # is empty.
+      initContainers:
+        - name: meta-dirs
+          image: chrislusf/seaweedfs:4.47@sha256:ce9e796f1fe6f06968f4c04bdaf8f678dad9c8acdfef3d244133d71bfa6bf882
+          command: ["/bin/sh", "-c", "mkdir -p /meta/idx"]
+          volumeMounts:
+            - name: meta
+              mountPath: /meta
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      containers:
+        - name: seaweedfs
+          image: chrislusf/seaweedfs:4.47@sha256:ce9e796f1fe6f06968f4c04bdaf8f678dad9c8acdfef3d244133d71bfa6bf882
+          command: ["weed"]
+          args:
+            - server
+            - -dir=/data
+            # The filer's embedded leveldb goes under -master.dir too (filerldb2).
+            - -master.dir=/meta
+            - -volume.dir.idx=/meta/idx
+            # Its own parts (master, volume, filer, S3) find each other at this address, and
+            # all run in this one process. Not debug config: it is what keeps their traffic
+            # inside the pod.
+            - -ip=127.0.0.1 # DevSkim: ignore DS162092 - intra-pod address of weed's own components
+            # All interfaces of the POD, not the node: the ClusterIP Service reaches it on
+            # the pod IP.
+            - -ip.bind=0.0.0.0
+            # 5 GB volumes rather than the 30 GB default: vacuuming a volume rewrites it, and
+            # a smaller rewrite is a gentler job for the NAS. 0 sizes the count from free space.
+            - -master.volumeSizeLimitMB=5000
+            - -volume.max=0
+            # Stop writing, rather than fill the NAS, below 5% free (about 1.7 TB).
+            - -volume.minFreeSpace=5
+            - -filer
+            - -s3
+            - -s3.port=8333
+            - -s3.config=/etc/seaweedfs/s3.json
+            - -metricsPort=9327
+          ports:
+            - containerPort: 8333
+              name: s3
+            - containerPort: 9333
+              name: master
+            - containerPort: 8888
+              name: filer
+            - containerPort: 9327
+              name: metrics
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: meta
+              mountPath: /meta
+            - name: s3-config
+              mountPath: /etc/seaweedfs
+              readOnly: true
+            # The filer's and the S3 gateway's local sockets.
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          readinessProbe:
+            tcpSocket:
+              port: 8333
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 9333
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+      volumes:
+        - name: data
+          hostPath:
+            path: /mnt/raid/seaweedfs
+            type: DirectoryOrCreate
+        - name: s3-config
+          secret:
+            secretName: seaweedfs-s3-config
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: meta
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: longhorn-on-prem
+        resources:
+          requests:
+            storage: 5Gi

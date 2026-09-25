@@ -90,6 +90,10 @@ resources:
   - ./thanos-compactor
   - ./thanos-query
   - ./thanos-store
+  # S3 for Thanos and Loki, replacing infrastructure/services/minio. seaweedfs-migration is
+  # the one-off copy of MinIO's buckets into it; remove that once MinIO is gone.
+  - ./seaweedfs
+  - ./seaweedfs-migration
   # platform (node-level tuning)
   - ./node-tuning
   - ./system-upgrade-controller
