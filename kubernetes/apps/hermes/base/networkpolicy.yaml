@@ -1,0 +1,43 @@
+---
+# Ingress control for Hermes, for the one port that posts into the owner's DM.
+#
+# :8644 is the webhook platform, and its `nievah` route delivers a message to the owner's
+# Slack DM verbatim, with no model in between. The HMAC is the real control; this is the
+# second one, so a leaked key is not also a way for any pod in the cluster to message the
+# owner as "Nievah". Only Nievah's namespace may reach it.
+#
+# The other ports stay open to every source, as they were before this policy existed: the
+# dashboard (9119) is reached through Traefik and the API server and health endpoint (8642)
+# through the kubelet's probes. A pod selected by any ingress policy is default-deny for the
+# ports no rule names, so both are listed rather than left out.
+#
+# Container ports, not Service ports: NetworkPolicy is enforced at the pod, after
+# kube-proxy has rewritten the destination. Here they are the same numbers.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hermes-ingress
+  namespace: automation
+  labels:
+    app: hermes
+spec:
+  podSelector:
+    matchLabels:
+      app: hermes
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 9119
+          protocol: TCP
+        - port: 8642
+          protocol: TCP
+    - from:
+        # `kubernetes.io/metadata.name` is set by the API server and cannot be forged from
+        # inside a pod, unlike a hand-applied namespace label.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: nievah
+      ports:
+        - port: 8644
+          protocol: TCP

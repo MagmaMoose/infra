@@ -17,7 +17,7 @@ spec:
         # Rolls the pod (→ re-seed) whenever the git-managed config.yaml changes.
         # sha256 of kubernetes/apps/hermes/base/configmap.yaml (there is no nested
         # hermes/ dir; the old path in this comment pointed at nothing).
-        checksum/config: aa1299944925820c7c45ef9e7fd1666455b2537dde76495ddae2155caad4be4b
+        checksum/config: 2ae8cb42b9214cf2521cce8188f64fd42336b991b7b5840e5abd07b8d5c5f61c
         # Same idea for the nievah-relay plugin, which the initContainer copies in at
         # boot: sha256 of kubernetes/apps/hermes/base/plugin-nievah-relay.yaml.
         checksum/plugin-nievah-relay: 81a8994c7838f879dfa60c8f4348faf86a1ee1ce89dbce4f0071ed3ac38b4d4d
@@ -204,7 +204,13 @@ spec:
                   name: hermes
                   key: nievah-slack-signing-secret
             # --- Nievah events: the HMAC key of the `nievah` webhook route. ---
-            - name: NIEVAH_EVENTS_SECRET
+            # By env and not in config.yaml: the gateway does not expand `${VAR}` in its
+            # `platforms` block (see the ConfigMap). WEBHOOK_SECRET becomes the webhook
+            # platform's global secret, which a route without its own `secret` uses, and
+            # the gateway only reads it when WEBHOOK_ENABLED is set.
+            - name: WEBHOOK_ENABLED
+              value: "true"
+            - name: WEBHOOK_SECRET
               valueFrom:
                 secretKeyRef:
                   name: hermes
