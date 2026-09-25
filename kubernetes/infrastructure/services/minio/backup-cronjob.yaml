@@ -52,7 +52,7 @@ spec:
                   # files are written once and never changed. It also needs no HEAD
                   # per object, which is what did not scale to loki-chunks. No
                   # --fast-list: it holds the whole listing in memory (~1KiB per object).
-                  for b in thanos-metrics loki-chunks loki-ruler; do
+                  for b in thanos-metrics loki; do
                     echo "==> copying $b -> oci:minio-backups/$b"
                     rclone copy "src:$b" "oci:minio-backups/$b" \
                       --size-only \

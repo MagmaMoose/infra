@@ -6,3 +6,4 @@ resources:
   - externalsecret.yaml
   - statefulset.yaml
   - service.yaml
+  - buckets-job.yaml

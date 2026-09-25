@@ -3,7 +3,10 @@
 # (externalsecret.yaml) as LOKI_S3_SECRET_ACCESS_KEY, expanded at start (-config.expand-env),
 # so nothing here is secret and a change to it can be reviewed.
 #
-# Chunks and index live in SeaweedFS (kubernetes/apps/seaweedfs), which replaced MinIO.
+# Chunks and index live in SeaweedFS (kubernetes/apps/seaweedfs), which replaced MinIO, in the
+# `loki` bucket. Loki started that bucket empty: MinIO could not list its 112k chunk files off
+# the NAS in useful time, and a fresh start cost only the last week of logs (retention is 7
+# days). The old logs are still in MinIO's loki-chunks, untouched.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -37,7 +40,7 @@ data:
     storage_config:
       aws:
         endpoint: seaweedfs.general-system.svc.cluster.local:8333
-        bucketnames: loki-chunks
+        bucketnames: loki
         access_key_id: loki
         secret_access_key: ${LOKI_S3_SECRET_ACCESS_KEY}
         s3forcepathstyle: true

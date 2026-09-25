@@ -170,7 +170,7 @@ spec:
             type: DirectoryOrCreate
         - name: s3-config
           secret:
-            secretName: seaweedfs-s3-config
+            secretName: seaweedfs-s3-identities
         - name: tmp
           emptyDir: {}
   volumeClaimTemplates:
