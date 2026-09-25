@@ -108,6 +108,14 @@ spec:
             - -s3
             - -s3.port=8333
             - -s3.config=/etc/seaweedfs/s3.json
+            # Bound the bytes in flight. Unbounded (the default), the first copy from MinIO
+            # OOMKilled it four times in ten minutes: rclone pushed several multipart uploads
+            # of Thanos's 512 MB chunk files at once, and each part is held in memory on its
+            # way through. Past the limit an upload waits for room rather than growing the
+            # process, which protects it from any client, not just the copy.
+            - -s3.concurrentUploadLimitMB=256
+            - -filer.concurrentUploadLimitMB=256
+            - -volume.concurrentUploadLimitMB=256
             - -metricsPort=9327
           ports:
             - containerPort: 8333
@@ -129,12 +137,14 @@ spec:
             # The filer's and the S3 gateway's local sockets.
             - name: tmp
               mountPath: /tmp
+          # The request stays small because ff-vm1 has 96% of its memory requested; the
+          # upload limits above are what keep usage under the limit.
           resources:
             requests:
               cpu: 50m
               memory: 256Mi
             limits:
-              memory: 1Gi
+              memory: 2Gi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
