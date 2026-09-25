@@ -17,7 +17,7 @@ spec:
         # Rolls the pod (→ re-seed) whenever the git-managed config.yaml changes.
         # sha256 of kubernetes/apps/hermes/base/configmap.yaml (there is no nested
         # hermes/ dir; the old path in this comment pointed at nothing).
-        checksum/config: faaa08ab26e41d70e6c891de6a93f92a32f6e7b39ca5661266b4914fd74d2d68
+        checksum/config: aa1299944925820c7c45ef9e7fd1666455b2537dde76495ddae2155caad4be4b
         # Same idea for the nievah-relay plugin, which the initContainer copies in at
         # boot: sha256 of kubernetes/apps/hermes/base/plugin-nievah-relay.yaml.
         checksum/plugin-nievah-relay: 81a8994c7838f879dfa60c8f4348faf86a1ee1ce89dbce4f0071ed3ac38b4d4d
@@ -45,6 +45,11 @@ spec:
               cp -f /seed-files/mem0_mcp.py "$HERMES_HOME/mcp/mem0_mcp.py"
               # Last, and allowed to fail: a broken cron seed must not keep Hermes down.
               cd /opt/hermes && /opt/hermes/.venv/bin/python /seed-files/seed_cron.py || echo "[seed-cron] failed; Hermes starts without the git-managed cron jobs"
+              # This container runs as root, and Hermes writes jobs.json 0600 to its
+              # owner, while the gateway reads it as the hermes user (UID 10000). Left
+              # root-owned, every scheduler tick failed with "Permission denied" and no
+              # job ever ran. Hand the cron store back, seeded or not.
+              chown -R 10000:10000 "$HERMES_HOME/cron" 2>/dev/null || true
           env:
             - name: HERMES_HOME
               value: /opt/data
@@ -92,6 +97,9 @@ spec:
               containerPort: 8642
             - name: dashboard
               containerPort: 9119
+            # Nievah's signed events (config.yaml platforms.webhook), ClusterIP only.
+            - name: webhook
+              containerPort: 8644
           env:
             # All persistent state (config.yaml, .env, sessions, memories, skills,
             # logs) lives under HERMES_HOME on the Longhorn PVC.
@@ -195,6 +203,12 @@ spec:
                 secretKeyRef:
                   name: hermes
                   key: nievah-slack-signing-secret
+            # --- Nievah events: the HMAC key of the `nievah` webhook route. ---
+            - name: NIEVAH_EVENTS_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hermes
+                  key: nievah-events-secret
             # --- Browser: drive the in-cluster Browserless (chromium v2) over CDP instead
             # of launching Chromium inside this pod, on the CPU-tight ff-vm1. Hermes passes
             # a ws URL carrying ?token= through unchanged; $(BROWSERLESS_TOKEN) is expanded
