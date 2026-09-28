@@ -153,12 +153,6 @@ spec:
                   name: openhands
                   key: session-api-key
                   optional: true
-            # Cloudflare API token, injected into the Cloudflare MCP server config by seed.sh.
-            - name: BOOTSTRAP_CLOUDFLARE_API_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: openhands
-                  key: cloudflare-api-token
             # GHE token for pinkroccade.ghe.com — used by the git credential helper wired
             # in seed.sh so the agent can push to enterprise repos without manual auth.
             - name: BOOTSTRAP_GHE_TOKEN
