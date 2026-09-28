@@ -229,7 +229,7 @@ data:
         mermaid: {
           transport: "stdio",
           command: "npx",
-          args: ["-y", "mcp-mermaid"],
+          args: ["-y", "mcp-mermaid@0.4.1"],
           env: ({
             PUPPETEER_ARGS: "--no-sandbox --disable-dev-shm-usage"
           } + (if $chromium != "" then {
