@@ -68,6 +68,15 @@ spec:
               # Prepend /git-hooks so the gh wrapper (PR body stripping) and any other
               # hook-wrappers take precedence over system binaries for the entire process tree.
               export PATH="/git-hooks:${PATH}"
+              # Start signing before the agent-server so normal OpenHands Git commands
+              # inherit both SSH_AUTH_SOCK and Git's SSH-signing configuration. The
+              # SessionStart hook repeats this idempotently for nested Claude sessions.
+              if ! /git-hooks/agent-bootstrap.sh; then
+                echo "[openhands] SSH signing setup unavailable; continuing without signing" >&2
+              fi
+              if [ -S /home/openhands/.openhands/ssh/agent.sock ]; then
+                export SSH_AUTH_SOCK=/home/openhands/.openhands/ssh/agent.sock
+              fi
               if [ -n "${OH_SESSION_API_KEYS_0:-}" ]; then
                 OH_SESSION_API_KEYS_0="$(printf '%s' "$OH_SESSION_API_KEYS_0" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
                 export OH_SESSION_API_KEYS_0
