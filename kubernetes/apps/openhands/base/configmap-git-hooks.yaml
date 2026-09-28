@@ -33,16 +33,44 @@ data:
 
     if [[ "${1:-}" == "pr" && ("${2:-}" == "create" || "${2:-}" == "edit") ]]; then
       _args=("$@")
+      _tmp_files=()
+      trap 'rm -f "${_tmp_files[@]}"' EXIT
       for i in "${!_args[@]}"; do
-        if [[ "${_args[$i]}" == "--body" ]]; then
-          j=$((i + 1))
-          if [[ $j -lt ${#_args[@]} ]]; then
-            _args[$j]="$(printf '%s' "${_args[$j]}" | _strip)"
-          fi
-          break
-        fi
+        case "${_args[$i]}" in
+          --body)
+            j=$((i + 1))
+            if [[ $j -lt ${#_args[@]} ]]; then
+              _args[$j]="$(printf '%s' "${_args[$j]}" | _strip)"
+            fi
+            ;;
+          --body-file)
+            j=$((i + 1))
+            if [[ $j -lt ${#_args[@]} ]]; then
+              _tmp=$(mktemp)
+              _tmp_files+=("$_tmp")
+              if [[ "${_args[$j]}" == "-" ]]; then
+                _strip >"$_tmp"
+              else
+                _strip "${_args[$j]}" >"$_tmp"
+              fi
+              _args[$j]="$_tmp"
+            fi
+            ;;
+          --body-file=*)
+            _tmp=$(mktemp)
+            _tmp_files+=("$_tmp")
+            _body_file="${_args[$i]#--body-file=}"
+            if [[ "$_body_file" == "-" ]]; then
+              _strip >"$_tmp"
+            else
+              _strip "$_body_file" >"$_tmp"
+            fi
+            _args[$i]="--body-file=$_tmp"
+            ;;
+        esac
       done
-      exec "$_GH" "${_args[@]}"
+      "$_GH" "${_args[@]}"
+      exit $?
     fi
 
     exec "$_GH" "$@"
