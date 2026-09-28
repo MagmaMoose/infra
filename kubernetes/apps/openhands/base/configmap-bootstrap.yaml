@@ -98,7 +98,7 @@ data:
     # The revision marker makes the venv survive pod restarts while still converging when
     # this pin is deliberately changed in Git.
     CHARGATE_VENV="${HOME}/.openhands/chargate-venv"
-    CHARGATE_REVISION="e5e1ca4dfa613d1059611797955f70436f143159"
+    CHARGATE_REVISION="e5e1ca4dfa613d1059611797955f70436f143159"  # DevSkim: ignore DS173237 - immutable public Chargate commit, not a credential
     CHARGATE_SOURCE="https://github.com/MagmaMoose/chargate/archive/${CHARGATE_REVISION}.tar.gz"
     _cg_installed_revision="$(cat "${CHARGATE_VENV}/.source-revision" 2>/dev/null || true)"
 
