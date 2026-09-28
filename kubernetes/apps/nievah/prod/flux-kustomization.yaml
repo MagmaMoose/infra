@@ -179,3 +179,13 @@ spec:
                       env:
                         - name: REDIS_URL
                           value: redis://valkey-oci.database.svc.cluster.local:6379
+    # Nievah's fallback must not share OpenHands' broader key. The external app repo
+    # still names the fallback Vault entry, while this Flux overlay owns the deployment
+    # boundary and redirects that Secret to Nievah's Luna-only virtual key.
+    - target:
+        kind: ExternalSecret
+        name: nievah-litellm-fallback
+      patch: |
+        - op: replace
+          path: /spec/data/0/remoteRef/key
+          value: nievah-litellm-api-key
