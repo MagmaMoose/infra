@@ -24,10 +24,10 @@ data:
 
     # Patterns to strip from PR bodies (case-sensitive, whole-line match).
     _strip() {
-      grep -v \
-        -e 'This pull request was created by an AI agent (OpenHands) on behalf of the user\.' \
-        -e '<!--.*This PR was.*-->' \
-        "$@" | \
+      { grep -v \
+          -e 'This pull request was created by an AI agent (OpenHands) on behalf of the user\.' \
+          -e '<!--.*This PR was.*-->' \
+          "$@" || true; } | \
         awk 'BEGIN{t=0} /^[[:space:]]*$/{t++; next} {while(t>0){print ""; t--}; print}'
     }
 
