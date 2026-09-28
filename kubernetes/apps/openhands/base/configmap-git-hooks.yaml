@@ -85,7 +85,7 @@ data:
     COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
     # Git accepts global options before the subcommand; parse them before checking bypass flags.
-    _GIT_GLOBAL='([[:space:]]+(-C|-c|--git-dir|--work-tree|--namespace|--exec-path)[[:space:]]+[^[:space:];|&]+|[[:space:]]+--no-pager|[[:space:]]+--config-env=[^[:space:];|&]+)*'
+    _GIT_GLOBAL='([[:space:]]+(-C[[:space:]]*[^[:space:];|&]+|-c[[:space:]]+[^[:space:];|&]+|--git-dir([=[:space:]])[^[:space:];|&]+|--work-tree([=[:space:]])[^[:space:];|&]+|--namespace([=[:space:]])[^[:space:];|&]+|--exec-path([=[:space:]])[^[:space:];|&]+|--no-pager|--no-replace-objects|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--config-env=[^[:space:];|&]+))*'
     if echo "$COMMAND" | grep -qE '(^|[^[:alnum:]_])git[^;&|]*[[:space:]](-c[[:space:]]+core\.hooksPath=|--config-env=core\.hooksPath=)'; then
       echo "Blocked: this overrides core.hooksPath and bypasses git hooks." >&2
       exit 2
