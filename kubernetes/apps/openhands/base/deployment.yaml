@@ -65,6 +65,9 @@ spec:
             - -ec
           args:
             - |
+              # Prepend /git-hooks so the gh wrapper (PR body stripping) and any other
+              # hook-wrappers take precedence over system binaries for the entire process tree.
+              export PATH="/git-hooks:${PATH}"
               if [ -n "${OH_SESSION_API_KEYS_0:-}" ]; then
                 OH_SESSION_API_KEYS_0="$(printf '%s' "$OH_SESSION_API_KEYS_0" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
                 export OH_SESSION_API_KEYS_0
@@ -150,6 +153,28 @@ spec:
                   name: openhands
                   key: session-api-key
                   optional: true
+            # Cloudflare API token, injected into the Cloudflare MCP server config by seed.sh.
+            - name: BOOTSTRAP_CLOUDFLARE_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openhands
+                  key: cloudflare-api-token
+            # GHE token for pinkroccade.ghe.com — used by the git credential helper wired
+            # in seed.sh so the agent can push to enterprise repos without manual auth.
+            - name: BOOTSTRAP_GHE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openhands
+                  key: ghe-token
+            # SSH signing key: OpenSSH private key content (op://Tech/raxfcw4kufj3yz6xh3rmp7a7zm).
+            # Optional: the pod starts fine without it; agent-bootstrap.sh skips silently
+            # when unset. Activate by provisioning `openhands-ssh-signing-key` in OCI Vault.
+            - name: OPENHANDS_SSH_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openhands-signing
+                  key: key
+                  optional: true
           lifecycle:
             postStart:
               exec:
@@ -217,6 +242,9 @@ spec:
             # declarative: every rollout replaces them, nothing drifts into the volume.
             - name: subagents
               mountPath: /home/openhands/.agents/agents
+              readOnly: true
+            - name: git-hooks
+              mountPath: /git-hooks
               readOnly: true
         # Keeps /workspace/repos in step with GitHub. A sidecar rather than a CronJob
         # because the repos volume is ReadWriteOnce: a separate pod would have to attach
@@ -302,3 +330,7 @@ spec:
         - name: subagents
           configMap:
             name: openhands-subagents
+        - name: git-hooks
+          configMap:
+            name: openhands-git-hooks
+            defaultMode: 0755

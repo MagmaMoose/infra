@@ -1,0 +1,490 @@
+# Chargate/KICS suppression: the scanner flagged shell variable references like
+# ${BOOTSTRAP_GITHUB_TOKEN:-} inside the hook scripts as "hardcoded secrets". These are
+# environment variable lookups passed through from the pod environment. No secret value
+# is hardcoded here.
+# kics-scan disable=baee238e-1921-4801-9c3f-79ae1d7b2cbc
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openhands-git-hooks
+  namespace: openhands
+data:
+  # PATH-interceptor wrapper for the gh CLI. /git-hooks is prepended to PATH in the
+  # container startup command, so this script runs instead of the system gh.
+  # Strips the OpenHands "created by an AI agent" footer from PR bodies before they
+  # reach the GitHub API, and passes everything else through unchanged.
+  gh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Find the real gh by stripping /git-hooks: from the front of PATH, then
+    # falling back to a known location if the prefix isn't there.
+    _GH="$(PATH="${PATH#/git-hooks:}" command -v gh 2>/dev/null || true)"
+    [[ -n "$_GH" ]] || { echo "gh wrapper: real gh binary not found" >&2; exit 1; }
+
+    # Patterns to strip from PR bodies (case-sensitive, whole-line match).
+    _strip() {
+      grep -v \
+        -e 'This pull request was created by an AI agent (OpenHands) on behalf of the user\.' \
+        -e '<!--.*This PR was.*-->' \
+        "$@" | \
+        awk 'BEGIN{t=0} /^[[:space:]]*$/{t++; next} {while(t>0){print ""; t--}; print}'
+    }
+
+    if [[ "${1:-}" == "pr" && ("${2:-}" == "create" || "${2:-}" == "edit") ]]; then
+      _args=("$@")
+      for i in "${!_args[@]}"; do
+        if [[ "${_args[$i]}" == "--body" ]]; then
+          j=$((i + 1))
+          if [[ $j -lt ${#_args[@]} ]]; then
+            _args[$j]="$(printf '%s' "${_args[$j]}" | _strip)"
+          fi
+          break
+        fi
+      done
+      exec "$_GH" "${_args[@]}"
+    fi
+
+    exec "$_GH" "$@"
+
+  # Claude Code PreToolUse hook — reads the tool-call JSON on stdin and blocks any
+  # Bash command that would bypass git hooks via --no-verify, SKIP=, HUSKY_SKIP_HOOKS=,
+  # or by removing the hook files themselves.
+  # Used in ~/.claude/settings.json → hooks.PreToolUse[Bash] inside the pod.
+  block-hook-bypass.sh: |
+    #!/bin/bash
+    INPUT=$(cat)
+    COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+
+    # --no-verify on any command it actually affects (commit, merge, push, am)
+    if echo "$COMMAND" | grep -qE '\bgit\s+(commit|merge|push|am)\b.*--no-verify'; then
+      echo "Blocked: --no-verify skips pre-commit/pre-push hooks. Fix the hook instead of bypassing it." >&2
+      exit 2
+    fi
+
+    # -n is only ambiguous elsewhere; on git commit specifically it means --no-verify
+    if echo "$COMMAND" | grep -qE '\bgit\s+commit\b.*\B-n\b'; then
+      echo "Blocked: -n on git commit is --no-verify. Fix the hook instead of bypassing it." >&2
+      exit 2
+    fi
+
+    # pre-commit / husky bypass env vars
+    if echo "$COMMAND" | grep -qE '\b(SKIP|HUSKY|HUSKY_SKIP_HOOKS)='; then
+      echo "Blocked: this sets a hook-bypass environment variable. Fix the hook instead of bypassing it." >&2
+      exit 2
+    fi
+
+    # uninstalling the hook itself
+    if echo "$COMMAND" | grep -qE 'pre-commit\s+uninstall|rm\s+.*\.git/hooks/(pre-commit|pre-push|commit-msg)'; then
+      echo "Blocked: this removes the git hook entirely." >&2
+      exit 2
+    fi
+
+    exit 0
+
+  # Pod-adapted replacement for op-agent-bootstrap.sh. Called from
+  # ~/.claude/settings.json → hooks.SessionStart when a Claude Code session starts inside
+  # the pod. Sets up an ssh-agent for commit signing if a key is provisioned in OCI Vault
+  # (OPENHANDS_SSH_SIGNING_KEY env var). Exits 0 silently when no key is available so it
+  # never blocks a Claude Code session start while signing remains unprovisioned.
+  agent-bootstrap.sh: |
+    #!/usr/bin/env bash
+    set -o pipefail
+
+    SSH_DIR="/home/openhands/.openhands/ssh"
+    SOCK="${SSH_DIR}/agent.sock"
+    PIDFILE="${SSH_DIR}/agent.pid"
+
+    log() { printf '[agent-bootstrap] %s\n' "$*" >&2; }
+
+    # No signing key provisioned yet — skip silently.
+    SIGNING_KEY="${OPENHANDS_SSH_SIGNING_KEY:-}"
+    if [ -z "$SIGNING_KEY" ]; then
+      exit 0
+    fi
+
+    # Already running with the key loaded?
+    if [ -S "$SOCK" ] && SSH_AUTH_SOCK="$SOCK" ssh-add -l >/dev/null 2>&1; then
+      log "agent already seeded at $SOCK"
+      exit 0
+    fi
+
+    mkdir -p "$SSH_DIR" && chmod 700 "$SSH_DIR"
+
+    # Kill any prior agent we started, then launch a fresh one at the fixed socket.
+    [ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null || true
+    rm -f "$SOCK"
+
+    if ! ssh-agent -a "$SOCK" > /tmp/agent-out 2>/dev/null; then
+      log "failed to start ssh-agent at $SOCK"
+      exit 1
+    fi
+    sed -n 's/^SSH_AGENT_PID=\([0-9]*\).*/\1/p' /tmp/agent-out > "$PIDFILE"
+    rm -f /tmp/agent-out
+
+    # Stream the key into the agent — never written to disk.
+    if printf '%s\n' "$SIGNING_KEY" | SSH_AUTH_SOCK="$SOCK" ssh-add - >/dev/null 2>&1; then
+      log "signing key loaded into $SOCK"
+    else
+      log "WARNING: ssh-add failed; signing will not work"
+      exit 1
+    fi
+
+  # Dispatcher for the pre-commit stage:
+  #   1. Pin GitHub Actions SHAs in any staged workflow files (modifies + restages in place).
+  #   2. Run chargate local fast-checks on staged files.
+  # chargate local is a first-line check, not the full CI scanner; it exits 0 when
+  # the chargate venv is absent so the hook never blocks a first-boot commit.
+  pre-commit: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [ -x /git-hooks/github-actions-pin-sha.sh ]; then
+      /git-hooks/github-actions-pin-sha.sh
+    fi
+
+    CHARGATE=/home/openhands/.openhands/chargate-venv/bin/chargate
+    if [ -x "$CHARGATE" ]; then
+      "$CHARGATE" local
+    fi
+
+  # Strip AI-injected attribution trailers before the commit object is created.
+  # Never fails: a missed strip is less harmful than a blocked commit.
+  commit-msg: |
+    #!/bin/sh
+    if [ -x /git-hooks/strip-ai-coauthors.sh ]; then
+      /git-hooks/strip-ai-coauthors.sh "$1"
+    fi
+
+  # Enforce branch naming policy and block [codex]-titled PRs before a push lands.
+  pre-push: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [ -x /git-hooks/enforce-conventional-branch-name.sh ]; then
+      /git-hooks/enforce-conventional-branch-name.sh
+    fi
+    if [ -x /git-hooks/block-codex-pr-title.sh ]; then
+      /git-hooks/block-codex-pr-title.sh
+    fi
+
+  # ---- helper scripts (called by the hooks above) ----
+
+  strip-ai-coauthors.sh: |
+    #!/usr/bin/env bash
+    # Strip AI-injected attribution from a commit message before the commit is created.
+    #
+    # Runs at the commit-msg stage and rewrites the message in place. It never fails the
+    # commit: matching the SHA-pinning hook's philosophy, it silently fixes rather than
+    # blocks, so an agent that writes a trailer cannot be stopped by ignoring an error.
+    #
+    # Removes:
+    #   - Co-Authored-By: lines naming a known AI vendor or agent address.
+    #   - "Generated with/by <AI tool>" promo footers, with or without a leading robot emoji.
+    #
+    # Human co-authors are left alone. Two rules keep it that way, and both have already
+    # been got wrong once:
+    #
+    #   1. NO bare `github` token in the vendor list. It matches the literal string inside
+    #      `users.noreply.github.com`, so it strips every human GitHub co-author while
+    #      leaving `openhands@all-hands.dev` untouched, which is exactly backwards. Match
+    #      `copilot` and the agent addresses instead.
+    #   2. Vendor tokens are matched only AFTER the `Co-Authored-By:` anchor, so a human
+    #      called Claudia or a company called Cursor Ltd is not caught by their name.
+    set -Eeuo pipefail
+
+    STRIP_AI_VERBOSE=${STRIP_AI_VERBOSE:-1}   # 0=quiet, 1=announce when something is stripped
+
+    msg_file="${1:-}"
+    [[ -n "$msg_file" && -f "$msg_file" ]] || exit 0
+
+    ai_coauthor='^[[:space:]]*Co-Authored-By:.*('\
+    'anthropic|noreply@anthropic|claude'\
+    '|openai|noreply@openai|codex|chatgpt'\
+    '|openhands|all-hands[.]dev'\
+    '|warp[.]dev|oz-agent'\
+    '|copilot|copilot-swe-agent'\
+    '|devin|cognition[.]ai|cursor[.](com|sh)|windsurf|codeium'\
+    '|jules[.]google|aider|sourcegraph|sweep-ai|factory[.]ai'\
+    ')'
+
+    ai_generated='Generated[[:space:]]+(with|by).*(claude|codex|copilot|chatgpt|anthropic|openai|openhands|all-hands|cursor|windsurf|devin|warp)'
+
+    if ! grep -iEq "$ai_coauthor|$ai_generated" "$msg_file"; then
+      exit 0
+    fi
+
+    tmp="$(mktemp)"
+    grep -ivE "$ai_coauthor|$ai_generated" "$msg_file" > "$tmp" || true
+    awk 'BEGIN{b=0} /^[[:space:]]*$/{b++; next} {while(b>0){print ""; b--}; print}' "$tmp" > "$msg_file"
+    rm -f "$tmp"
+
+    if [[ "${STRIP_AI_VERBOSE}" -ge 1 ]]; then
+      echo "strip-ai-coauthors: removed AI co-author / generated-with trailer(s) from the commit message" >&2
+    fi
+
+  enforce-conventional-branch-name.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+    if [[ -z "${branch}" ]]; then
+      exit 0
+    fi
+
+    if [[ "${branch}" =~ ^(main|master|develop)$ ]] || [[ "${branch}" =~ ^(dependabot|renovate)/ ]]; then
+      exit 0
+    fi
+
+    pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(/[A-Za-z0-9._-]+)+$'
+    if [[ ! "${branch}" =~ ${pattern} ]]; then
+      cat >&2 <<EOF
+    ERROR: Branch '${branch}' violates naming policy.
+    Required: <type>/<description> or <type>/<scope>/<description>
+    Allowed types: feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert
+    Examples:
+      feat/auth/login-flow
+      fix/isam/null-state
+    EOF
+      exit 1
+    fi
+
+  block-codex-pr-title.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if ! command -v gh >/dev/null 2>&1; then
+      exit 0
+    fi
+
+    branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+    if [[ -z "${branch}" ]]; then
+      exit 0
+    fi
+
+    pr_title="$(gh pr view --json title --jq '.title' 2>/dev/null || true)"
+    if [[ -z "${pr_title}" ]]; then
+      exit 0
+    fi
+
+    if printf '%s' "${pr_title}" | grep -Eiq '\[codex\]'; then
+      cat >&2 <<EOF
+    ERROR: PR title contains forbidden marker '[codex]': ${pr_title}
+    Rename PR title before pushing again, for example:
+      gh pr edit --title "feat: meaningful title"
+    EOF
+      exit 1
+    fi
+
+  github-actions-pin-sha.sh: |
+    #!/usr/bin/env bash
+    # Pin GitHub Actions to commit SHAs and append the original ref as a comment.
+    # Examples:
+    #   uses: actions/setup-python@v5      -> uses: actions/setup-python@<sha> # v5
+    #   uses: owner/repo@main              -> uses: owner/repo@<sha> # main
+    #   uses: owner/repo@                  -> uses: owner/repo@<sha> # HEAD
+    # If already pinned (40-hex) with no comment, add a best tag comment when available.
+
+    set -euo pipefail
+
+    PIN_SHA_VERBOSE=${PIN_SHA_VERBOSE:-1}   # 0=quiet, 1=info (default), 2=debug
+    PIN_SHA_DRY_RUN=${PIN_SHA_DRY_RUN:-0}   # 1=dry run (no writes)
+
+    log()  { local msg="$*"; [[ "${PIN_SHA_VERBOSE}" -ge 1 ]] && printf '%s\n' "$msg"; return 0; }
+    dbg()  { local msg="$*"; [[ "${PIN_SHA_VERBOSE}" -ge 2 ]] && printf '%s\n' "$msg"; return 0; }
+    warn() { local msg="$*"; printf 'WARN: %s\n' "$msg" >&2; return 0; }
+
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      repo_root=$(git rev-parse --show-toplevel)
+      cd "$repo_root"
+    fi
+
+    # shellcheck disable=SC2016
+    AWK_FIRST='NR==1{print $1}'
+
+    is_sha40() {
+      local val="$1"
+      [[ "$val" =~ ^[0-9a-fA-F]{40}$ ]]
+      return $?
+    }
+
+    resolve_sha() {
+      local remote="$1" ref="${2:-}" sha=""
+
+      if [[ -z "$ref" ]]; then
+        sha=$(git ls-remote "$remote" HEAD | awk "$AWK_FIRST")
+        printf '%s' "${sha}"
+        return 0
+      fi
+
+      sha=$(git ls-remote "$remote" "refs/heads/${ref}" | awk "$AWK_FIRST") || true
+      if [[ -n "$sha" ]]; then printf '%s' "$sha"; return 0; fi
+
+      sha=$(git ls-remote "$remote" "refs/tags/${ref}^{}" | awk "$AWK_FIRST") || true
+      if [[ -n "$sha" ]]; then printf '%s' "$sha"; return 0; fi
+      sha=$(git ls-remote "$remote" "refs/tags/${ref}" | awk "$AWK_FIRST") || true
+      if [[ -n "$sha" ]]; then printf '%s' "$sha"; return 0; fi
+
+      sha=$(git ls-remote "$remote" "$ref" | awk "$AWK_FIRST") || true
+      printf '%s' "${sha}"
+      return 0
+    }
+
+    best_tag_for_sha() {
+      local remote="$1" sha="$2" tags matches
+      tags=$(git ls-remote --tags "$remote") || true
+      [[ -n "$tags" ]] || { printf '' ; return 0; }
+      matches=$(printf '%s\n' "$tags" | awk -v s="$sha" '$1==s{t=$2; gsub("refs/tags/","",t); gsub(/\^\{\}$/,"",t); print t}' | sort -u)
+      [[ -n "$matches" ]] || { printf '' ; return 0; }
+      printf '%s\n' "$matches" | awk '
+        function parse(t, arr,    s, n, i, m){gsub(/^v/,"",t); n=split(t,arr,/[.-]/); for(i=1;i<=3;i++){s=(i<=n?arr[i]:0); m=(s ~ /^[0-9]+$/? s+0:0); arr[i]=m} return n}
+        BEGIN{best="";b1=b2=b3=0;bseg=0}
+        {seg=parse($0,a); if(seg>3)seg=3; if(seg>bseg || (seg==bseg && (a[1]>b1 || (a[1]==b1 && (a[2]>b2 || (a[2]==b2 && a[3]>b3)))))){best=$0;bseg=seg;b1=a[1];b2=b2;b3=a[3]}}
+        END{print best}'
+      return 0
+    }
+
+    latest_semver_tag() {
+      local remote="$1" tags names
+      tags=$(git ls-remote --tags "$remote") || true
+      [[ -n "$tags" ]] || { printf '' ; return 0; }
+      names=$(printf '%s\n' "$tags" | awk '{t=$2; gsub("refs/tags/","",t); gsub(/\^\{\}$/,"",t); print t}' | sort -u)
+      printf '%s\n' "$names" | awk '
+        function parse(t, arr,    s, n, i, m){if(t !~ /^v?[0-9]/) return 0; gsub(/^v/,"",t); n=split(t,arr,/[.-]/); for(i=1;i<=3;i++){s=(i<=n?arr[i]:0); m=(s ~ /^[0-9]+$/? s+0:0); arr[i]=m} return n}
+        BEGIN{best="";b1=b2=b3=0;bseg=0}
+        {seg=parse($0,a); if(seg==0) next; if(seg>3)seg=3; if(seg>bseg || (seg==bseg && (a[1]>b1 || (a[1]==b1 && (a[2]>b2 || (a[2]==b2 && a[3]>b3)))))){best=$0;bseg=seg;b1=a[1];b2=b2;b3=a[3]}}
+        END{print best}'
+      return 0
+    }
+
+    latest_tag_with_prefix() {
+      local remote="$1" prefix="$2" tags names
+      tags=$(git ls-remote --tags "$remote") || true
+      [[ -n "$tags" ]] || { printf '' ; return 0; }
+      names=$(printf '%s\n' "$tags" | awk '{t=$2; gsub("refs/tags/","",t); gsub(/\^\{\}$/,"",t); print t}' | sort -u)
+      printf '%s\n' "$names" | awk -v p="$2" '
+        function parse(t, arr,    s, n, i, m){gsub(/^v/,"",t); n=split(t,arr,/[.-]/); for(i=1;i<=3;i++){s=(i<=n?arr[i]:0); m=(s ~ /^[0-9]+$/? s+0:0); arr[i]=m} return n}
+        BEGIN{best="";b1=b2=b3=0;bseg=0}
+        {
+          t=$0; gsub(/^v/,"",t);
+          if (index(t, p ".") != 1) next;
+          seg=parse($0,a); if(seg>3)seg=3;
+          if(seg>bseg || (seg==bseg && (a[1]>b1 || (a[1]==b1 && (a[2]>b2 || (a[2]==b2 && a[3]>b3)))))) {best=$0;bseg=seg;b1=a[1];b2=a[2];b3=a[3]}
+        }
+        END{print best}'
+      return 0
+    }
+
+    collect_workflow_files() {
+      if [[ "$#" -gt 0 ]]; then
+        printf '%s\n' "$@"
+        return 0
+      fi
+      if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        local staged
+        staged=$(git diff --name-only --cached | grep -E '^\.github/workflows/.*\.(yml|yaml)$' || true)
+        if [[ -n "$staged" ]]; then printf '%s\n' "$staged"; return 0; fi
+      fi
+      if [[ -d .github/workflows ]]; then
+        find .github/workflows -type f \( -name "*.yml" -o -name "*.yaml" \)
+      fi
+      return 0
+    }
+
+    pin_file() {
+      local file="$1"
+      [[ -f "$file" ]] || { dbg "Skip (not a file): $file"; return 0; }
+      log "Processing $file"
+
+      local changed=0 linecount=0
+      while IFS=: read -r ln text; do
+        linecount=$((linecount+1))
+
+        local repo_full ref base_repo remote
+        repo_full=$(echo "$text" | sed -nE 's/^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*([^@]+)@.*/\2/p')
+        [[ -n "$repo_full" ]] || continue
+        ref=$(echo "$text" | sed -nE 's/^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*[^@]+@([^[:space:]#]*).*/\2/p') || true
+
+        base_repo=$(echo "$repo_full" | awk -F'/' '{print $1 "/" $2}')
+        [[ -n "$base_repo" ]] || { warn "  Unrecognized repo: $repo_full"; continue; }
+        remote="https://github.com/${base_repo}.git"
+
+        local prefix new_line sha tag comment
+        prefix=$(echo "$text" | sed -nE 's/^([[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*).*/\1/p')
+
+        if [[ -n "$ref" ]] && is_sha40 "$ref"; then
+          tag=$(best_tag_for_sha "$remote" "$ref") || true
+          existing_tag=$(echo "$text" | sed -nE 's/^[^#]*#[[:space:]]*([^[:space:]]+).*/\1/p') || true
+          if [[ -n "$tag" && "$existing_tag" != "$tag" ]]; then
+            new_line="${prefix}${repo_full}@${ref} # ${tag}"
+            dbg "  L$ln already pinned; updating comment to tag: $tag"
+          else
+            dbg "  L$ln already pinned; keeping existing comment"
+            continue
+          fi
+        else
+          sha=$(resolve_sha "$remote" "${ref}")
+          best=""
+          if [[ -z "$sha" && -n "${ref}" ]]; then
+            if [[ "$ref" =~ ^v?[0-9]+\.[0-9]+$ ]]; then
+              base=${ref#v}
+              best=$(latest_tag_with_prefix "$remote" "$base") || true
+              if [[ -n "$best" ]]; then sha=$(resolve_sha "$remote" "$best"); dbg "  L$ln: fallback to latest $base.x tag -> $best ($sha)"; fi
+            elif [[ "$ref" =~ ^v?[0-9]+$ ]]; then
+              major=${ref#v}
+              best=$(latest_tag_with_prefix "$remote" "$major") || true
+              if [[ -n "$best" ]]; then sha=$(resolve_sha "$remote" "$best"); dbg "  L$ln: fallback to latest $major.x tag -> $best ($sha)"; fi
+            fi
+            if [[ -z "$sha" ]]; then
+              best=$(latest_semver_tag "$remote") || true
+              if [[ -n "$best" ]]; then sha=$(resolve_sha "$remote" "$best"); dbg "  L$ln: fallback to latest release tag -> $best ($sha)"; fi
+            fi
+          fi
+          if [[ -z "$sha" ]]; then
+            warn "  L$ln: could not resolve ${repo_full}@${ref:-<default>}"
+            continue
+          fi
+          tag=$(best_tag_for_sha "$remote" "$sha") || true
+          if [[ -z "$tag" && -n "$best" ]]; then tag="$best"; fi
+          comment="${tag:-${ref:-HEAD}}"
+          new_line="${prefix}${repo_full}@${sha} # ${comment}"
+          dbg "  L$ln: ${repo_full}@${ref:-<default>} -> ${sha} (# ${comment})"
+        fi
+
+        if [[ "${PIN_SHA_DRY_RUN}" = "1" ]]; then
+          log "  DRY-RUN L$ln: $new_line"
+          continue
+        fi
+
+        awk -v ln="$ln" -v repl="$new_line" 'NR==ln{$0=repl} {print}' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+        git add -- "$file" 2>/dev/null || true
+        changed=1
+      done < <(grep -nE '^[[:space:]]*(-[[:space:]]*)?uses:[[:space:]]*[^#]+@' "$file" || true)
+
+      if [[ $changed -eq 1 ]]; then
+        log "  Updated: $file"
+        return 1
+      else
+        dbg "  No changes: $file"
+        return 0
+      fi
+    }
+
+    main() {
+      local -a files
+      mapfile -t files < <(collect_workflow_files "$@")
+      if [[ ${#files[@]} -eq 0 ]]; then
+        log "No workflow files found"
+        return 0
+      fi
+
+      local total=0 changed=0
+      for f in "${files[@]}"; do
+        total=$((total+1))
+        if pin_file "$f"; then :; else changed=$((changed+1)); fi
+      done
+      log "Done. Files scanned: $total, files changed: $changed"
+      return 0
+    }
+
+    main "$@"
