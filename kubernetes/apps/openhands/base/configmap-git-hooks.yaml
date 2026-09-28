@@ -56,14 +56,21 @@ data:
     INPUT=$(cat)
     COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
-    # --no-verify on any command it actually affects (commit, merge, push, am)
-    if echo "$COMMAND" | grep -qE '\bgit\s+(commit|merge|push|am)\b.*--no-verify'; then
+    # Git accepts global options before the subcommand; parse them before checking bypass flags.
+    _GIT_GLOBAL='([[:space:]]+(-C|-c|--git-dir|--work-tree|--namespace|--exec-path)[[:space:]]+[^[:space:];|&]+|[[:space:]]+--no-pager|[[:space:]]+--config-env=[^[:space:];|&]+)*'
+    if echo "$COMMAND" | grep -qE '(^|[^[:alnum:]_])git[^;&|]*[[:space:]](-c[[:space:]]+core\.hooksPath=|--config-env=core\.hooksPath=)'; then
+      echo "Blocked: this overrides core.hooksPath and bypasses git hooks." >&2
+      exit 2
+    fi
+
+    # --no-verify on any command it actually affects (commit, merge, push, am).
+    if echo "$COMMAND" | grep -qE "(^|[^[:alnum:]_])git${_GIT_GLOBAL}[[:space:]]+(commit|merge|push|am)([^[:alnum:]_]|$)[^;&|]*--no-verify"; then
       echo "Blocked: --no-verify skips pre-commit/pre-push hooks. Fix the hook instead of bypassing it." >&2
       exit 2
     fi
 
-    # -n is only ambiguous elsewhere; on git commit specifically it means --no-verify
-    if echo "$COMMAND" | grep -qE '\bgit\s+commit\b.*\B-n\b'; then
+    # -n is only ambiguous elsewhere; on git commit specifically it means --no-verify.
+    if echo "$COMMAND" | grep -qE '(^|[^[:alnum:]_])git[^;&|]*commit[^;&|]*-n'; then
       echo "Blocked: -n on git commit is --no-verify. Fix the hook instead of bypassing it." >&2
       exit 2
     fi
