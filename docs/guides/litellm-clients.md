@@ -202,21 +202,28 @@ assistant message content instead.
 
 ## Virtual keys, and why clients should not use the master key
 
+The gateway has no public self-service signup. Its UI is `admin_only`, non-admin
+personal-key creation is disabled, and the LAN/VPN ingress is private. The master key is
+an operator credential, not an application credential; it can bypass model and budget
+allow-lists and must never be mounted into a workload.
+
 The gateway's per-client access is virtual keys in Postgres, not anything in
-`config.yaml`. Each key has an alias and a `models` allow-list, so a compromised client
-reaches only what its key names:
+`config.yaml`. Each key has an alias, budget, and `models` allow-list, so a compromised
+client reaches only what its key names:
 
 | Alias | Models |
 |---|---|
-| `warp-dev` | deepseek-v4-pro, deepseek-v4-flash |
-| `nievah-pr-review` | the claude-* groups plus both deepseek models |
-| `openhands` | deepseek-v4-pro/flash, gpt-5.6-luna/sol/terra |
+| `openhands` | `gpt-5.6-luna`, plus the `openhands-only` group (`gpt-5.6-terra` and `gpt-5.6-sol`) |
+| `nievah` | `fallback-easy`, `fallback-medium`, `fallback-hard` (all Luna) |
+| `hermes` / `holmes` | their role aliases (all Luna; speech remains separate) |
+| `mem0` | `gpt-5.6-luna`, `text-embedding-3-small` |
+| utility workload keys | `gpt-5.6-luna` only |
 
 Keys are database rows, so a restore from backup brings back whatever the dump held and
-nothing in Git corrects it. `kubernetes/apps/litellm/base/keyseed-job.yaml` closes that
-gap for `openhands`: it upserts the key from its OCI Vault value on every run, which is
-idempotent and never rotates it. Bump the Job's name suffix when the model list changes,
-since Jobs are immutable.
+nothing in Git corrects it. `kubernetes/apps/litellm/base/keyseed-job.yaml` upserts every
+managed key from its OCI Vault value on each run with a finite 30-day budget. Bump the Job's
+name suffix whenever the model list or key set changes, since Jobs are immutable. Any new
+workload must receive a dedicated scoped key; never reuse the master or OpenHands key.
 
 Management endpoints (`/key/*`, `/team/*`) still want the `Bearer ` prefix *inside*
 `x-litellm-api-key`. Renaming the header via `litellm_key_header_name` does not change
@@ -244,6 +251,25 @@ regenerated, and replacing one resets its spend.
 - **Read spend** with `/team/info`, `/key/info` (accepts the key's SHA-256),
   `/spend/logs/v2` and `/team/daily/activity`. `/global/spend/report` and the other
   `*/spend/report` endpoints need an enterprise licence.
+
+## Role aliases: switching provider in one place
+
+The house agents never name a provider model. Each asks for a role, and every role points
+at one of three tiers defined once in the `model_list` (the `tier-*` entries, reused through
+YAML anchors):
+
+| Role | Called by | Tier today |
+|---|---|---|
+| `fallback-easy`, `fallback-medium`, `fallback-hard` | Nievah, after its Claude legs fail | light (gpt-5.6-luna) |
+| `agent-chat` | Hermes: conversations and cron runs | standard (gpt-5.6-luna) |
+| `agent-investigate` | HolmesGPT, including Nievah's alert investigations | standard (gpt-5.6-luna) |
+| `agent-light` | cheap summarising work | light (gpt-5.6-luna) |
+| `speech-to-text`, `text-to-speech` | Hermes voice on Slack | gpt-4o-mini-transcribe, gpt-4o-mini-tts |
+
+To move provider, edit the three `tier-*` entries (`model`, `api_key` and the pinned prices)
+and update the Deployment's `checksum/config`. Nievah, Hermes and Holmes follow on the next
+rollout with no change in their own configs. To move one agent to another tier, change
+which anchor its role uses. A new agent should get a new role, not a provider model name.
 
 ## Operational note
 

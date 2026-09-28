@@ -48,7 +48,7 @@ spec:
       # live in base/github-contributions/image-automation.yaml; the shared `media`
       # ImageUpdateAutomation scans ./kubernetes/apps and pushes the bump to main.
       # v0.0.1 is a placeholder until Diatreme publishes the first real release tag.
-      tag: v0.0.21 # {"$imagepolicy": "flux-system:github-contributions:tag"}
+      tag: v0.0.22 # {"$imagepolicy": "flux-system:github-contributions:tag"}
       pullPolicy: IfNotPresent
       pullSecrets:
         - name: ghcr-pull-secret
@@ -66,9 +66,9 @@ spec:
     # AI layer via the in-cluster LiteLLM proxy (LITELLM_API_KEY is a secret below).
     ai:
       litellmBaseUrl: "http://litellm.automation.svc.cluster.local:8080"
-      # deepseek-v4-flash for now because Anthropic credits were low. claude-sonnet-4-6
-      # is the PREFERRED model — switch back once Anthropic credits are topped up.
-      litellmModel: "deepseek-v4-flash"
+      # All non-OpenHands workloads use the low-cost Luna model. The dedicated
+      # virtual key is allow-listed to this alias only.
+      litellmModel: "gpt-5.6-luna"
       # NOTE: confirm the in-cluster base URL /v1 routing on first run. The OpenAI
       # SDK appends /v1 to litellmBaseUrl, so LiteLLM must answer at :8080/v1.
     config:

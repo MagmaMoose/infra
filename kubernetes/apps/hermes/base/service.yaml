@@ -17,4 +17,10 @@ spec:
       protocol: TCP
       port: 8642
       targetPort: 8642
+    # Nievah's signed events (the `nievah` webhook route). In-cluster only: the
+    # ingress fronts the dashboard and nothing else.
+    - name: webhook
+      protocol: TCP
+      port: 8644
+      targetPort: 8644
   type: ClusterIP

@@ -1,0 +1,15 @@
+# Scraped so a dead Thanos Query shows up (the chart's TargetDown) and its metrics
+# reach Grafana. Port http is 9090 on the Service, 10902 on the pod.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: thanos-query
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: thanos-query
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: thanos-query
+  endpoints:
+    - port: http

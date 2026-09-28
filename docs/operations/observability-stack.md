@@ -74,7 +74,7 @@ flowchart TD
     Prom -->|sidecar uploads TSDB blocks| MinIO
     TStore -->|reads historical blocks| MinIO
     TCompact <-->|compact / downsample| MinIO
-    MinIO -->|nightly mc mirror| OCI
+    MinIO -->|nightly rclone copy| OCI
 
     FB -->|push logs| Loki
     Alloy -->|push logs| Loki
@@ -101,7 +101,7 @@ flowchart TD
 - **Logs:** Fluent Bit (ff-vm1) and Grafana Alloy (ff-pi1) tail container logs and push them to
   Loki with a shared label schema; Grafana queries Loki with LogQL.
 - **Alerting:** Prometheus evaluates rules and pushes alerts to Alertmanager, which posts critical
-  alerts to Slack.
+  and warning alerts to Slack (see [Alerting](#alerting)).
 
 ## Components
 
@@ -147,10 +147,38 @@ Resources are sized from the weekly **KRR** report (`apps/krr/`). The convention
 ### Storage & backup
 
 Observability PVCs use `local-path` on `ff-vm1`. Durability comes from object storage, not volume
-replication: the `minio-backup` CronJob `mc mirror`s `thanos-metrics`, `loki-chunks` and
-`loki-ruler` to **OCI Object Storage** nightly (additive: historical blocks are retained even
-after the source compacts them). The OCI `minio-backups` bucket is provisioned by the terraform
-`backups` module.
+replication: the `minio-backup` CronJob copies `thanos-metrics`, `loki-chunks` and `loki-ruler`
+to **OCI Object Storage** nightly with `rclone copy` (additive: historical blocks are retained
+even after the source compacts them). The OCI `minio-backups` bucket is provisioned by the
+terraform `backups` module.
+
+### Alerting
+
+Alertmanager routes on `severity`: `critical` to the `slack-critical` receiver, `warning` to
+`slack-warning` (24h repeat), anything else to `null`. Both receivers post to
+`#engineering-alerts`. Nievah polls Alertmanager hourly and investigates only `critical`
+alerts, so a rule is critical when its failure needs someone to act, and not otherwise.
+
+Besides the chart's default rules:
+
+| Area | Critical | Warning | Defined in |
+|---|---|---|---|
+| CronJobs | `BackupCronJobNotSucceeding` (name contains backup or snapshot) | `KubeCronJobNotSucceeding`; `KubeJobFailed` for Jobs no CronJob owns | helmrelease `additionalPrometheusRulesMap.cronjobs` |
+| Thanos compactor | `ThanosCompactHalted` | `ThanosCompactHasNotRun` | `apps/thanos-compactor/base/prometheusrule.yaml` |
+| Longhorn | `LonghornVolumeFaulted`, `LonghornBackupFailed` | `LonghornVolumeDegraded`, `LonghornNodeStorageHigh` | helmrelease `additionalPrometheusRulesMap.longhorn` |
+| cert-manager | `CertManagerCertExpiryCritical` (under 3 days), `CertManagerCertNotReady` | `CertManagerCertExpirySoon` (under 14 days) | helmrelease `additionalPrometheusRulesMap.cert-manager` |
+| CNPG | `CNPGBackupFailing`, `CNPGBackupTooOld` | `CNPGBackupMetricMissing` (routed to `slack-critical` anyway) | `infrastructure/services/postgres/base/prometheusrule.yaml` |
+
+The chart's own `KubeJobFailed` is disabled: it fired once per failed Job object, and failed Jobs
+linger. A CronJob is "not succeeding" when no run has succeeded within two of its own intervals.
+The interval comes from the schedule string, not from kube-state-metrics' next-run time, which is
+wrong on this cluster for any schedule with a fixed hour (the helmrelease comment has the detail).
+
+!!! warning "Monitoring CRs for the controllers tier live in the chart values"
+    A `ServiceMonitor` or `PrometheusRule` for anything under `infrastructure/controllers`
+    (Longhorn, cert-manager) goes in the kube-prometheus-stack HelmRelease, not beside the
+    controller. The CRDs come from that chart in the apps tier, and a Flux Kustomization that
+    meets an unknown kind applies nothing, so on a rebuild the controllers tier would never apply.
 
 ### Access
 

@@ -4,7 +4,7 @@ OpenHands is the in-cluster autonomous-coding lane used by Nievah when a reposit
 operator selects `harness: openhands`. The deployment uses the multi-arch
 `ghcr.io/openhands/agent-canvas:1.5.2` image. Its public UI/proxy listens on port 8000
 (and forwards `/api` to the internal V1 agent-server), and it routes inference through the
-in-cluster LiteLLM gateway using the `litellm_proxy/deepseek-v4-pro` model alias.
+in-cluster LiteLLM gateway using the `litellm_proxy/gpt-5.6-luna` model alias.
 
 The pod is deliberately a single stateful instance. Its 10Gi `local-path` volume stores the
 OpenHands settings and per-conversation workspaces. The pod itself is the sandbox boundary:
@@ -60,10 +60,10 @@ the instance and hand-edits made in the UI are overwritten on the next restart. 
 deliberate: OpenHands keeps its settings encrypted on the state PVC, where Git cannot
 reach them, so the API is the only declarative surface available.
 
-- **LLM profiles** — one per gateway model: `gpt-5.6-luna` (active), `gpt-5.6-sol`,
-  `gpt-5.6-terra`, `deepseek-v4-pro`. All use the `litellm_proxy/` provider prefix. Using
-  `openai/` instead reaches the same endpoint but skips LiteLLM's model-group routing, so
-  budgets and the key's allow-list stop applying.
+- **LLM profiles** — `gpt-5.6-luna` (active), `gpt-5.6-sol`, and `gpt-5.6-terra`.
+  These are the only provider models allowed by the OpenHands virtual key. All use the
+  `litellm_proxy/` provider prefix. Using `openai/` instead reaches the same endpoint but
+  skips LiteLLM's model-group routing, so budgets and the key's allow-list stop applying.
 - **Credentials** — the scoped `openhands` LiteLLM key (see the LiteLLM keyseed Job), not
   the gateway master key. An agent with GitHub write access should not also hold admin
   rights over the gateway every other workload shares.
@@ -100,7 +100,10 @@ syncs working trees detached from their own history.
 The sidecar never touches work in progress. A repository with uncommitted changes, on a
 non-default branch, or ahead of its remote is fetched and then left alone. Repositories
 the API stops returning are moved to `/workspace/repos/.attic`, never deleted, so a
-rate-limited or partial API response cannot destroy local work. Owners are listed in
+rate-limited or partial API response cannot destroy local work. The only deletions are
+a failed transfer's leftover `tmp_pack_*` files, and a clone that never finished and has
+nothing checked out (HEAD still on git's `refs/heads/.invalid` placeholder, or no pack
+at all), which the next pass re-clones. Neither can hold work. Owners are listed in
 `configmap-reposync.yaml`.
 
 Migration: `openhands-migrate-state-v1` copies the old local-path state across once. It

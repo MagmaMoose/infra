@@ -1,0 +1,30 @@
+---
+# The tag marker lives in prod/workload/helmrelease.yaml, under ./kubernetes/apps, which the
+# shared `media` ImageUpdateAutomation already scans; only the repository and policy are
+# needed here.
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: docs-distributor
+  namespace: flux-system
+spec:
+  image: ghcr.io/magmamoose/docs-distributor
+  interval: 5m
+  provider: generic
+  secretRef:
+    name: ghcr-pull-secret
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: docs-distributor
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: docs-distributor
+  filterTags:
+    pattern: '^v[0-9]+\.[0-9]+\.[0-9]+$'
+    extract: '$0'
+  policy:
+    semver:
+      range: '>=0.0.0'

@@ -183,7 +183,6 @@ data:
     put_profile gpt-5.6-luna    gpt-5.6-luna    high
     put_profile gpt-5.6-sol     gpt-5.6-sol     high
     put_profile gpt-5.6-terra   gpt-5.6-terra   medium
-    put_profile deepseek-v4-pro deepseek-v4-pro medium
 
     # ---- MCP servers ----------------------------------------------------------
     # The Slack server needs a team id alongside the bot token and there is no vault entry

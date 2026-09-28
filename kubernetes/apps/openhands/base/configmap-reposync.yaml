@@ -9,7 +9,9 @@
 #
 # Safety rule: this never touches work in progress. A dirty worktree, a non-default
 # branch, or a branch ahead of its remote is fetched and then left alone. Repos that
-# disappear upstream are moved to .attic, never deleted.
+# disappear upstream are moved to .attic, never deleted. The only things ever deleted
+# are a failed transfer's tmp_pack_* files and a clone that never finished and has
+# nothing checked out, neither of which can hold work.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -117,18 +119,78 @@ data:
       done
     }
 
+    # Runs git and logs its stderr line by line, prefixed with the repo, so a failure
+    # says why. The fetch used to send it to /dev/null, which is how one repo failed
+    # every pass for days with nothing in the log. Returns git's own exit status.
+    git_logged() {
+      _label="$1"; shift
+      _err="$("$@" 2>&1 >/dev/null)"
+      _rc=$?
+      [ -z "$_err" ] || printf '%s\n' "$_err" | while IFS= read -r _l; do [ -z "$_l" ] || log "$_label: $_l"; done
+      return "$_rc"
+    }
+
+    # git clone points HEAD at the placeholder refs/heads/.invalid until it finishes,
+    # so a clone killed part-way (an OOM kill, or the SIGKILL at the end of a
+    # rollout's grace period) keeps it, never checks anything out, and no later fetch
+    # repairs that. On 2026-09-24 eight mirrors sat like this, six of them with their
+    # packs already fetched. reftable repos keep the placeholder as a permanent stub,
+    # hence the second test.
+    placeholder_head() {
+      [ "$(cat "$1/.git/HEAD" 2>/dev/null)" = "ref: refs/heads/.invalid" ] && [ ! -d "$1/.git/reftable" ]
+    }
+
+    # A git transfer that dies part-way (OOM kill, full disk, dropped connection)
+    # leaves its partial pack behind as tmp_pack_* and nothing ever removes it: one
+    # repo retried every pass piled up over 650 of them (65G) and filled the volume,
+    # so every other clone failed with "No space left on device". This removes them,
+    # and removes the whole repo if it is an unfinished clone (placeholder HEAD, or no
+    # pack and no loose object) with nothing checked out, so the next pass clones it
+    # from scratch. $1 is the owner directory and $2 the repo; both must be single
+    # path components, so nothing outside $ROOT/<owner>/<repo> is ever touched.
+    clean_leftovers() {
+      case "${1:-}" in ''|.|..|*/*) log "WARNING: no cleanup, bad owner dir '${1:-}'"; return ;; esac
+      case "${2:-}" in ''|.|..|*/*) log "WARNING: no cleanup, bad repo name '${2:-}'"; return ;; esac
+      _cdir="${ROOT:?}/$1/$2"
+      _pack="$_cdir/.git/objects/pack"
+      [ -d "$_pack" ] || return 0
+
+      _n="$(find "$_pack" -maxdepth 1 -type f -name 'tmp_pack_*' | wc -l)"
+      if [ "$_n" -gt 0 ]; then
+        find "$_pack" -maxdepth 1 -type f -name 'tmp_pack_*' -delete
+        log "$1/$2: removed $_n leftover tmp_pack file(s)"
+      fi
+
+      # Anything with a file checked out, or with objects behind a real HEAD, may
+      # hold local work, so it stays.
+      [ -z "$(ls -A "$_cdir" | grep -vx '\.git')" ] || return 0
+      if ! placeholder_head "$_cdir"; then
+        ls "$_pack"/*.pack >/dev/null 2>&1 && return 0
+        ls -d "$_cdir"/.git/objects/[0-9a-f][0-9a-f] >/dev/null 2>&1 && return 0
+      fi
+      log "$1/$2: unfinished clone with nothing checked out; removing it so the next pass re-clones it"
+      rm -rf "${_cdir:?}"
+    }
+
     sync_one() {
       _owner="$1"; _host="$2"; _dir="$ROOT/$3/$4"; _name="$4"; _branch="$5"
 
       if [ ! -d "$_dir/.git" ]; then
         log "clone $_host/$_owner/$_name"
-        git clone --quiet "https://$_host/$_owner/$_name.git" "$_dir" \
-          || log "WARNING: clone failed for $_host/$_owner/$_name"
+        git_logged "$_owner/$_name" git clone --quiet "https://$_host/$_owner/$_name.git" "$_dir" \
+          || { log "WARNING: clone failed for $_host/$_owner/$_name"; clean_leftovers "$3" "$4"; }
         return
       fi
 
-      git -C "$_dir" fetch --quiet --all --prune --tags 2>/dev/null \
-        || { log "WARNING: fetch failed for $_owner/$_name"; return; }
+      # Checked before fetching because an unfinished clone's fetch can succeed.
+      if placeholder_head "$_dir"; then
+        log "WARNING: $_owner/$_name is an unfinished clone"
+        clean_leftovers "$3" "$4"
+        return
+      fi
+
+      git_logged "$_owner/$_name" git -C "$_dir" fetch --quiet --all --prune --tags \
+        || { log "WARNING: fetch failed for $_owner/$_name"; clean_leftovers "$3" "$4"; return; }
 
       # Leave anything with local work exactly as it is. Three ways to be "in use":
       # uncommitted changes, parked on another branch, or ahead of the remote.
@@ -137,7 +199,7 @@ data:
       [ "$_cur" = "$_branch" ] || return
       [ "$(git -C "$_dir" rev-list --count "origin/$_branch..$_branch" 2>/dev/null || echo 1)" = "0" ] || return
 
-      git -C "$_dir" merge --quiet --ff-only "origin/$_branch" 2>/dev/null
+      git_logged "$_owner/$_name" git -C "$_dir" merge --quiet --ff-only "origin/$_branch"
     }
 
     while :; do

@@ -13,7 +13,7 @@ caused an outage.
 | External Secrets | `external-secrets.yml` | PR and push on `kubernetes/**`, `17 6 * * *`, manual | Checks every `ExternalSecret` remoteRef against the OCI Vault the `oci-vault` ClusterSecretStore reads. |
 | Security | `security.yml` | pull request | The org Chargate gate, MegaLinter-backed, gating on net-new findings in the PR diff. |
 | Release | `release.yml` | PR, push to `main`, manual | The org Diatreme release template: versioning, GitHub Release, and image builds. |
-| Build and Push Multi-Arch Images to GHCR | `docker-publish.yml` | push to `main`, `*-v*` tags, PRs touching `dockerfiles/**` | Builds the four container images in `dockerfiles/`. |
+| Build and Push Multi-Arch Images to GHCR | `docker-publish.yml` | push to `main`, `*-v*` tags, PRs touching `dockerfiles/**` | Builds four container images from `dockerfiles/`. |
 | Build & Deploy Docs | `docs.yml` | **manual only** | `mkdocs build --strict`, then deploys to GitHub Pages. |
 | FluxCD Deployment Tracker | `flux-deployment-tracker.yml` | `repository_dispatch` type `reconciliation` | Records a GitHub deployment when Flux reconciles. |
 | Server Update Notifications | `server-update-notifications.yml` | `repository_dispatch` type `server-update`, manual | Relays host patching results. |
@@ -59,18 +59,26 @@ self-hosted queue.
 
 ## Container images
 
-`docker-publish.yml` builds three images from `dockerfiles/`:
+`docker-publish.yml` builds four images from `dockerfiles/`:
 
 | Image | Namespace | Platforms | Tag prefix |
 | --- | --- | --- | --- |
 | `n8n` | `calebsargeant` | `linux/amd64,linux/arm64` | `n8n-v` |
 | `openfortivpn` | `calebsargeant` | `linux/amd64,linux/arm64` | `openfortivpn-v` |
 | `mem0-server` | `magmamoose` | `linux/amd64,linux/arm64` | `mem0-server-v` |
+| `hermes` | `magmamoose` | `linux/amd64` | `hermes-v` |
 
 `mem0-server` is built from upstream source rather than the published `mem0/mem0-api-server`
 image (which is arm64 only and no longer security-patched). Building from source provides
 access to the latest patches and multi-platform support. The Deployment runs on the on-prem
 node tier where the Postgres database lives, eliminating cross-VPN latency.
+
+`hermes` is the upstream `nousresearch/hermes-agent` image plus the `ddgs` package, which
+Hermes' DuckDuckGo web search backend needs. The upstream image can't install it at runtime:
+its venv is read-only and has no pip. It's built for `linux/amd64` only because Hermes runs on
+the amd64 on-prem worker, even though the upstream image also ships arm64. Tags carry the
+upstream version plus a build number: `hermes-v2026.6.19-1` publishes
+`ghcr.io/magmamoose/hermes:2026.6.19-1`.
 
 !!! warning "`dockerfiles/wordpress-postgres` is not built"
     It's been in the tree since January 2026 and appears in no matrix entry, so no image is

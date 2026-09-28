@@ -37,7 +37,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Run Terrateam Action
         id: terrateam
-        uses: terrateamio/action@94352384c442e817bde69e55f7baf31c198b5b95 # v1
+        uses: terrateamio/action@07bcd53f1315127fd489f4065122707ebb464ff4 # v1
         with:
           work-token: '${{ github.event.inputs.work-token }}'
           api-base-url: '${{ github.event.inputs.api-base-url }}'

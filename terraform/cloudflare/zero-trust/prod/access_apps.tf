@@ -238,40 +238,153 @@ resource "cloudflare_zero_trust_access_application" "app_launcher" {
 # Nothing to apply — there is no resource here. It is a signpost for the next
 # person who wonders why a public product surface has no Access policy.
 
-# --- MkDocs docs sites on Cloudflare Pages: NOT manageable from here --------
-# Several private repos publish MkDocs sites to Cloudflare Pages, and each one
-# is world-readable at `<project>-docs.pages.dev` until an Access application
-# covers that hostname. Their shared docs workflow refuses to publish until one
-# does (tremvok's `require-access`), which is the gate working as intended.
+# --- self_hosted: the private docs sites on the shared docs router ----------
+# Several private repos publish MkDocs sites, and a published site is world-readable
+# until an Access application covers it. Their shared docs workflow refuses to publish
+# one that none covers (tremvok's `cloudflare-docs-require-access`), which is the gate
+# working as intended.
 #
-# The applications for those hostnames CANNOT be created from here, and this
-# block is the record of why. `pages.dev` is Cloudflare's zone, not ours, so the
-# Access API rejects the create outright:
+# THIS BLOCK EXISTED ONCE AS FOUR APPLICATIONS ON `<project>-docs.pages.dev` AND WAS
+# DELETED, because `pages.dev` is Cloudflare's zone and the Access API refuses a create
+# there outright: `domain does not belong to zone (12130)`. The rejection is server-side
+# at create, so those resources planned clean and failed every apply — see
+# `.claude/COMMON_MISTAKES.md` #40, which stays accurate about what it records.
 #
-#   error creating Access Application for accounts "<account>": error from
-#   makeRequest: access.api.error.invalid_request:
-#   domain does not belong to zone (12130)
+# What changed is the hostname, not the rule. The sites moved off Pages onto Workers
+# Static Assets behind one router on `docs.magmamoose.com` (MagmaMoose/tremvok#34, #39),
+# each repo served at `/<repo>`, and that IS a zone in this account — so the same
+# applications are ordinary Terraform again, on a path rather than a hostname.
 #
-# It is a CREATE-TIME validation, so `plan` is clean and only `apply` fails.
-# That is how eight resources (four applications, four policies) sat on main
-# unapplied for weeks while the repos' docs deploys stayed red: the code said
-# the sites were gated, the account had nothing, and nothing pointed at the gap.
-# Two separate attempts wrote this Terraform; neither could ever have applied.
-# Worse, the failing creates take the whole leaf's apply with them, which is why
-# unrelated drift in this stack also went unapplied.
-#
-# Cloudflare supports exactly one path, its dashboard: Workers & Pages > the
-# project > Settings > General > Enable access policy, then Zero Trust > Access
-# > Applications > that application > Configure, delete the `*` from the
-# Subdomain field and Save. That secures the primary hostname; re-enabling the
-# project toggle afterwards adds a second application covering the preview and
-# per-deployment hostnames, which are public in their own right. Cloudflare
-# documents no API and no wrangler equivalent.
-#
-# So these applications are dashboard-owned by necessity, not by preference. Do
-# not re-add them here without first confirming Cloudflare allows the create —
-# the symptom of getting it wrong is a leaf that plans clean and fails every
-# apply.
+# PATH-SCOPED, AND THAT IS THE WHOLE DESIGN. One application on the bare host would cover
+# every site on the router, which includes the PUBLIC ones — tremvok, brimyr, diatreme,
+# chargate, draventis, ponvara — and put a login in front of documentation that is meant
+# to be read by anyone. An application per private repo gates exactly what must be gated
+# and leaves the rest open. The gate agrees: it accepts an application on the exact path,
+# or on the bare host, and prefers to be told the narrower one.
+
+# The whole @magmamoose.com team, and nobody else.
+resource "cloudflare_zero_trust_access_application" "caldrith_docs" {
+  account_id                = var.account_id
+  name                      = "Caldrith docs"
+  type                      = "self_hosted"
+  domain                    = "docs.magmamoose.com/caldrith"
+  tags                      = ["Magma Moose"]
+  app_launcher_visible      = true
+  auto_redirect_to_identity = false
+  session_duration          = "24h"
+
+  allowed_idps = [
+    cloudflare_zero_trust_access_identity_provider.google_workspace.id,
+    cloudflare_zero_trust_access_identity_provider.one_time_pin.id,
+    cloudflare_zero_trust_access_identity_provider.google.id,
+  ]
+}
+
+resource "cloudflare_zero_trust_access_policy" "caldrith_docs_team" {
+  account_id       = var.account_id
+  application_id   = cloudflare_zero_trust_access_application.caldrith_docs.id
+  name             = "Magma Moose team"
+  decision         = "allow"
+  precedence       = 1
+  session_duration = "24h"
+
+  include {
+    group = [cloudflare_zero_trust_access_group.magma_moose_domain.id]
+  }
+}
+
+# Operational detail that must not be world-readable.
+resource "cloudflare_zero_trust_access_application" "dunmir_docs" {
+  account_id                = var.account_id
+  name                      = "Dün Mir docs"
+  type                      = "self_hosted"
+  domain                    = "docs.magmamoose.com/dunmir"
+  tags                      = ["Magma Moose"]
+  app_launcher_visible      = true
+  auto_redirect_to_identity = false
+  session_duration          = "24h"
+
+  allowed_idps = [
+    cloudflare_zero_trust_access_identity_provider.google_workspace.id,
+    cloudflare_zero_trust_access_identity_provider.one_time_pin.id,
+    cloudflare_zero_trust_access_identity_provider.google.id,
+  ]
+}
+
+resource "cloudflare_zero_trust_access_policy" "dunmir_docs_team" {
+  account_id       = var.account_id
+  application_id   = cloudflare_zero_trust_access_application.dunmir_docs.id
+  name             = "Magma Moose team"
+  decision         = "allow"
+  precedence       = 1
+  session_duration = "24h"
+
+  include {
+    group = [cloudflare_zero_trust_access_group.magma_moose_domain.id]
+  }
+}
+
+# Runs unattended against other people's repositories.
+resource "cloudflare_zero_trust_access_application" "nievah_docs" {
+  account_id                = var.account_id
+  name                      = "Nievah docs"
+  type                      = "self_hosted"
+  domain                    = "docs.magmamoose.com/nievah"
+  tags                      = ["Magma Moose"]
+  app_launcher_visible      = true
+  auto_redirect_to_identity = false
+  session_duration          = "24h"
+
+  allowed_idps = [
+    cloudflare_zero_trust_access_identity_provider.google_workspace.id,
+    cloudflare_zero_trust_access_identity_provider.one_time_pin.id,
+    cloudflare_zero_trust_access_identity_provider.google.id,
+  ]
+}
+
+resource "cloudflare_zero_trust_access_policy" "nievah_docs_team" {
+  account_id       = var.account_id
+  application_id   = cloudflare_zero_trust_access_application.nievah_docs.id
+  name             = "Magma Moose team"
+  decision         = "allow"
+  precedence       = 1
+  session_duration = "24h"
+
+  include {
+    group = [cloudflare_zero_trust_access_group.magma_moose_domain.id]
+  }
+}
+
+# Private product documentation.
+resource "cloudflare_zero_trust_access_application" "noctyr_docs" {
+  account_id                = var.account_id
+  name                      = "Noctyr docs"
+  type                      = "self_hosted"
+  domain                    = "docs.magmamoose.com/noctyr"
+  tags                      = ["Magma Moose"]
+  app_launcher_visible      = true
+  auto_redirect_to_identity = false
+  session_duration          = "24h"
+
+  allowed_idps = [
+    cloudflare_zero_trust_access_identity_provider.google_workspace.id,
+    cloudflare_zero_trust_access_identity_provider.one_time_pin.id,
+    cloudflare_zero_trust_access_identity_provider.google.id,
+  ]
+}
+
+resource "cloudflare_zero_trust_access_policy" "noctyr_docs_team" {
+  account_id       = var.account_id
+  application_id   = cloudflare_zero_trust_access_application.noctyr_docs.id
+  name             = "Magma Moose team"
+  decision         = "allow"
+  precedence       = 1
+  session_duration = "24h"
+
+  include {
+    group = [cloudflare_zero_trust_access_group.magma_moose_domain.id]
+  }
+}
 
 # --- self_hosted: Zoey ------------------------------------------------------
 # Zoey — the project-intelligence dashboard (firefly cluster, behind the

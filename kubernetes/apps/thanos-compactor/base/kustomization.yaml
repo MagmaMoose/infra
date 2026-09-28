@@ -3,6 +3,8 @@ kind: Kustomization
 resources:
   - statefulset.yaml
   - service.yaml
+  - servicemonitor.yaml
+  - prometheusrule.yaml
 labels:
   # Placement tier — consumed by the Kyverno `place-on-prem` ClusterPolicy, which
   # adds the nodeSelector at admission. Replaces components/node-selectors/mini.

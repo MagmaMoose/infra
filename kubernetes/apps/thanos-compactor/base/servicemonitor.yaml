@@ -1,0 +1,16 @@
+# Nothing scraped the compactor before this, which is how it sat halted
+# (thanos_compact_halted 1) for months without anyone noticing. Its alerts are in
+# prometheusrule.yaml.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: thanos-compactor
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: thanos-compactor
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: thanos-compactor
+  endpoints:
+    - port: http

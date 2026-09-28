@@ -22,6 +22,8 @@ resources:
   - ./n8n-mcp
   - ./renovate
   # magmamoose products (open-core; external-repo + image automation)
+  # docs-distributor: weekly anonymised docs sync into the public docs site.
+  - ./docs-distributor
   # Dün Mir Pro. The only PRIVATE source repo in this group — its GitRepository
   # needs github-app-magmamoose for read access, not just rate-limit headroom.
   # Migrated off Cloudflare Workers (Workers Free caps CPU at 10ms; Pro's PBKDF2
@@ -88,6 +90,10 @@ resources:
   - ./thanos-compactor
   - ./thanos-query
   - ./thanos-store
+  # S3 for Thanos and Loki, replacing infrastructure/services/minio. seaweedfs-migration is
+  # the one-off copy of MinIO's buckets into it; remove that once MinIO is gone.
+  - ./seaweedfs
+  - ./seaweedfs-migration
   # platform (node-level tuning)
   - ./node-tuning
   - ./system-upgrade-controller

@@ -61,18 +61,25 @@ spec:
               memory: 256Mi
             limits:
               memory: 512Mi
+          # timeoutSeconds 5, not the 1s default. MinIO sometimes takes over a second
+          # to answer its health endpoints (every failure read "Client.Timeout
+          # exceeded while awaiting headers"), and three misses in a row on liveness
+          # restart it: 142 restarts by 2026-09-24, each one failing Loki and Thanos
+          # object writes until it is back.
           livenessProbe:
             httpGet:
               path: /minio/health/live
               port: 9000
             initialDelaySeconds: 30
             periodSeconds: 10
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /minio/health/ready
               port: 9000
             initialDelaySeconds: 10
             periodSeconds: 5
+            timeoutSeconds: 5
       volumes:
         - name: data
           hostPath:
