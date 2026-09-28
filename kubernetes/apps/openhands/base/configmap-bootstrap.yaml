@@ -197,13 +197,12 @@ data:
     #
     # mermaid: mcp-mermaid uses puppeteer internally, which fails in this pod's
     # seccomp+capability-dropped security context unless the sandbox is disabled.
-    # PUPPETEER_SKIP_CHROMIUM_DOWNLOAD + PUPPETEER_EXECUTABLE_PATH reuse playwright's
-    # already-cached Chromium (no second ~150MB download). PUPPETEER_ARGS disables the
-    # sandbox, matching how @playwright/mcp itself passes --no-sandbox to its browser.
-    # The path is discovered at runtime; empty on first-ever boot (before playwright has
-    # populated the cache), which degrades to "mermaid not available until next restart".
+    # When a Chromium binary is already cached, PUPPETEER_SKIP_CHROMIUM_DOWNLOAD and
+    # PUPPETEER_EXECUTABLE_PATH reuse it (no second ~150MB download). If the cache is empty,
+    # leave those two variables unset so Puppeteer can provision its browser on first use.
+    # PUPPETEER_ARGS disables the sandbox, matching how @playwright/mcp passes --no-sandbox.
     _CHROMIUM="$(find "${PLAYWRIGHT_BROWSERS_PATH:-/home/openhands/.openhands/cache/playwright}" \
-      -name "chrome" -maxdepth 5 -type f 2>/dev/null | head -1)"
+      -maxdepth 5 -name "chrome" -type f 2>/dev/null | head -1)"
     # Normalize the session key for use as the nievah MCP bearer token — same
     # trimming the deployment wrapper applies before handing it to the agent server.
     _NIEVAH_KEY="$(printf '%s' "${OH_SESSION_API_KEYS_0:-}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
@@ -232,9 +231,11 @@ data:
           command: "npx",
           args: ["-y", "mcp-mermaid"],
           env: ({
-            PUPPETEER_ARGS: "--no-sandbox --disable-dev-shm-usage",
-            PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
-          } + (if $chromium != "" then { PUPPETEER_EXECUTABLE_PATH: $chromium } else {} end)),
+            PUPPETEER_ARGS: "--no-sandbox --disable-dev-shm-usage"
+          } + (if $chromium != "" then {
+            PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true",
+            PUPPETEER_EXECUTABLE_PATH: $chromium
+          } else {} end)),
           description: "Render and validate Mermaid diagrams"
         },
         ms365: {
