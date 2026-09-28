@@ -39,7 +39,7 @@ data:
     # the box. Matches the workstation's GIT_CONFIG_* wiring in settings.json.
     git config --global url."https://github.com/".insteadOf            "git@github.com:"
     git config --global url."https://pinkroccade.ghe.com/".insteadOf   "git@pinkroccade.ghe.com:"
-    git config --global url."https://pinkroccade.ghe.com/".insteadOf   "Pinkroccade@Pinkroccade.ghe.com:"
+    git config --global --add url."https://pinkroccade.ghe.com/".insteadOf "Pinkroccade@Pinkroccade.ghe.com:"
 
     # Credential helpers: shell functions that echo the token from the live pod
     # environment at auth time. The literal env var names are written into
