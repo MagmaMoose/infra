@@ -110,10 +110,23 @@ data:
       exit 0
     fi
 
+    configure_git_signing() {
+      local public_key="${SSH_DIR}/signing-key.pub"
+      if ! printf '%s\n' "$SIGNING_KEY" | ssh-keygen -y -f - > "$public_key" 2>/dev/null; then
+        log "WARNING: could not derive public signing key; signing will not work"
+        return 1
+      fi
+      chmod 644 "$public_key"
+      git config --global gpg.format ssh
+      git config --global user.signingkey "$public_key"
+      git config --global commit.gpgsign true
+      log "git SSH signing configured with the agent-backed public key"
+    }
+
     # Already running with the key loaded?
     if [ -S "$SOCK" ] && SSH_AUTH_SOCK="$SOCK" ssh-add -l >/dev/null 2>&1; then
-      log "agent already seeded at $SOCK"
-      exit 0
+      configure_git_signing
+      exit $?
     fi
 
     mkdir -p "$SSH_DIR" && chmod 700 "$SSH_DIR"
@@ -132,6 +145,7 @@ data:
     # Stream the key into the agent — never written to disk.
     if printf '%s\n' "$SIGNING_KEY" | SSH_AUTH_SOCK="$SOCK" ssh-add - >/dev/null 2>&1; then
       log "signing key loaded into $SOCK"
+      configure_git_signing || exit 1
     else
       log "WARNING: ssh-add failed; signing will not work"
       exit 1
