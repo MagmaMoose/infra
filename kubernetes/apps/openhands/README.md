@@ -44,9 +44,12 @@ OpenHands is enabled in `kubernetes/apps/kustomization.yaml`, and `openhands` is
 the LAN DNS role. Nievah remains on `claude-code` by default; select OpenHands per repository
 with `harness: openhands` or for one authorized command with
 `/pr-review --harness openhands` / `/pr-triage --harness openhands`.
-Nievah passes the per-run GitHub token through OpenHands' secret registry; the pod does not
-receive Nievah's SSH signing private key, so OpenHands commits use its configured Git identity
-without SSH verification.
+Nievah passes the per-run GitHub token through OpenHands' secret registry. When the optional
+`openhands-ssh-signing-key` Vault entry is provisioned, the container startup initializes an
+`ssh-agent`, exports its socket, and configures Git SSH signing for normal OpenHands commits;
+nested Claude sessions repeat that setup through the SessionStart hook. If the Vault entry is
+created after startup, the mounted Secret is watched and the key is loaded without a manual
+restart. Without that Vault entry, the pod continues without signing.
 
 The workspace is node-local scratch state, so a node loss discards active conversations and
 requires a new run. Keep the PVC bounded and monitor its usage; completed agent workspaces are
@@ -72,11 +75,16 @@ reach them, so the API is the only declarative surface available.
 - **Sub-agents** — markdown definitions in `configmap-subagents.yaml`, mounted at
   `~/.agents/agents` (outside the PVC, so they cannot drift) and enabled via
   `enable_sub_agents`. They default to off; mounting alone does nothing.
-- **MCP servers** — GitHub and Context7 over HTTP, Slack, ClickUp, Playwright, Mermaid and
-  Microsoft 365 over stdio. Servers whose credentials are absent are omitted rather than
-  configured broken. Microsoft 365 needs its `login` tool run once interactively; the
-  hosted MermaidChart server would need an OAuth round-trip through the UI, so the local
-  renderer is used instead.
+- **MCP servers** — GitHub, Context7, the authenticated Nievah endpoint, and the two
+  public documentation endpoints use HTTP. Slack, ClickUp, Playwright, Mermaid and Microsoft
+  365 use stdio. Servers whose credentials are absent are omitted rather than configured
+  broken. Microsoft 365 needs its `login` tool run once interactively; Mermaid uses the local
+  Playwright-backed renderer with its browser cache on the state PVC, while the hosted
+  MermaidChart server would require an OAuth round-trip through the UI.
+- **Git hooks** — `/git-hooks` is the global Git hooks path for the agent and strips unwanted
+  PR-body attribution lines, rejects hook-bypass flags before Git commands run, and runs the
+  local Chargate check, action SHA pinning, branch policy, commit-message cleanup, and optional
+  SSH signing hooks.
 
 Read the seed log with `kubectl -n openhands logs deploy/openhands | grep openhands-seed`.
 

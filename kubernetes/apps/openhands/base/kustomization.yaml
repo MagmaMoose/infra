@@ -4,8 +4,10 @@ resources:
   - image-automation.yaml
   - namespace.yaml
   - externalsecret.yaml
+  - externalsecret-signing.yaml
   - pvc.yaml
   - configmap-bootstrap.yaml
+  - configmap-git-hooks.yaml
   - configmap-subagents.yaml
   - configmap-skills.yaml
   - configmap-reposync.yaml
