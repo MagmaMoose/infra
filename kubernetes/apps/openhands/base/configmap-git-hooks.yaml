@@ -86,8 +86,13 @@ data:
 
     # Git accepts global options before the subcommand; parse them before checking bypass flags.
     _GIT_GLOBAL='([[:space:]]+(-C[[:space:]]*[^[:space:];|&]+|-c[[:space:]]+[^[:space:];|&]+|--git-dir([=[:space:]])[^[:space:];|&]+|--work-tree([=[:space:]])[^[:space:];|&]+|--namespace([=[:space:]])[^[:space:];|&]+|--exec-path([=[:space:]])[^[:space:];|&]+|--no-pager|--no-replace-objects|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--config-env=[^[:space:];|&]+))*'
-    if echo "$COMMAND" | grep -qE '(^|[^[:alnum:]_])git[^;&|]*[[:space:]](-c[[:space:]]+core\.hooksPath=|--config-env=core\.hooksPath=)'; then
-      echo "Blocked: this overrides core.hooksPath and bypasses git hooks." >&2
+
+    # Do not allow a command to replace, unset, or bypass the global hooks path. The
+    # environment checks cover GIT_CONFIG_GLOBAL=/dev/null and HOME/XDG overrides that
+    # make Git ignore the seeded ~/.gitconfig before it even parses a subcommand. Include
+    # directives are blocked too: an included file can replace core.hooksPath indirectly.
+    if echo "$COMMAND" | grep -qE 'core\.hooksPath|include(\.path|If)|(^|[^[:alnum:]_])GIT_CONFIG_[A-Za-z0-9_]*=|(^|[;&|[:space:]])(HOME|XDG_CONFIG_HOME)='; then
+      echo "Blocked: this changes or bypasses core.hooksPath and skips git hooks." >&2
       exit 2
     fi
 
@@ -117,11 +122,10 @@ data:
 
     exit 0
 
-  # Pod-adapted replacement for op-agent-bootstrap.sh. Called from
-  # ~/.claude/settings.json → hooks.SessionStart when a Claude Code session starts inside
-  # the pod. Sets up an ssh-agent for commit signing if a key is provisioned in OCI Vault
-  # (OPENHANDS_SSH_SIGNING_KEY env var). Exits 0 silently when no key is available so it
-  # never blocks a Claude Code session start while signing remains unprovisioned.
+  # Pod-adapted replacement for op-agent-bootstrap.sh. Called from the container entrypoint
+  # and ~/.claude/settings.json → hooks.SessionStart when a Claude Code session starts inside
+  # the pod. Keeps an ssh-agent socket alive even before the optional signing Secret exists;
+  # the entrypoint watcher loads the key when the Secret volume is populated.
   agent-bootstrap.sh: |
     #!/usr/bin/env bash
     set -o pipefail
@@ -132,10 +136,9 @@ data:
 
     log() { printf '[agent-bootstrap] %s\n' "$*" >&2; }
 
-    # No signing key provisioned yet — skip silently.
     SIGNING_KEY="${OPENHANDS_SSH_SIGNING_KEY:-}"
-    if [ -z "$SIGNING_KEY" ]; then
-      exit 0
+    if [ -z "$SIGNING_KEY" ] && [ -r /var/run/openhands-signing/key ]; then
+      SIGNING_KEY="$(cat /var/run/openhands-signing/key)"
     fi
 
     configure_git_signing() {
@@ -151,15 +154,29 @@ data:
       log "git SSH signing configured with the agent-backed public key"
     }
 
-    # Already running with the key loaded?
-    if [ -S "$SOCK" ] && SSH_AUTH_SOCK="$SOCK" ssh-add -l >/dev/null 2>&1; then
-      configure_git_signing
-      exit $?
-    fi
-
     mkdir -p "$SSH_DIR" && chmod 700 "$SSH_DIR"
 
-    # Kill any prior agent we started, then launch a fresh one at the fixed socket.
+    # Reuse the entrypoint's agent so a key that appears in the Secret volume later can
+    # be loaded without restarting agent-canvas. A key in the environment wins over the
+    # empty-agent path, which keeps the normal startup idempotent.
+    if [ -S "$SOCK" ] && [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+      if SSH_AUTH_SOCK="$SOCK" ssh-add -l >/dev/null 2>&1; then
+        configure_git_signing
+        exit $?
+      fi
+      if [ -z "$SIGNING_KEY" ]; then
+        exit 0
+      fi
+      if printf '%s\n' "$SIGNING_KEY" | SSH_AUTH_SOCK="$SOCK" ssh-add - >/dev/null 2>&1; then
+        log "signing key loaded into $SOCK"
+        configure_git_signing || exit 1
+        exit 0
+      fi
+      log "WARNING: ssh-add failed; signing will not work"
+      exit 1
+    fi
+
+    # Kill any stale agent we started, then launch a fresh one at the fixed socket.
     [ -f "$PIDFILE" ] && kill "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null || true
     rm -f "$SOCK"
 
@@ -169,6 +186,11 @@ data:
     fi
     sed -n 's/^SSH_AGENT_PID=\([0-9]*\).*/\1/p' /tmp/agent-out > "$PIDFILE"
     rm -f /tmp/agent-out
+
+    if [ -z "$SIGNING_KEY" ]; then
+      log "no signing key provisioned; ssh-agent ready for a later Secret update"
+      exit 0
+    fi
 
     # Stream the key into the agent — never written to disk.
     if printf '%s\n' "$SIGNING_KEY" | SSH_AUTH_SOCK="$SOCK" ssh-add - >/dev/null 2>&1; then
