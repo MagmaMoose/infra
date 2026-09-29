@@ -47,8 +47,9 @@ with `harness: openhands` or for one authorized command with
 Nievah passes the per-run GitHub token through OpenHands' secret registry. When the optional
 `openhands-ssh-signing-key` Vault entry is provisioned, the container startup initializes an
 `ssh-agent`, exports its socket, and configures Git SSH signing for normal OpenHands commits;
-nested Claude sessions repeat that setup through the SessionStart hook. Without that Vault entry,
-the pod continues without signing.
+nested Claude sessions repeat that setup through the SessionStart hook. If the Vault entry is
+created after startup, the mounted Secret is watched and the key is loaded without a manual
+restart. Without that Vault entry, the pod continues without signing.
 
 The workspace is node-local scratch state, so a node loss discards active conversations and
 requires a new run. Keep the PVC bounded and monitor its usage; completed agent workspaces are
