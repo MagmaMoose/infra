@@ -17,7 +17,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: qbittorrent
-          image: linuxserver/qbittorrent:5.2.3 # {"$imagepolicy": "flux-system:qbittorrent"}
+          image: linuxserver/qbittorrent:5.2.4 # {"$imagepolicy": "flux-system:qbittorrent"}
           resources:
             # Right-sized: observed usage ~41Mi; request leaves scheduling headroom, generous limit avoids OOM
             requests:
