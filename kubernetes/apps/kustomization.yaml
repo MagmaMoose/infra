@@ -29,9 +29,9 @@ resources:
   # Migrated off Cloudflare Workers (Workers Free caps CPU at 10ms; Pro's PBKDF2
   # login costs ~190ms), so the cluster is now the only place it runs.
   - ./dunmir
-  - ./github-contributions
-  - ./github-timesheet
-  - ./github-usage-dashboard
+  # - ./github-contributions
+  # - ./github-timesheet
+  # - ./github-usage-dashboard
   - ./nievah
   # OpenHands V1 autonomous-coding engine; selected explicitly by Nievah's harness config.
   - ./openhands
@@ -40,8 +40,8 @@ resources:
   # janeway splits the two: the CHART comes from MagmaMoose/charts (public, same
   # org, no pull credential) while the IMAGE comes from
   # ghcr.io/tengen-systems/janeway (private, other org, needs one).
-  - ./janeway
-  - ./platform2
+  # - ./janeway
+  # - ./platform2
   # personal finance — FNB to YNAB sync. Replaced buxfer-sync and the Buxfer
   # subscription, both now gone. Same shape as platform2: OCI-published chart,
   # not a GitRepository.
@@ -107,7 +107,7 @@ resources:
   - ./falco
   - ./kyverno-policies
   - ./security-integrations
-  - ./sonarqube
+  # - ./sonarqube
   - ./trivy-operator
   # external-repo apps (workload manifests live in their own GitHub repos;
   # each dir holds only the in-cluster Flux plumbing — source, image
