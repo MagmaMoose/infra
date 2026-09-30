@@ -41,17 +41,21 @@ The first two steps are manual: the scripts can't create accounts or type passwo
 
 1. **An Apple Account for the bot.** At account.apple.com, create one with a new email address
    you own. People text that address. Your own mobile number is fine for verification, since one
-   number can verify several Apple Accounts. Keep the account out of Family Sharing, and never
-   turn iCloud on with it.
+   number can verify several Apple Accounts. Keep the account out of Family Sharing. It only
+   has to be signed into Messages, so iCloud isn't needed.
 2. **The `nievah` macOS user.** In *System Settings → Users & Groups → Add User*, create a
    Standard user with account name `nievah`. Log into it once and choose *Set Up Later* when
    Setup Assistant asks for an Apple Account. Then sign Messages, and only Messages, into the
    bot's Apple Account.
-3. **The password, once.** From an admin login, at the repository root:
+3. **The password.** It lives in 1Password (Firefly vault, item *BlueBubbles*), where a
+   person can read it. The cluster reads a copy from vault-prod. Copy it across whenever it
+   changes, from an admin login at the repository root:
 
     ```bash
-    openssl rand -hex 32 | tr -d '\n' | scripts/oci-vault-secrets.py -c firefly set bluebubbles-password
+    op read "op://Firefly/BlueBubbles/password" | scripts/oci-vault-secrets.py -c firefly set bluebubbles-password
     ```
+
+    Hermes sends the password in a URL, so keep it to 16 or more letters, digits and `._~-`.
 
 4. **Install**, from an admin login at the repository root. This installs the pinned app and
    stages the password for `nievah`:
@@ -74,6 +78,7 @@ The first two steps are manual: the scripts can't create accounts or type passwo
     both (this needs an admin password) and press Enter. Then click Allow or OK on the prompts
     that follow: the firewall, and `osascript` or BlueBubbles asking to control Messages. The
     script ends by printing the iMessage account BlueBubbles sees, which must be the bot's.
+    It is safe to run on an install that was first set up through BlueBubbles' own wizard.
 6. **Switch back to your own login** and leave `nievah` logged in.
 
 `configure-user.sh` writes these files in the `nievah` home:
@@ -91,7 +96,8 @@ The first two steps are manual: the scripts can't create accounts or type passwo
 | --- | --- |
 | After a reboot | FileVault rules out auto-login. Log into your own account, then switch to `nievah` once and back. Its LaunchAgents start BlueBubbles and the keep-alive. |
 | Check it from the LAN | `PW=$(scripts/oci-vault-secrets.py -c firefly get bluebubbles-password)`, then `curl -s "http://192.168.19.19:1234/api/v1/ping?password=$PW"` answers `pong` |
-| Rotate the password | Set a new value (step 3), then rerun `install.sh` and `configure-user.sh`. Restart Hermes once its ExternalSecret has refreshed. |
+| Rotate the password | Change it in 1Password and copy it to the vault (step 3). Then rerun `install.sh` and `configure-user.sh`, and restart Hermes once its ExternalSecret has refreshed. |
+| The bot user was made an Administrator | From your own login, run `sudo dseditgroup -o edit -d nievah -t user admin`. Log `nievah` out and back in, then rerun `configure-user.sh`. |
 | Upgrade BlueBubbles | Bump `BB_VERSION` and `BB_SHA256` in `install.sh`. Quit BlueBubbles in the `nievah` login, move the old app to the Trash, and rerun both scripts. |
 | Change a setting | Edit the YAML in `configure-user.sh` and rerun it. A change made in BlueBubbles' own UI lasts only until its next start. |
 | Logs | `~nievah/Library/Logs/bluebubbles-server/main.log` and `~nievah/Library/Logs/messages-keepalive.log` |

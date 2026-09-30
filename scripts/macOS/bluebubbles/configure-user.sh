@@ -44,7 +44,7 @@ note() { echo "==> $*"; }
 
 [ "$(id -u)" -ne 0 ] || die "run this as the bot user, not root"
 if [[ " $(id -Gn) " == *" admin "* ]]; then
-  die "$(id -un) is an admin. BlueBubbles serves the Messages, Contacts and Find My of the user it runs as, so run this in the dedicated Standard user's login (nievah)"
+  die "$(id -un) is an admin. BlueBubbles serves the Messages, Contacts and Find My of the user it runs as, so it gets a dedicated Standard user (nievah), never a person's login. If the bot user itself was made an admin, see docs/guides/bluebubbles-imessage.md"
 fi
 [ -x "$EXE" ] || die "$APP is missing; run install.sh from an admin login first"
 launchctl print "$DOMAIN" >/dev/null 2>&1 \
@@ -60,12 +60,22 @@ start_job() {  # start_job <label>: (re)load a LaunchAgent so it picks up its pl
   launchctl bootstrap "$DOMAIN" "$AGENTS/$1.plist"
 }
 
-stop_bb() {  # launchd's SIGTERM first; pkill covers a copy someone started by hand
-  if job_loaded "$BB_LABEL"; then launchctl bootout "$DOMAIN/$BB_LABEL" 2>/dev/null || true; fi
-  for _ in $(seq 1 15); do bb_running || return 0; sleep 1; done
+wait_gone() {  # wait_gone <seconds>: succeeds once BlueBubbles has exited
+  local n=0
+  while bb_running; do
+    [ "$n" -lt "$1" ] || return 1
+    sleep 1
+    n=$((n + 1))
+  done
+}
+
+stop_bb() {  # bootout stops a launchd-started copy; pkill covers one started by hand
+  if job_loaded "$BB_LABEL"; then
+    launchctl bootout "$DOMAIN/$BB_LABEL" 2>/dev/null || true
+    wait_gone 15 && return 0
+  fi
   pkill -TERM -U "$(id -u)" -f "^$EXE" 2>/dev/null || true
-  for _ in $(seq 1 15); do bb_running || return 0; sleep 1; done
-  die "BlueBubbles did not quit; quit it from its menu bar icon and rerun"
+  wait_gone 15 || die "BlueBubbles did not quit; quit it from its menu bar icon and rerun"
 }
 
 api() {  # api <path>: GET /api/v1/<path>. The password goes through curl's stdin, not argv.

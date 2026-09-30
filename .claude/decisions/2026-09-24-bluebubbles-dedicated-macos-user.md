@@ -22,7 +22,7 @@ also sign the person's own iMessage off the Mac.
 **B. The person's login and Apple Account.** Rejected. Hermes could read everything, and it
 would answer anyone who texts the person, or send them pairing codes.
 
-**C. A dedicated Standard user, `nievah`, with its own Apple Account in Messages only.** Chosen.
+**C. A dedicated Standard user, `nievah`, with its own Apple Account.** Chosen.
 
 ## Decision
 
