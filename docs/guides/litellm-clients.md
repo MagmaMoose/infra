@@ -66,7 +66,7 @@ Use the Cloudflare Tunnel hostname instead:
 ```text
 Base URL: https://litellm-warp.sargeant.co/v1
 Model: qwen2.5-coder-7b-instruct-local
-Equivalent model: gpt-4o-mini
+Hosted alternative: gpt-5.6-luna (the only OpenAI chat model a non-OpenHands key may name)
 Auth: Authorization: Bearer <dedicated LiteLLM virtual key>
 ```
 
@@ -202,28 +202,60 @@ assistant message content instead.
 
 ## Virtual keys, and why clients should not use the master key
 
-The gateway has no public self-service signup. Its UI is `admin_only`, non-admin
-personal-key creation is disabled, and the LAN/VPN ingress is private. The master key is
-an operator credential, not an application credential; it can bypass model and budget
-allow-lists and must never be mounted into a workload.
+The gateway has no public self-service signup. The UI is on the LAN/VPN host only, and it
+signs in with the admin credentials or an invite an admin created. SSO is the one path on
+which LiteLLM creates users by itself; it is not configured, and if it ever is,
+`ui_access_mode: admin_only` turns every non-admin away from the UI on that path and
+`default_internal_user_params` leaves such a user on `gpt-5.6-luna` with a $0 budget. Only a
+proxy admin may create a key outside a team (`key_generation_settings`, which LiteLLM reads
+from `litellm_settings` only). An invited user with a password can still sign in, so invite
+nobody you would not give a key to. The master key is an operator credential, not an
+application credential; it can bypass model and budget allow-lists and must never be
+mounted into a workload.
+
+**The default model is `gpt-5.6-luna`.** A key created with no model list (what the UI
+sends when you pick none) gets `gpt-5.6-luna` and nothing else
+(`default_key_generate_params`). `gpt-5.6-terra` and `gpt-5.6-sol` form the
+`openhands-only` access group, which only the `openhands` key is given.
 
 The gateway's per-client access is virtual keys in Postgres, not anything in
-`config.yaml`. Each key has an alias, budget, and `models` allow-list, so a compromised
+`config.yaml`. Each key has an alias, a budget, and a `models` allow-list, so a compromised
 client reaches only what its key names:
 
-| Alias | Models |
-|---|---|
-| `openhands` | `gpt-5.6-luna`, plus the `openhands-only` group (`gpt-5.6-terra` and `gpt-5.6-sol`) |
-| `nievah` | `fallback-easy`, `fallback-medium`, `fallback-hard` (all Luna) |
-| `hermes` / `holmes` | their role aliases (all Luna; speech remains separate) |
-| `mem0` | `gpt-5.6-luna`, `text-embedding-3-small` |
-| utility workload keys | `gpt-5.6-luna` only |
+| Alias | Vault entry | Models | Budget per 30 days |
+|---|---|---|---|
+| `openhands` | `openhands-litellm-api-key` | `gpt-5.6-luna`, the fallback aliases, and the `openhands-only` group (`gpt-5.6-terra`, `gpt-5.6-sol`) | $50 |
+| `nievah` | `nievah-litellm-api-key` | `claude-haiku-4-5-max`, `claude-sonnet-4-6-max`, `claude-opus-4-8-max` | none (subscription only, so no money) |
+| `nievah-fallback` | `nievah-fallback-litellm-api-key` | `fallback-easy`, `fallback-medium`, `fallback-hard` (all Luna) | $25 |
+| `hermes` | `hermes-litellm-api-key` | `agent-chat`, `agent-light` (Luna), the speech roles | $25 |
+| `holmes` | `holmesgpt-litellm-api-key` | `agent-investigate`, `agent-light` (Luna) | $25 |
+| `mem0` | `mem0-litellm-api-key` | `gpt-5.6-luna`, `text-embedding-3-small` | $10 |
+| `github-contributions`, `github-timesheet`, `docs-distributor` | `<alias>-litellm-api-key` | `gpt-5.6-luna` | $10 each |
+
+**Nievah has two keys, and they must stay two.** `nievah` is its gateway key
+(`LITELLM_API_KEY`), which every primary leg presents on the Claude Max subscription. A
+budget on it would count subscription tokens at list price and refuse reviews for spend
+that was never money, and scoping it to the fallback aliases takes every primary leg off
+Claude. `nievah-fallback` is the only key Nievah's fallback rides.
 
 Keys are database rows, so a restore from backup brings back whatever the dump held and
 nothing in Git corrects it. `kubernetes/apps/litellm/base/keyseed-job.yaml` upserts every
-managed key from its OCI Vault value on each run with a finite 30-day budget. Bump the Job's
-name suffix whenever the model list or key set changes, since Jobs are immutable. Any new
-workload must receive a dedicated scoped key; never reuse the master or OpenHands key.
+managed key from its OCI Vault value on each run. Bump the Job's name suffix whenever the
+model list or key set changes, since Jobs are immutable. Any new workload must receive a
+dedicated scoped key; never reuse the master or OpenHands key.
+
+**A key's vault value must be one line that starts with `sk-`.** LiteLLM refuses to create
+any other key and answers 401 to a client presenting one, and a trailing newline breaks the
+header every client sends. `openssl rand -hex 32` gives neither, so store a new key with:
+
+```bash
+printf 'sk-%s' "$(openssl rand -hex 32)" | scripts/oci-vault-secrets.py -c firefly set <entry>
+```
+
+`set` on an entry that already exists writes a new current version, so it replaces a live
+key: check whether an entry exists first. LiteLLM also requires key aliases to be unique,
+so replacing a key's vault value leaves its old row holding the alias until you delete it
+in the UI, and the keyseed Job's create call fails until then.
 
 Management endpoints (`/key/*`, `/team/*`) still want the `Bearer ` prefix *inside*
 `x-litellm-api-key`. Renaming the header via `litellm_key_header_name` does not change
@@ -255,21 +287,23 @@ regenerated, and replacing one resets its spend.
 ## Role aliases: switching provider in one place
 
 The house agents never name a provider model. Each asks for a role, and every role points
-at one of three tiers defined once in the `model_list` (the `tier-*` entries, reused through
-YAML anchors):
+at the one tier, `tier-light`, defined once in the `model_list` and reused through YAML
+anchors:
 
-| Role | Called by | Tier today |
+| Role | Called by | Model today |
 |---|---|---|
-| `fallback-easy`, `fallback-medium`, `fallback-hard` | Nievah, after its Claude legs fail | light (gpt-5.6-luna) |
-| `agent-chat` | Hermes: conversations and cron runs | standard (gpt-5.6-luna) |
-| `agent-investigate` | HolmesGPT, including Nievah's alert investigations | standard (gpt-5.6-luna) |
-| `agent-light` | cheap summarising work | light (gpt-5.6-luna) |
+| `fallback-easy`, `fallback-medium`, `fallback-hard` | Nievah, after its Claude legs fail | gpt-5.6-luna |
+| `agent-chat` | Hermes: conversations and cron runs | gpt-5.6-luna |
+| `agent-investigate` | HolmesGPT, including Nievah's alert investigations | gpt-5.6-luna |
+| `agent-light` | cheap summarising work, such as Holmes' health checks | gpt-5.6-luna |
 | `speech-to-text`, `text-to-speech` | Hermes voice on Slack | gpt-4o-mini-transcribe, gpt-4o-mini-tts |
 
-To move provider, edit the three `tier-*` entries (`model`, `api_key` and the pinned prices)
-and update the Deployment's `checksum/config`. Nievah, Hermes and Holmes follow on the next
-rollout with no change in their own configs. To move one agent to another tier, change
-which anchor its role uses. A new agent should get a new role, not a provider model name.
+There is one tier on purpose. A standard (`gpt-5.6-terra`) and a heavy (`gpt-5.6-sol`) tier
+used to sit beside it; they were removed so that no role can reach those two models, which
+are OpenHands' alone, by swapping an anchor. To move provider, point `tier-light` at another
+provider entry (or write its `model`, `api_key` and pinned prices there) and update the
+Deployment's `checksum/config`. Nievah, Hermes and Holmes follow on the next rollout with no
+change in their own configs. A new agent should get a new role, not a provider model name.
 
 ## Operational note
 

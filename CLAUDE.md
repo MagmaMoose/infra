@@ -13,7 +13,7 @@ rule changes, change it in both.
 @.claude/QUICK_START.md
 
 ## Load on demand
-- `.claude/COMMON_MISTAKES.md` — 30 recorded incidents, each symptom → cause → what to do instead.
+- `.claude/COMMON_MISTAKES.md` — 41 recorded incidents, each symptom → cause → what to do instead.
   **Read it before touching** Flux placement/labels, CNPG Postgres, a Terragrunt leaf, a tick or
   cron schedule, a scanner suppression, or anything pinned to a node. It is deliberately NOT
   auto-loaded: at ~3,900 tokens it cost more per session than everything else here combined.
