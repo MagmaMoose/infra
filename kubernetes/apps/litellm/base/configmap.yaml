@@ -28,6 +28,10 @@ data:
     # created with no `models` can call EVERY model, the -max subscription entries and
     # the LAN Ollama models included, and the Ollama models book $0 so no budget ever
     # trips on them. Never create a tenant key without this group.
+    #
+    # OPENAI POLICY: gpt-5.6-luna is the default and the only OpenAI chat model the house
+    # agents use; gpt-5.6-terra and gpt-5.6-sol are for OpenHands alone. See the OpenAI
+    # section of model_list, default_key_generate_params, and keyseed-job.yaml.
     model_list:
       - model_name: claude-opus-4-8
         litellm_params:
@@ -169,36 +173,36 @@ data:
           supports_parallel_function_calling: false
           notes: "Self-hosted Ollama qwen3:4b-q4_K_M. Tool-calling enabled for Warp Agent Mode (native tool_calls via Ollama's tools template). Sized for GTX 1060 6GB at q4."
       # --- OpenAI (per-token API billing via OPENAI_API_KEY) ---
-      - model_name: gpt-5.5
-        litellm_params:
-          model: openai/gpt-5.5
-          api_key: os.environ/OPENAI_API_KEY
-        model_info:
-          mode: chat
-          base_model: openai/gpt-5.5
-          billing_mode: openai-api
-          credential_source: oci-vault:openai-api-key
-      # gpt-5.6 family. Verified against GET https://api.openai.com/v1/models on
-      # 2026-09-15 — these three ids are what the account actually serves; there is no
-      # bare `gpt-5.6`, so the variant suffix is mandatory. Same OPENAI_API_KEY as the
-      # 5.5/5.4 entries above (one OpenAI account, one vault secret).
+      # WHO MAY CALL WHAT. gpt-5.6-luna is the only OpenAI chat model a client gets unless it
+      # is given more on purpose: every role below runs on it, and a key created without a
+      # model list gets it and nothing else (default_key_generate_params, litellm_settings).
+      # gpt-5.6-terra and gpt-5.6-sol are for OpenHands alone. They form the `openhands-only`
+      # access group, which the keyseed Job gives to the `openhands` key and to no other key,
+      # and no role points at them. Apart from that key only the master key reaches them, and
+      # no workload makes model calls with it.
+      #
+      # gpt-5.5, gpt-5.4-mini and gpt-4o-mini used to be listed here too. Any key created
+      # without a model list, and every workload that held the master key, could spend on
+      # them, so they were removed. Do not add an OpenAI chat model back without a key that
+      # needs it: a model in this list is a model every unrestricted key can call.
+      #
+      # These three ids were verified against GET https://api.openai.com/v1/models on
+      # 2026-09-15. There is no bare `gpt-5.6`, so the variant suffix is mandatory.
+      #
+      # PRICES ARE PINNED for the reason given for the tenant-metered entries above: a pod
+      # restart must not change what a call costs, and a key's budget only trips if spend is
+      # booked at a real price. These are LiteLLM v1.101.0's /model/info values for the gpt-5.6
+      # family on 2026-09-24. The light tier below reuses Luna's through the &luna anchors.
       - model_name: gpt-5.6-luna
-        litellm_params:
+        litellm_params: &luna
           model: openai/gpt-5.6-luna
           api_key: os.environ/OPENAI_API_KEY
-        model_info:
+        model_info: &luna-info
           mode: chat
           base_model: openai/gpt-5.6-luna
-          billing_mode: openai-api
-          credential_source: oci-vault:openai-api-key
-      - model_name: gpt-5.6-sol
-        litellm_params:
-          model: openai/gpt-5.6-sol
-          api_key: os.environ/OPENAI_API_KEY
-        model_info:
-          mode: chat
-          access_groups: ["openhands-only"]
-          base_model: openai/gpt-5.6-sol
+          input_cost_per_token: 0.0000002
+          output_cost_per_token: 0.0000012
+          cache_read_input_token_cost: 0.00000002
           billing_mode: openai-api
           credential_source: oci-vault:openai-api-key
       - model_name: gpt-5.6-terra
@@ -209,77 +213,57 @@ data:
           mode: chat
           access_groups: ["openhands-only"]
           base_model: openai/gpt-5.6-terra
+          input_cost_per_token: 0.000002
+          output_cost_per_token: 0.000012
+          cache_read_input_token_cost: 0.0000002
           billing_mode: openai-api
           credential_source: oci-vault:openai-api-key
-      - model_name: gpt-5.4-mini
+          notes: "OpenHands only: the openhands key is the one key given the openhands-only group, and no role points here."
+      - model_name: gpt-5.6-sol
         litellm_params:
-          model: openai/gpt-5.4-mini
+          model: openai/gpt-5.6-sol
           api_key: os.environ/OPENAI_API_KEY
         model_info:
           mode: chat
-          base_model: openai/gpt-5.4-mini
+          access_groups: ["openhands-only"]
+          base_model: openai/gpt-5.6-sol
+          input_cost_per_token: 0.000004
+          output_cost_per_token: 0.00002
+          cache_read_input_token_cost: 0.0000004
           billing_mode: openai-api
           credential_source: oci-vault:openai-api-key
-      # --- Tiers and roles: the ONE place the house agents' provider is chosen ---
+          notes: "OpenHands only: the openhands key is the one key given the openhands-only group, and no role points here."
+      # --- The tier and the roles: the ONE place the house agents' model is chosen ---
       # Nievah's fallback, Hermes and HolmesGPT never name a provider model. Each calls a ROLE
-      # name below, and every role points at one of three TIERS. A tier is written exactly once,
-      # as the YAML anchors on the `tier-*` entries (&light, &standard, &heavy for the params,
-      # &light-info and so on for the prices); each role copies them in with `<<: *anchor`.
+      # name below, and every role points at the one TIER, `tier-light`, whose params and
+      # prices are the &light and &light-info anchors; each role copies them in with
+      # `<<: *anchor`.
       #
-      # So moving provider (OpenAI today, whoever is cheaper or better tomorrow) is editing the
-      # three tier entries here: `model`, `api_key`, and the pinned prices. Every role follows on
-      # the next reconcile, with no Nievah release and no change in the Hermes or Holmes repos.
-      # Moving ONE agent to another tier is changing which anchor its role uses.
+      # So moving provider (OpenAI today, whoever is cheaper or better tomorrow) is editing
+      # `tier-light` alone: point its `<<:` at another provider entry, or write `model`,
+      # `api_key` and pinned prices there. Every role follows on the next reconcile, with no
+      # Nievah release and no change in the Hermes or Holmes repos.
       #
-      # PRICES ARE PINNED for the reason given for the tenant-metered entries above: a pod
-      # restart must not change what a call costs, and a key's budget only trips if spend is
-      # booked at a real price. These are the configured gpt-5.6-luna values; update them
-      # together with `model` when a tier moves.
+      # There is ONE tier on purpose. A standard tier (gpt-5.6-terra) and a heavy tier
+      # (gpt-5.6-sol) used to sit beside it, with Hermes and Holmes on standard; both were
+      # moved to Luna and then removed, so that no role can reach terra or sol by swapping an
+      # anchor back. Those two models are OpenHands' alone.
       #
-      # Roles, and who calls them:
-      #   fallback-easy / -medium / -hard  Nievah, after every Claude leg failed (openhands key)
-      #   agent-chat                       Hermes, every conversation and cron run (Luna)
-      #   agent-investigate                HolmesGPT, every investigation (Luna)
-      #   agent-light                      cheap summarising work that does not need standard
+      # Roles, and who calls them (each caller's key and budget are in keyseed-job.yaml):
+      #   fallback-easy / -medium / -hard  Nievah, after every Claude leg failed (nievah-fallback key)
+      #   agent-chat                       Hermes, every conversation and cron run
+      #   agent-investigate                HolmesGPT, every investigation (Nievah's alerts too)
+      #   agent-light                      cheap summarising work, such as Holmes' health checks
       #   speech-to-text / text-to-speech  Hermes voice on Slack
       - model_name: tier-light
         litellm_params: &light
-          model: openai/gpt-5.6-luna
-          api_key: os.environ/OPENAI_API_KEY
+          <<: *luna
         model_info: &light-info
-          mode: chat
-          base_model: openai/gpt-5.6-luna
-          input_cost_per_token: 0.0000002
-          output_cost_per_token: 0.0000012
-          cache_read_input_token_cost: 0.00000002
-          billing_mode: openai-api
-          credential_source: oci-vault:openai-api-key
-      - model_name: tier-standard
-        litellm_params: &standard
-          model: openai/gpt-5.6-luna
-          api_key: os.environ/OPENAI_API_KEY
-        model_info: &standard-info
-          mode: chat
-          base_model: openai/gpt-5.6-luna
-          input_cost_per_token: 0.0000002
-          output_cost_per_token: 0.0000012
-          cache_read_input_token_cost: 0.00000002
-          billing_mode: openai-api
-          credential_source: oci-vault:openai-api-key
-      - model_name: tier-heavy
-        litellm_params: &heavy
-          model: openai/gpt-5.6-luna
-          api_key: os.environ/OPENAI_API_KEY
-        model_info: &heavy-info
-          mode: chat
-          base_model: openai/gpt-5.6-luna
-          input_cost_per_token: 0.0000002
-          output_cost_per_token: 0.0000012
-          cache_read_input_token_cost: 0.00000002
-          billing_mode: openai-api
-          credential_source: oci-vault:openai-api-key
-      # Nievah's three fallback names stay separate so they can diverge (a stronger tier for
-      # `hard`) without touching Nievah. All three are on light today, as they were before.
+          <<: *luna-info
+      # Nievah's three fallback names stay separate so the gateway's spend shows which kind of
+      # Nievah work fell back. All three are on light and must stay there: Luna is the only
+      # fallback Nievah is allowed, and its fallback key can call these three names and nothing
+      # else.
       - model_name: fallback-easy
         litellm_params:
           <<: *light
@@ -300,24 +284,25 @@ data:
           notes: "Nievah fallback alias for hard work (the planner, hard PR reviews). Reached only after every Claude leg failed."
       - model_name: agent-chat
         litellm_params:
-          <<: *standard
+          <<: *light
         model_info:
-          <<: *standard-info
+          <<: *light-info
           notes: "Hermes: every Slack and Telegram conversation and every cron run."
       - model_name: agent-investigate
         litellm_params:
-          <<: *standard
+          <<: *light
         model_info:
-          <<: *standard-info
+          <<: *light-info
           notes: "HolmesGPT: every investigation, including the ones Nievah asks for on firing alerts."
       - model_name: agent-light
         litellm_params:
           <<: *light
         model_info:
           <<: *light-info
-          notes: "Cheap summarising work, such as digests, that does not need the standard tier."
-      # Speech is its own provider choice: the chat tiers above do not transcribe or speak.
-      # Priced by LiteLLM's own map, since no budget-capped key is given these today.
+          notes: "Cheap summarising work, such as Holmes' scheduled health checks and digests."
+      # Speech is its own provider choice: the chat tier above does not transcribe or speak.
+      # Priced by LiteLLM's own map rather than pinned. The hermes key is the only key given
+      # these, so their spend counts against its budget.
       - model_name: speech-to-text
         litellm_params:
           model: openai/gpt-4o-mini-transcribe
@@ -338,9 +323,11 @@ data:
           billing_mode: openai-api
           credential_source: oci-vault:openai-api-key
           notes: "Hermes: spoken replies on Slack, when voice replies are switched on."
-      # --- Embeddings + small utility model for the mem0 fleet-memory service ---
-      # mem0's default OpenAI models; registered so mem0 (which talks OpenAI-protocol to
-      # this gateway) resolves them. Additive — existing clients are unaffected.
+      # --- Embeddings for the mem0 fleet-memory service ---
+      # mem0's embedder, registered so mem0 (which talks OpenAI-protocol to this gateway)
+      # resolves it. It is not a chat model, so there is no Luna to use instead. Only the
+      # mem0 key is given it; mem0's extraction calls run on gpt-5.6-luna. They ran on
+      # gpt-4o-mini until that entry was removed with the other non-Luna OpenAI chat models.
       - model_name: text-embedding-3-small
         litellm_params:
           model: openai/text-embedding-3-small
@@ -350,15 +337,7 @@ data:
           base_model: openai/text-embedding-3-small
           billing_mode: openai-api
           credential_source: oci-vault:openai-api-key
-      - model_name: gpt-4o-mini
-        litellm_params:
-          model: openai/gpt-4o-mini
-          api_key: os.environ/OPENAI_API_KEY
-        model_info:
-          mode: chat
-          base_model: openai/gpt-4o-mini
-          billing_mode: openai-api
-          credential_source: oci-vault:openai-api-key
+          notes: "mem0's embedder. The mem0 key is the one key given this model."
       # --- DeepSeek (per-token API billing via DEEPSEEK_API_KEY) ---
       - model_name: deepseek-v4-pro
         litellm_params:
@@ -390,8 +369,16 @@ data:
           credential_source: oci-vault:litellm-deepseek-api-key
     general_settings:
       master_key: os.environ/LITELLM_MASTER_KEY
-      # Never expose a self-service LiteLLM UI. Only the operator admin account may
-      # obtain a dashboard session or create/manage virtual keys.
+      # WHO CAN GET IN. Nobody can register themselves: the UI is served on the LAN/VPN
+      # host only (ingress.yaml; the public litellm-warp tunnel forwards
+      # /v1/chat/completions and /v1/models and nothing else), and it signs in with
+      # UI_USERNAME/UI_PASSWORD or an invite an admin created. The one self-service path
+      # LiteLLM has is SSO: once a provider is configured (env, or the UI's SSO settings),
+      # every first-time SSO sign-in creates a user. `admin_only` turns everyone but a proxy
+      # admin away from the UI on THAT path only (LiteLLM checks it in the SSO callback,
+      # verified on 1.103.0), and default_internal_user_params below leaves such a user on
+      # gpt-5.6-luna with a $0 budget. An invited user with a password still signs in, so
+      # do not invite anyone you would not give a key to.
       ui_access_mode: admin_only
       # Shared spend counters, budget reservations and rate limits across the 2 replicas.
       # Without it each pod keeps its own counter and only sees the other pod's spend
@@ -421,11 +408,6 @@ data:
       # OpenAI-style `Authorization: Bearer` onto this header for OpenAI-protocol
       # clients (Warp, Codex, Hermes, the OpenAI SDK).
       litellm_key_header_name: x-litellm-api-key
-    # Even an authenticated non-admin UI identity cannot create a personal key.
-    # Virtual keys are provisioned declaratively by the keyseed Job below.
-    key_generation_settings:
-      personal_key_generation:
-        allowed_user_roles: ["proxy_admin"]
     litellm_settings:
       # Least-privilege replacement for the old global flag: forward client headers
       # ONLY for the Claude Max pass-through groups. Anything not listed here (the
@@ -443,3 +425,26 @@ data:
       # may send `x-api-key: <anything>` and have it override the deployment's
       # configured key for ANY model, and have that key forwarded upstream.
       drop_params: true
+      # Only a proxy admin may create a key that belongs to no team, so a signed-in non-admin
+      # cannot mint themselves one. Virtual keys come from the keyseed Job and from Nievah's
+      # console, both with the master key. This MUST sit under litellm_settings: LiteLLM
+      # reads it from here into litellm.key_generation_settings, and a top-level
+      # `key_generation_settings:` (where it was first added) is silently ignored.
+      key_generation_settings:
+        personal_key_generation:
+          allowed_user_roles: ["proxy_admin"]
+      # THE DEFAULT IS gpt-5.6-luna. A key with no model list reaches every model on this
+      # gateway, gpt-5.6-terra and gpt-5.6-sol included. This gives a key generated with
+      # `models: []` (what the UI sends when no model is picked) gpt-5.6-luna and nothing
+      # else. Every key the keyseed Job and Nievah's console create names its models, so
+      # none of them changes. Only `models` is defaulted: a default max_budget would also
+      # land on the console's tenant keys, whose budget belongs to their team.
+      default_key_generate_params:
+        models: ["gpt-5.6-luna"]
+      # A user created by a first SSO sign-in (none can happen today, see ui_access_mode):
+      # view-only, gpt-5.6-luna, and a $0 budget, so it can spend nothing until an admin
+      # decides otherwise.
+      default_internal_user_params:
+        user_role: internal_user_viewer
+        models: ["gpt-5.6-luna"]
+        max_budget: 0
