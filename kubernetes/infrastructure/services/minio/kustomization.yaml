@@ -5,5 +5,6 @@ resources:
   - service.yaml
   - externalsecret.yaml
   - setup-job.yaml
-  - externalsecret-backup-oci.yaml
-  - backup-cronjob.yaml
+# No offsite copy job. The `minio-backup` CronJob (and its OCI credential) were removed
+# in October 2026: an additive `rclone copy` with no expiry grew the OCI `minio-backups`
+# bucket to ~547 GiB, and re-enabling this directory must not restart that.
