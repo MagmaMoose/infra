@@ -77,3 +77,7 @@ spec:
       storageClass: longhorn
     networkPolicy:
       enabled: true
+      # The chart's egress rule allows the gateway on this port only, and it defaults to
+      # LiteLLM's raw :4000. baseUrl above is the auth proxy on :8080, which is also the
+      # pod port a NetworkPolicy matches (the Service maps 8080 to the proxy's 8080).
+      gatewayPort: 8080
