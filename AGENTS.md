@@ -518,6 +518,11 @@ If you accidentally stage a secret, remove it with `git reset HEAD <file>` befor
    Nievah correctly strips HTTP-header values, while the agent server otherwise compares the
    raw environment string (a clipboard/Vault trailing newline produces an unavoidable 401).
    Bump the non-secret pod-template session-key revision after Vault rotation so pods reload it.
+10. **Pre-pulling images onto a node does not speed up CI**: each ARC runner pod runs its
+   own dind daemon whose image store starts empty, so images a job pulls (MegaLinter is
+   1.2-1.6GiB) come over the network every time whatever the node's containerd holds. Cache
+   on the registry path instead: Chargate on `firefly-amd64` pulls through `ghcr-cache`
+   (`kubernetes/apps/github-runner/firefly/ghcr-cache.yaml`) via `CHARGATE_MEGALINTER_REGISTRY`.
 
 ## Tool Use and Output Discipline
 

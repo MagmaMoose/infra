@@ -24,24 +24,20 @@ metadata:
   namespace: arc-runners
 spec:
   interval: 30m
-  # THE amd64 ESCAPE HATCH. Deliberately NOT the default pool.
+  # THE amd64 POOL, on ff-vm1, the only amd64 node. This is the runner that used to be
+  # called `firefly`; that name now belongs to the arm64 OCI pool
+  # (helmrelease-runner-set-arm64.yaml, `firefly-arm64`).
   #
-  # This is the ff-vm1 runner that used to be called `firefly`. It kept its node and its
-  # sizing and lost its name: `firefly` now belongs to the two-node arm64 OCI pool
-  # (helmrelease-runner-set.yaml), because that is the value the ORG variable
-  # `SELFHOSTED_GITHUB_RUNNER` already holds and pointing the default at the bigger pool (now `firefly-arm64`)
-  # required no org-admin action.
-  #
-  # NOTHING ROUTES HERE BY DEFAULT. A job reaches this pool only if its repo sets a
-  # REPO-level `SELFHOSTED_GITHUB_RUNNER` variable to `firefly-amd64`, which overrides
-  # the org-level `firefly-arm64`. Reach for that when a job genuinely cannot run on arm64:
-  #   * a build that needs `linux/amd64` natively rather than under emulation;
-  #   * a tool with no arm64 build at all;
-  #   * Chargate with `arch_strategy: flavor` (the monolithic MegaLinter flavor image is
-  #     amd64-only — `auto` is what makes the arm64 pool work, by substituting the
-  #     per-linter `megalinter-only-*` images instead).
-  # It is also the fallback if the arm64 pool misbehaves: one repo-level variable moves
-  # that repo back to known-good hardware without touching the cluster.
+  # What routes here is decided outside this repo:
+  #   * Chargate, always. The managed security.yml asks for `pool-amd64` whenever the ORG
+  #     variable `SELFHOSTED_GITHUB_RUNNER` is set, because the MegaLinter flavor image is
+  #     amd64-only and the arm64 per-linter fallback did not complete.
+  #   * Every other private-repo job, whenever that ORG variable holds `firefly-amd64`
+  #     rather than `firefly-arm64`. It has held `firefly-amd64` since 2026-08-20, so in
+  #     practice this pool carries all private-repo CI.
+  #   * This repo's Terragrunt jobs, which name `firefly-amd64` directly.
+  # A REPO-level `SELFHOSTED_GITHUB_RUNNER` beats the org one, so a single repo can still
+  # be moved to the other pool without touching the cluster.
   #
   # NOTE — an ARC scale set is addressed by NAME, not by matching
   # `[self-hosted, Linux, X64]`. Any job still using the literal array form will never be
@@ -136,10 +132,24 @@ spec:
     # `medium`. Returning another ~370Mi would make both fit cleanly — that is the next
     # increment, not a blocker.
     #
-    # Do NOT raise to 3 on this evidence. 1111Mi is a peak for the jobs that have actually
-    # run; the 6Gi dind limit exists because a MegaLinter flavor image once needed room,
-    # and limits are not scheduler-reserved (COMMON_MISTAKES #14), so three simultaneous
-    # outliers could still overcommit the node's real memory. Re-measure first.
+    # RE-MEASURED 2026-10-02 over 30 days (6,698 runner pods), and it stays at 2.
+    #
+    # Requests are no longer what stops a third runner: with no runner up, ff-vm1 has
+    # ~4.4Gi and ~2 cores of request headroom, room for several 768Mi pods. Real usage is
+    # what stops it:
+    #   * The job tail got heavy. The 1111Mi above no longer holds: whole-pod memory is
+    #     p95 1.1Gi but p99 4.1Gi, and the runner container was OOM-killed at its 4Gi cap
+    #     85 times in those 30 days (the last 7 days' kills were all CI test jobs).
+    #   * The node without runners uses p95 21.4Gi and max 23.8Gi of 27.4Gi, and p95 6.0
+    #     of 8 cores. At that p95, one p99 job plus one p95 job fits (26.6Gi); add a third
+    #     job and it does not (27.7Gi). A third job's p95 0.8 core also lands on a node
+    #     with ~2 cores to spare at p95.
+    #   * It has already failed at 2. On 2026-09-29 two runners on top of that baseline
+    #     took MemAvailable to 3.6Gi, the kernel OOM-killed 19 processes, I/O stalled, and
+    #     ff-vm1 stopped responding for 14h. Private-repo jobs queued for up to 13.6h.
+    # More concurrency has to come from somewhere other than ff-vm1. The arm64 OCI nodes
+    # have the CPU and memory but not the disk: each 44Gi root disk has dipped to ~7Gi
+    # free in the last 14 days, too little for jobs that pull images.
     maxRunners: 2
 
     # Empty map, NOT `type: dind`, and this is load-bearing. With containerMode.type=dind
@@ -373,6 +383,10 @@ spec:
               # See the containerMode comment above. Load-bearing on ff-vm1: without it,
               # chargate/MegaLinter hangs at ~0% CPU.
               - --mtu=1450
+              # The ghcr.io pull-through cache (ghcr-cache.yaml) speaks plain HTTP, and
+              # dockerd refuses an HTTP registry unless it is named here. Scoped to that
+              # one host:port; every other registry stays TLS-only.
+              - --insecure-registry=ghcr-cache.arc-runners.svc.cluster.local:5000
             env:
               # 123 is the `docker` group gid inside ghcr.io/actions/actions-runner
               # (verified: `docker:x:123:runner`), which is what lets uid 1001 use the
@@ -435,6 +449,13 @@ spec:
                 value: "1"
               - name: DOTNET_NOLOGO
                 value: "1"
+              # Chargate pulls the MegaLinter image through the in-cluster cache instead
+              # of ghcr.io (see ghcr-cache.yaml for the measurements). Chargate reads this
+              # as the default for --megalinter-registry, so an explicit
+              # `megalinter_registry` input in a workflow still wins. Present in every
+              # chargate pinned across the org (v2.11.55 and later).
+              - name: CHARGATE_MEGALINTER_REGISTRY
+                value: ghcr-cache.arc-runners.svc.cluster.local:5000
               # k8s REPLACES the image PATH rather than appending, so this must restate
               # the image's own PATH verbatim
               # (/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin, read off

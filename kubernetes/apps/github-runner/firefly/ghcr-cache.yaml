@@ -1,0 +1,154 @@
+# Pull-through cache for ghcr.io, used by the firefly-amd64 runners.
+#
+# WHY. Every chargate job runs MegaLinter's flavor image
+# (ghcr.io/oxsecurity/megalinter-security, 1.2-1.6GiB compressed) inside the runner pod's
+# own dind daemon. dind's /var/lib/docker is that container's writable layer, so it starts
+# empty on every job and the image comes down the home uplink again each time. Measured on
+# the 14 most recent chargate jobs (up to 2026-10-02): the pull took 62-178s, median 128s,
+# which is 19-46% (median 32%) of a ~6.3 min job, with downloads peaking at 90-215 Mbit/s.
+# From this cache a pull costs only the unpack, so expect roughly 1.5 min off a median job.
+#
+# A pre-pull DaemonSet would not help: it fills the NODE's containerd store, which the
+# dind daemon never reads. The cache has to sit on the registry path instead.
+#
+# HOW. Chargate reads CHARGATE_MEGALINTER_REGISTRY from the runner environment as the
+# default for --megalinter-registry (an explicit action input still wins, and no workflow
+# sets one). helmrelease-runner-set-amd64.yaml exports it, and passes this host to dind as
+# an --insecure-registry because the cache speaks plain HTTP. The first pull of a tag is
+# fetched from ghcr.io and kept; later pulls are served from this pod. Verified locally
+# with the same registry:3.0.0 and docker:29.7.1-dind images: the MegaLinter manifest
+# resolves through the proxy, and a repeat pull of a cached image went from 8.2s to 1.1s.
+#
+# A proxy-mode registry refuses pushes and holds no credentials here, so only public
+# ghcr.io images pass through it, and no job can write into it.
+#
+# PLACEMENT. Same node as the runners it serves (the on-prem amd64 worker, which is the
+# only node the amd64 runner set can use), so this traffic never leaves the node. The
+# nodeSelector is written out as well as labelled: Kyverno's place-on-prem policy is
+# failurePolicy: Ignore, and a cache that landed on an OCI node would put a 20Gi emptyDir
+# on a 44Gi disk that has dipped to ~7Gi free in the last 14 days.
+#
+# PRIORITY. medium, the same as the runners, and it must not be lower: the runners may
+# preempt lower-priority pods, and preempting the cache fails every chargate pull.
+#
+# FAILURE MODE. Chargate does not fall back to ghcr.io. If this pod is down, chargate jobs
+# on firefly-amd64 fail at the image pull. To back out, drop CHARGATE_MEGALINTER_REGISTRY
+# from the amd64 runner set; the --insecure-registry flag is harmless on its own.
+#
+# Accepted KICS findings, same reasoning as the runner sets beside it:
+#   4ac0e2b7 no CPU limit       repo convention (CPU limits cause false CFS-throttle alerts)
+#   583053b7,7c81d34c image tag tag-pinned and Renovate-tracked, not digest-pinned
+#   4a20ebac,48a5beba,1db3a5a5  LimitRange / ResourceQuota / PDB are not this repo's
+#                               per-namespace pattern; one replica of a disposable cache
+#   8b36775e AppArmor annotation  same as the runner sets
+#   e84eaf4d admin boundaries     INFO; the arc-runners namespace is the boundary
+#   caa3479d pullPolicy Always  IfNotPresent on purpose: chargate depends on this pod, so
+#                               it must restart even when Docker Hub is unreachable
+# kics-scan disable=4ac0e2b7-d2d2-4af7-8799-e8de6721ccda,583053b7-e632-46f0-b989-f81ff8045385,7c81d34c-8e5a-402b-9798-9f442630e678,4a20ebac-1060-4c81-95d1-1f7f620e983b,48a5beba-e4c0-4584-a2aa-e6894e4cf424,1db3a5a5-bf75-44e5-9e44-c56cfc8b1ac5,8b36775e-183d-4d46-b0f7-96a6f34a723f,e84eaf4d-2f45-47b2-abe8-e581b06deb66,caa3479d-885d-4882-9aac-95e5e78ef5c2
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ghcr-cache
+  namespace: arc-runners
+  labels:
+    app.kubernetes.io/name: ghcr-cache
+    placement.sargeant.co/tier: on-prem
+    placement.sargeant.co/priority: medium
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ghcr-cache
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ghcr-cache
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""
+        topology.sargeant.co/tier: on-prem
+        kubernetes.io/arch: amd64
+      priorityClassName: medium
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: registry
+          image: registry:3.0.0
+          env:
+            - name: REGISTRY_PROXY_REMOTEURL
+              value: https://ghcr.io
+            # Not the image's /var/lib/registry: a writable mount under /var is a KICS
+            # HIGH (b7652612), and the path is ours to choose.
+            - name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY
+              value: /cache
+            # Cached blobs are re-validated against ghcr.io after a week.
+            - name: REGISTRY_PROXY_TTL
+              value: 168h
+            # The image's default config logs at debug.
+            - name: REGISTRY_LOG_LEVEL
+              value: info
+            # registry 3.x exports OpenTelemetry traces to localhost:4318 by default and
+            # logs a connection error every 5s when nothing listens there.
+            - name: OTEL_TRACES_EXPORTER
+              value: none
+          ports:
+            - name: http
+              containerPort: 5000
+          readinessProbe:
+            httpGet:
+              path: /v2/
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /v2/
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 10m
+              # 24Mi measured idle after serving pulls locally. No CPU limit (repo
+              # convention).
+              memory: 64Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+      volumes:
+        - name: cache
+          # Disposable: a restart only costs one normal-speed pull per image. 20Gi holds
+          # several MegaLinter versions; the node's root disk has not dropped below
+          # 47Gi free in the last 14 days.
+          emptyDir:
+            sizeLimit: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ghcr-cache
+  namespace: arc-runners
+  labels:
+    app.kubernetes.io/name: ghcr-cache
+spec:
+  selector:
+    app.kubernetes.io/name: ghcr-cache
+  ports:
+    - name: http
+      port: 5000
+      targetPort: http
