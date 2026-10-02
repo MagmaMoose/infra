@@ -57,6 +57,14 @@ build runs on `ubuntu-latest` on purpose: this repository is public, so hosted m
 unmetered, and self-hosting would only put the job behind the private repos in the
 self-hosted queue.
 
+Each runner pod has its own docker-in-docker daemon that starts with no images, so every
+Chargate job used to download the MegaLinter image (1.2-1.6GiB) from ghcr.io. On
+`firefly-amd64` that pull now goes through `ghcr-cache`, a pull-through registry in the
+`arc-runners` namespace (`kubernetes/apps/github-runner/firefly/ghcr-cache.yaml`). The
+runner pods export `CHARGATE_MEGALINTER_REGISTRY` and trust that one HTTP registry; a
+workflow that sets the `megalinter_registry` input overrides it. If `ghcr-cache` is down,
+Chargate jobs on that pool fail at the image pull.
+
 ## Container images
 
 `docker-publish.yml` builds four images from `dockerfiles/`:

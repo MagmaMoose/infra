@@ -3,10 +3,14 @@ kind: Kustomization
 # firefly's ARC overlay: the shared, cluster-neutral pieces from ../base plus this
 # cluster's two scale sets.
 #
-# Two scale sets, one controller. `firefly-arm64` (ff-oci1 + ff-oci2, max 2) is the
-# DEFAULT pool that the org variable points at; `firefly-amd64` (ff-vm1, max 1) is the
-# opt-in escape hatch for jobs that cannot run on arm64. The two files are deliberately
-# near-identical — diff them when changing either, and keep the shared blocks in sync.
+# Two scale sets, one controller. `firefly-arm64` (the native-cloud OCI nodes, max 2) and
+# `firefly-amd64` (ff-vm1, max 2). Which one a private repo's jobs land on is set by the
+# org variable SELFHOSTED_GITHUB_RUNNER; Chargate always asks for the amd64 pool. The two
+# files are deliberately near-identical: diff them when changing either, and keep the
+# shared blocks in sync.
+#
+# ghcr-cache.yaml is a pull-through cache for ghcr.io that only the amd64 runners use, so
+# the MegaLinter image crosses the uplink once per tag instead of once per chargate job.
 #
 # The franklinhouse overlay is the OTHER thing to diff against: the label taxonomy
 # (`<cluster>-<arch>` + `pool-<arch>` + `pool-self-hosted`) only works if both clusters
@@ -15,6 +19,7 @@ resources:
   - ../base
   - helmrelease-runner-set-arm64.yaml
   - helmrelease-runner-set-amd64.yaml
+  - ghcr-cache.yaml
 
 # Placement + priority for the shared ARC controller, which ../base deliberately leaves
 # unset because both values are cluster-specific (franklinhouse has no `medium`
