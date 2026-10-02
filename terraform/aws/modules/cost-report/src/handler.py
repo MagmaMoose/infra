@@ -66,6 +66,27 @@ COL_USAGE_AMOUNT = "line_item_usage_amount"
 MAX_SERVICES_PER_ACCOUNT = 10
 
 
+def report_window(today: dt.date) -> tuple[dt.date, dt.date]:
+    """(first day, last day) of the window a run on `today` reports on.
+
+    ANCHORED TO THE REPORTED DAY, NOT TO TODAY. The reported day is yesterday, the last day
+    with complete data, and month-to-date is the month that CONTAINS it: from its 1st up to
+    and including it. On the 1st that is the whole of the previous month, so the 1st's report
+    is that month's close. Anchoring to today instead made the 1st report on an empty new
+    month (nothing has been billed in it at 07:00 UTC), and labelled every other day's window
+    one day past the data it summed.
+    """
+    day = today - dt.timedelta(days=1)
+    return day.replace(day=1), day
+
+
+def _span(first: dt.date, last: dt.date) -> str:
+    """`1–29 Sep 2026`, or `1 Oct 2026` when the window is a single day."""
+    if first == last:
+        return f"{last.day} {last:%b %Y}"
+    return f"{first.day}–{last.day} {last:%b %Y}"
+
+
 def _money(amount: Decimal) -> str:
     """Format USD so sub-cent amounts stay legible instead of rounding to $0.00."""
     if amount == 0:
@@ -147,7 +168,7 @@ def _usage_matches(free_tier_type: str, cur_type: str) -> bool:
 
 
 def _data_prefix(prefix: str, export_name: str, month: dt.date) -> str:
-    """Where Data Exports writes the current billing period's CSV.
+    """Where Data Exports writes the CSV for the billing period containing `month`.
 
     The layout is fixed by AWS: `<prefix>/<export>/data/BILLING_PERIOD=YYYY-MM/`. The export
     is configured OVERWRITE_REPORT, so this directory holds one current copy rather than an
@@ -223,9 +244,13 @@ def build_report(rows: dict, names: dict[str, str], today: dt.date, delivered: b
     with complete data. Month-to-date rides alongside because a single day at this scale is
     frequently and legitimately zero, and "$0.00 yesterday" alone carries no information
     about whether anything is running at all.
+
+    ON THE 1ST THE REPORT IS THE MONTH'S CLOSE. Yesterday is then the last day of the
+    previous month, so month-to-date is that whole month (see report_window), and the
+    message leads with the month rather than with one day of it.
     """
-    yesterday = today - dt.timedelta(days=1)
-    month_start = today.replace(day=1)
+    month_start, yesterday = report_window(today)
+    closing = today.day == 1
     ystr = yesterday.isoformat()
 
     if not delivered:
@@ -245,7 +270,9 @@ def build_report(rows: dict, names: dict[str, str], today: dt.date, delivered: b
     for (date, acct, svc), cost in rows.items():
         if date == ystr:
             day[(acct, svc)] += cost
-        if date >= month_start.isoformat():
+        # Bounded at BOTH ends. A refresh can already carry rows for today, which is not
+        # over, and a window labelled as ending yesterday must not quietly include them.
+        if month_start.isoformat() <= date <= ystr:
             mtd[(acct, svc)] += cost
 
     # Every account the organisation knows about, not merely those that spent. Silence in
@@ -255,19 +282,30 @@ def build_report(rows: dict, names: dict[str, str], today: dt.date, delivered: b
     def total(bucket: dict, acct: str) -> Decimal:
         return sum((v for k, v in bucket.items() if k[0] == acct), Decimal(0))
 
-    lines = [
-        f"*Org total* — {_money(sum(day.values(), Decimal(0)))} on {ystr} · "
-        f"{_money(sum(mtd.values(), Decimal(0)))} month-to-date "
-        f"({month_start:%-d}–{today:%-d %b %Y})",
-        "",
-    ]
+    def amounts(on_day: Decimal, in_month: Decimal, label: str = "") -> str:
+        # On the 1st the reported day is one figure in the org total; everything below it is
+        # the month, because the month is what that report is about.
+        if closing:
+            return f"{_money(in_month)}{label}"
+        return f"{_money(on_day)} yesterday · {_money(in_month)} MTD"
+
+    org_day = _money(sum(day.values(), Decimal(0)))
+    org_month = _money(sum(mtd.values(), Decimal(0)))
+    window = _span(month_start, yesterday)
+    if closing:
+        title = f":moneybag: AWS cost: {yesterday:%B %Y}, full month"
+        headline = f"*Org total* — {org_month} for {yesterday:%B %Y} ({window}) · {org_day} on {ystr}"
+    else:
+        title = f":moneybag: AWS daily cost — {ystr}"
+        headline = f"*Org total* — {org_day} on {ystr} · {org_month} month-to-date ({window})"
+    lines = [headline, ""]
 
     # Largest spender first, by month-to-date rather than yesterday, so the ordering does not
     # reshuffle every morning on sub-cent noise.
     for acct in sorted(account_ids, key=lambda a: (-total(mtd, a), a)):
         lines.append(
             f"*{names.get(acct, acct)}* · `{acct}`\n"
-            f"{_money(total(day, acct))} yesterday · {_money(total(mtd, acct))} MTD"
+            f"{amounts(total(day, acct), total(mtd, acct), ' for the month')}"
         )
 
         # A service earns its line by having spent something in one of the two windows.
@@ -280,17 +318,17 @@ def build_report(rows: dict, names: dict[str, str], today: dt.date, delivered: b
         if not ranked:
             lines.append("        _no charges_")
         for svc in ranked[:MAX_SERVICES_PER_ACCOUNT]:
-            lines.append(
-                f"        • {svc} — {_money(day.get((acct, svc), Decimal(0)))} yesterday · "
-                f"{_money(mtd.get((acct, svc), Decimal(0)))} MTD"
-            )
+            on_day = day.get((acct, svc), Decimal(0))
+            in_month = mtd.get((acct, svc), Decimal(0))
+            lines.append(f"        • {svc} — {amounts(on_day, in_month)}")
         if len(ranked) > MAX_SERVICES_PER_ACCOUNT:
             hidden = ranked[MAX_SERVICES_PER_ACCOUNT:]
             rest = sum((mtd.get((acct, s), Decimal(0)) for s in hidden), Decimal(0))
-            lines.append(f"        • _+{len(hidden)} more — {_money(rest)} MTD_")
+            suffix = "" if closing else " MTD"
+            lines.append(f"        • _+{len(hidden)} more — {_money(rest)}{suffix}_")
         lines.append("")
 
-    return f":moneybag: AWS daily cost — {ystr}", "\n".join(lines).rstrip()
+    return title, "\n".join(lines).rstrip()
 
 
 def _qty(amount: Decimal) -> str:
@@ -354,43 +392,169 @@ def build_freetier_report(usages, usage_by_account, names, today) -> tuple[str, 
         actual = Decimal(str(u.get("actualUsageAmount") or 0))
         limit = Decimal(str(u.get("limit") or 0))
         forecast = Decimal(str(u.get("forecastedUsageAmount") or 0))
-        marker = ":rotating_light: " if pct >= 100 else ":warning: " if pct >= 80 else ""
-        # 54 requests against a million is 0.0054%, which prints as "0.0%" and reads as
-        # "nothing is using this" — true here, but the same rounding would hide the last
-        # decade of headroom on an allowance that mattered. Below a tenth of a percent the
-        # number is replaced by a bound rather than rounded into a lie.
-        pct_text = f"{pct:.1f}%" if pct >= 0.1 or pct == 0 else "<0.1%"
-        detail = f"{u['service']}"
-        if u.get("usageType"):
-            detail += f" · {u['usageType']}"
-
         lines.append(
-            f"{marker}*{detail}* ({u.get('freeTierType', 'Free Tier')})\n"
+            f"{_allowance_heading(u, pct)}\n"
             f"{_qty(actual)} of {_qty(limit)} {u.get('unit', '')} used · "
-            f"forecast {_qty(forecast)} ({pct_text} of the allowance)"
+            f"forecast {_qty(forecast)} ({_pct_text(pct)} of the allowance)"
         )
-
-        # The per-account split, summed across every CUR usage type that is an instance
-        # of this allowance — one allowance routinely covers several (SQS `Requests` spans
-        # `EU-Requests-Tier1`, `EU-Requests-FIFO-Tier1` and the eu-central-1 equivalents).
-        split: dict[str, Decimal] = collections.defaultdict(Decimal)
-        for (cur_service, cur_type), per_account in usage_by_account.items():
-            if _service_matches(u.get("service") or "", cur_service) and _usage_matches(
-                u.get("usageType") or "", cur_type
-            ):
-                for acct, qty in per_account.items():
-                    split[acct] += qty
-
-        if split:
-            for acct, qty in sorted(split.items(), key=lambda kv: (-kv[1], kv[0])):
-                lines.append(f"        • {names.get(acct, acct)} — {_qty(qty)}")
-        else:
-            # Said out loud. A silently missing split reads as "one account uses all of it".
-            lines.append("        • _per-account split unavailable for this usage type_")
+        lines += _split_lines(_allowance_split(u, usage_by_account), names)
         lines.append("")
 
     lines.append("_Free Tier allowances apply to the organisation as a whole, not per account._")
     return title, "\n".join(lines).rstrip()
+
+
+def _pct_text(pct: float) -> str:
+    """A share of an allowance, as text.
+
+    54 requests against a million is 0.0054%, which prints as "0.0%" and reads as "nothing is
+    using this" — true here, but the same rounding would hide the last decade of headroom on
+    an allowance that mattered. Below a tenth of a percent the number is replaced by a bound
+    rather than rounded into a lie.
+    """
+    return f"{pct:.1f}%" if pct >= 0.1 or pct == 0 else "<0.1%"
+
+
+def _allowance_heading(u: dict, pct: float) -> str:
+    marker = ":rotating_light: " if pct >= 100 else ":warning: " if pct >= 80 else ""
+    detail = f"{u['service']}"
+    if u.get("usageType"):
+        detail += f" · {u['usageType']}"
+    return f"{marker}*{detail}* ({u.get('freeTierType', 'Free Tier')})"
+
+
+def _allowance_split(u: dict, usage_by_account: dict) -> dict[str, Decimal]:
+    """The per-account usage, from the CUR, of one free-tier allowance.
+
+    Summed across every CUR usage type that is an instance of the allowance — one allowance
+    routinely covers several (SQS `Requests` spans `EU-Requests-Tier1`,
+    `EU-Requests-FIFO-Tier1` and the eu-central-1 equivalents).
+    """
+    split: dict[str, Decimal] = collections.defaultdict(Decimal)
+    for (cur_service, cur_type), per_account in usage_by_account.items():
+        if _service_matches(u.get("service") or "", cur_service) and _usage_matches(
+            u.get("usageType") or "", cur_type
+        ):
+            for acct, qty in per_account.items():
+                split[acct] += qty
+    return dict(split)
+
+
+def _split_lines(split: dict[str, Decimal], names: dict[str, str]) -> list[str]:
+    if not split:
+        # Said out loud. A silently missing split reads as "one account uses all of it".
+        return ["        • _per-account split unavailable for this usage type_"]
+    return [
+        f"        • {names.get(acct, acct)} — {_qty(qty)}"
+        for acct, qty in sorted(split.items(), key=lambda kv: (-kv[1], kv[0]))
+    ]
+
+
+def build_freetier_close(snapshot, usage_by_account, names, month_end: dt.date) -> tuple[str, str]:
+    """Return (title, description) for the 1st: the closed month's final usage per allowance.
+
+    GETFREETIERUSAGE CANNOT ANSWER THIS. It takes no period at all (its only inputs are
+    filter, maxResults and nextToken) and describes the CURRENT month, so on the 1st it
+    reports a month a few hours old, which is usually nothing. The answer is assembled from
+    the two sources that still know about the closed month:
+
+      * the allowances (limit, unit, type) from the snapshot that month's last run saved,
+        see save_freetier_snapshot;
+      * the usage from that month's export, already read for the cost report and matched to
+        each allowance exactly as the per-account split is.
+
+    The export's total is never reported below AWS's own last reading. Usage only accrues
+    over a month, so AWS's reading is a floor, and a total under it means the matcher missed
+    a usage type. Under-reporting is the costly direction for a report whose job is to show a
+    breach. When the export matches nothing at all for an allowance, the line says so and
+    shows AWS's last reading and forecast instead of a made-up final figure.
+    """
+    month = f"{month_end:%B %Y}"
+    if snapshot is None:
+        return (
+            f":free: AWS Free Tier: {month}, final usage unavailable",
+            f"No free-tier allowances were saved during {month}, so its final usage cannot be "
+            "measured against them: the Free Tier API only describes the current month. Every "
+            "daily run saves a copy, so next month's close will have one.",
+        )
+    usages = snapshot.get("freeTierUsages") or []
+    if not usages:
+        return (
+            f":free: AWS Free Tier: {month}, nothing consumed",
+            f"No free-tier usage was recorded for {month}.",
+        )
+
+    saved = dt.date.fromisoformat(snapshot["savedAt"][:10])
+    lines_by_share = []
+    for u in usages:
+        limit = Decimal(str(u.get("limit") or 0))
+        reading = Decimal(str(u.get("actualUsageAmount") or 0))
+        forecast = Decimal(str(u.get("forecastedUsageAmount") or 0))
+        of_limit = f"of {_qty(limit)} {u.get('unit', '')} used"
+        split = _allowance_split(u, usage_by_account)
+        if split:
+            final = max(sum(split.values(), Decimal(0)), reading)
+            share = float(final / limit) if limit else 0.0
+            used = f"{_qty(final)} {of_limit} ({_pct_text(share * 100)} of the allowance)"
+            below = _split_lines(split, names)
+        else:
+            share = float(max(reading, forecast) / limit) if limit else 0.0
+            used = (
+                f"{_qty(reading)} {of_limit} by {saved.day} {saved:%b} · "
+                f"forecast {_qty(forecast)} ({_pct_text(share * 100)} of the allowance)"
+            )
+            below = ["        • _no match in the export, so this is AWS's last reading, not the final count_"]
+        lines_by_share.append((share, [f"{_allowance_heading(u, share * 100)}\n{used}", *below, ""]))
+
+    # Same ordering as the daily report: the allowance closest to its limit is read first.
+    lines_by_share.sort(key=lambda item: item[0], reverse=True)
+    exceeded = sum(1 for share, _ in lines_by_share if share >= 1.0)
+    approaching = sum(1 for share, _ in lines_by_share if 0.8 <= share < 1.0)
+
+    if exceeded:
+        title = f":rotating_light: AWS Free Tier: {month}, {exceeded} allowance EXCEEDED"
+    elif approaching:
+        title = f":warning: AWS Free Tier: {month}, {approaching} allowance above 80%"
+    else:
+        title = f":free: AWS Free Tier: {month}, final usage"
+
+    lines = []
+    if exceeded:
+        lines += [f"*These ran past their allowance in {month_end:%B}, so the excess is billed:*", ""]
+    for _, block in lines_by_share:
+        lines += block
+    lines.append("_Free Tier allowances apply to the organisation as a whole, not per account._")
+    return title, "\n".join(lines).rstrip()
+
+
+def _snapshot_key(prefix: str, month: dt.date) -> str:
+    return f"{prefix.strip('/')}/{month:%Y-%m}.json"
+
+
+def save_freetier_snapshot(s3, bucket: str, prefix: str, now: dt.datetime, usages: list) -> None:
+    """Keep this month's free-tier allowances for the report on the 1st.
+
+    Once a month has closed, AWS no longer says what its allowances were, so the report that
+    closes it reads them from here. One object per billing period, overwritten by every run,
+    so the copy the 1st reads is the one written by the closed month's last run. Versioning is
+    off on this bucket, so overwriting keeps one object rather than thirty, and the lifecycle
+    rule that expires the export files expires these too.
+    """
+    s3.put_object(
+        Bucket=bucket,
+        Key=_snapshot_key(prefix, now.date()),
+        Body=json.dumps({"savedAt": now.isoformat(), "freeTierUsages": usages}).encode(),
+        ContentType="application/json",
+    )
+
+
+def load_freetier_snapshot(s3, bucket: str, prefix: str, month: dt.date) -> dict | None:
+    """The snapshot saved during `month`'s billing period, or None when no run saved one."""
+    try:
+        body = s3.get_object(Bucket=bucket, Key=_snapshot_key(prefix, month))["Body"].read()
+    except s3.exceptions.NoSuchKey:
+        return None
+    return json.loads(body)
 
 
 def _publish(sns, topic_arn: str, title: str, description: str) -> None:
@@ -424,35 +588,38 @@ def handler(event, context):  # noqa: ARG001 - Lambda signature
     own Slack message rather than one wall of text, but they share a run because they share
     the CUR download, which is the only expensive part of either.
     """
+    # Taken here rather than from the event, so a manual re-invoke reproduces today's report
+    # rather than whatever the schedule last carried.
+    return run(dt.datetime.now(dt.timezone.utc))
+
+
+def run(now: dt.datetime, client=None) -> dict:
+    """One report run as of `now` (UTC). `client` stands in for boto3.client in the tests."""
+    client = client or boto3.client
     bucket = os.environ["CUR_BUCKET"]
     export_name = os.environ["CUR_EXPORT_NAME"]
     prefix = os.environ.get("CUR_PREFIX", "")
     topic_arn = os.environ["SNS_TOPIC_ARN"]
+    snapshot_prefix = os.environ.get("FREETIER_PREFIX", "freetier")
 
-    # Taken here rather than from the event, so a manual re-invoke reproduces today's report
-    # rather than whatever the schedule last carried.
-    today = dt.datetime.now(dt.timezone.utc).date()
+    today = now.date()
+    _, yesterday = report_window(today)
 
     # Pinned to the bucket's own region rather than the function's. The billing plane lives
     # in us-east-1 while this runs in eu-west-1, and while S3 would redirect a mismatched
     # client, the redirect costs a round trip on every object and fails outright for some
     # request shapes. Naming it is cheaper than relying on the fallback.
-    s3 = boto3.client("s3", region_name=os.environ.get("CUR_BUCKET_REGION") or None)
-    rows, usage, objects = read_cur(s3, bucket, _data_prefix(prefix, export_name, today))
+    s3 = client("s3", region_name=os.environ.get("CUR_BUCKET_REGION") or None)
 
-    # A new billing period starts empty: on the 1st, yesterday belongs to LAST month's file,
-    # so that period has to be read too or the first of every month reports nothing.
-    if today.day <= 2:
-        last_month = today.replace(day=1) - dt.timedelta(days=1)
-        older, older_usage, _ = read_cur(s3, bucket, _data_prefix(prefix, export_name, last_month))
-        rows |= older
-        for k, v in older_usage.items():
-            usage.setdefault(k, {})
-            for acct, qty in v.items():
-                usage[k][acct] = usage[k].get(acct, Decimal(0)) + qty
+    # ONE billing period: the one the reported day belongs to. On the 1st that is the month
+    # that has just closed, which is everything the 1st's report is about, and the new month's
+    # period is not read at all. At 07:00 on the 1st it usually does not exist yet (AWS starts
+    # it with the first refresh after the month begins), and judging delivery from that empty
+    # directory is what made the 1st report "awaiting first export" with a full month on disk.
+    rows, usage, objects = read_cur(s3, bucket, _data_prefix(prefix, export_name, yesterday))
 
-    names = _account_names(boto3.client("organizations", region_name=ORG_REGION))
-    sns = boto3.client("sns")
+    names = _account_names(client("organizations", region_name=ORG_REGION))
+    sns = client("sns")
 
     cost_title, cost_body = build_report(rows, names, today, delivered=objects > 0)
     _publish(sns, topic_arn, cost_title, cost_body)
@@ -461,7 +628,7 @@ def handler(event, context):  # noqa: ARG001 - Lambda signature
     # forecast against it are AWS's numbers, and re-deriving them from line items would be
     # guessing at limits AWS already publishes. GetFreeTierUsage is free to call.
     try:
-        ft = boto3.client("freetier", region_name=FREETIER_REGION)
+        ft = client("freetier", region_name=FREETIER_REGION)
         usages, token = [], None
         while True:
             resp = ft.get_free_tier_usage(**{"nextToken": token} if token else {})
@@ -469,7 +636,20 @@ def handler(event, context):  # noqa: ARG001 - Lambda signature
             token = resp.get("nextToken")
             if not token:
                 break
-        ft_title, ft_body = build_freetier_report(usages, usage, names, today)
+
+        # Best effort. Only the month's last successful save is ever read, and a month with
+        # none at all says so in its closing report, so one failed write must not cost
+        # today's report.
+        try:
+            save_freetier_snapshot(s3, bucket, snapshot_prefix, now, usages)
+        except Exception:  # noqa: BLE001
+            logger.warning("could not save the free-tier snapshot", exc_info=True)
+
+        if today.day == 1:
+            snapshot = load_freetier_snapshot(s3, bucket, snapshot_prefix, yesterday)
+            ft_title, ft_body = build_freetier_close(snapshot, usage, names, yesterday)
+        else:
+            ft_title, ft_body = build_freetier_report(usages, usage, names, today)
         _publish(sns, topic_arn, ft_title, ft_body)
     except Exception:  # noqa: BLE001 - the cost report is already out; do not lose it too
         logger.exception("free-tier report failed; cost report was published")
