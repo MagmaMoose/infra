@@ -66,6 +66,12 @@ spec:
       keys:
         mapping: [mapping.yml, mapping-terms.yml]
         slackWebhook: ""
+        # The anthropic backend reads its key from ANTHROPIC_API_KEY, which the chart only
+        # renders when this names a Secret key; LITELLM_API_KEY is rendered for the
+        # claude-code backend alone. Unset, the job sent `Authorization: Bearer ` with no
+        # key and LiteLLM answered 401 on every call. `litellm-api-key` is the job's own
+        # Luna-only virtual key (externalsecret.yaml).
+        anthropicApiKey: litellm-api-key
     persistence:
       size: 1Gi
       storageClass: longhorn

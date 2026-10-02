@@ -186,9 +186,12 @@ spec:
             # Both models are set EXPLICITLY because the server's own defaults moved:
             # it now defaults to `gpt-5-mini`, which this gateway does not register, so
             # relying on the default would fail every extraction call with "model not
-            # found". These two ARE registered (kubernetes/apps/litellm/base/configmap.yaml).
+            # found". These two ARE registered (kubernetes/apps/litellm/base/configmap.yaml),
+            # and they are the only two mem0's key is given: gpt-5.6-luna, the one OpenAI chat
+            # model house clients use, and the embedder, which has no Luna equivalent. The
+            # extraction model was gpt-4o-mini, which the gateway no longer serves.
             - name: MEM0_DEFAULT_LLM_MODEL
-              value: gpt-4o-mini
+              value: gpt-5.6-luna
             - name: MEM0_DEFAULT_EMBEDDER_MODEL
               value: text-embedding-3-small
             - name: MEM0_TELEMETRY
