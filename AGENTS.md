@@ -518,6 +518,10 @@ If you accidentally stage a secret, remove it with `git reset HEAD <file>` befor
    Nievah correctly strips HTTP-header values, while the agent server otherwise compares the
    raw environment string (a clipboard/Vault trailing newline produces an unavoidable 401).
    Bump the non-secret pod-template session-key revision after Vault rotation so pods reload it.
+10. **Hermes `context_from` on a job's own id** — Hermes saves each run's whole prompt in its
+   output file and injects only the first 8,000 characters of the newest one, so a job that
+   reads itself nests its prompts and loses the previous answer from the second run on. Pass
+   state forward with the job's pre-run `script` instead (see `files/daily_brief_context.py`).
 
 ## Tool Use and Output Discipline
 

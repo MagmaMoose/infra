@@ -69,6 +69,10 @@ data:
 
     cron:
       enabled: true
+      # Deliver a cron job's answer as written. Hermes otherwise wraps every one in a
+      # "Cronjob Response: <name> (job_id ...) ----- ... To stop or manage this job ..." frame,
+      # four lines of chrome around a brief that has to fit on one phone screen.
+      wrap_response: false
 
     # Cron schedules (the daily brief is seeded by files/seed_cron.py) run in this zone.
     timezone: Europe/Amsterdam
