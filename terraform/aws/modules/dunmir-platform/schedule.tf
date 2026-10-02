@@ -31,9 +31,9 @@ resource "aws_scheduler_schedule" "sweep" {
   # that was impossible to express and the comment claiming the HTTP sweep is
   # "independent of sweep_enabled" was simply wrong. Turning the sweep on gave you
   # BOTH, and this one invokes a Lambda that, on a stack pointed at Kubernetes,
-  # has no database to sweep: every firing fails and the function-error alarm
-  # emails on a five-minute cycle until somebody mutes the one alarm that can see
-  # the sweep fail at all.
+  # has no database to sweep: every firing fails, once a minute. (It used to page
+  # through the function-error alarm too; that alarm is gone, see the alarms
+  # section below, so now it would fail silently.)
   #
   # So `sweep_target_url` now decides WHICH sweep runs and `sweep_enabled` decides
   # WHETHER one does, which is what both comments always described.
@@ -94,67 +94,21 @@ resource "aws_budgets_budget" "guardrail" {
   }
 }
 
-# ── alarms that can actually see a failure ──────────────────────────────────────────────────
+# ── alarms ──────────────────────────────────────────────────────────────────────────────────
 #
-# The Lambda `Errors` metric was the ONLY monitoring here, and it cannot see the failure it was
-# written for. Mangum catches every unhandled exception inside the ASGI app and RETURNS a 500
-# response payload, so the invocation succeeds from Lambda's point of view and `Errors` stays at
-# zero. An API 500-ing on every request would have left that alarm green.
+# ONE, AND ONLY WITH RDS. There were three. `api-5xx` and `api-errors` were deleted in 2026-10 to
+# bring the organisation inside CloudWatch's 10 free alarms, which are pooled across every
+# account (see the alarm-budget note in modules/caldrith-frontdoor/notify.tf): the production
+# API carries no traffic, and with `sweep_target_url` set its in-account sweep schedule is
+# disabled, so neither alarm had anything to watch.
 #
-# So there are three now, each watching a different thing that actually moves. CloudWatch's free
-# tier allows ten alarms; this uses three.
+# PUT THEM BACK TOGETHER if this API ever serves the application again, because they see
+# different failures. Mangum catches every unhandled exception inside the ASGI app and RETURNS a
+# 500 response payload, so the invocation succeeds and Lambda's `Errors` stays at zero while the
+# API 500s on every request: only the gateway's `5xx` metric sees that. And a sweep the
+# scheduler invokes directly never touches the gateway, so only `Errors` sees it fail.
 
-# 1. The gateway's own view of 5xx — the one that sees an application error. HTTP APIs publish
-#    `5xx` under AWS/ApiGateway, and it counts what the CLIENT experienced, whether the fault
-#    was the function's, the integration's or the gateway's.
-resource "aws_cloudwatch_metric_alarm" "api_5xx" {
-  count = local.creates_api && var.ops_email != "" ? 1 : 0
-
-  alarm_name        = "${local.name}-api-5xx"
-  alarm_description = "Dun Mir API is returning 5xx — the console, the agents or both are affected."
-
-  namespace   = "AWS/ApiGateway"
-  metric_name = "5xx"
-  dimensions  = { ApiId = aws_apigatewayv2_api.api[0].id }
-
-  statistic           = "Sum"
-  period              = 300
-  evaluation_periods  = 2
-  threshold           = 5
-  comparison_operator = "GreaterThanThreshold"
-  treat_missing_data  = "notBreaching"
-
-  alarm_actions = [aws_sns_topic.alerts[0].arn]
-  ok_actions    = [aws_sns_topic.alerts[0].arn]
-}
-
-# 2. Lambda invocation errors. Still worth having, because it is the ONLY thing that sees the
-#    SWEEP fail: the scheduler invokes the function directly, so a sweep that raises never
-#    touches the gateway and never appears in the metric above.
-resource "aws_cloudwatch_metric_alarm" "function_errors" {
-  count = !var.localstack && var.ops_email != "" ? 1 : 0
-
-  alarm_name        = "${local.name}-api-errors"
-  alarm_description = "Dun Mir function invocations are failing — most likely the scheduled sweep, which no HTTP metric can see."
-
-  namespace   = "AWS/Lambda"
-  metric_name = "Errors"
-  dimensions  = { FunctionName = aws_lambda_function.api.function_name }
-
-  statistic           = "Sum"
-  period              = 300
-  evaluation_periods  = 2
-  threshold           = 5
-  comparison_operator = "GreaterThanThreshold"
-  # Missing data is GOOD here: Lambda publishes no Errors datapoint when there are none, so
-  # `missing` would flap the alarm into INSUFFICIENT_DATA every quiet five minutes.
-  treat_missing_data = "notBreaching"
-
-  alarm_actions = [aws_sns_topic.alerts[0].arn]
-  ok_actions    = [aws_sns_topic.alerts[0].arn]
-}
-
-# 3. CPU credits. RDS runs T4g instances in **Unlimited** mode by default, which means sustained
+# CPU credits. RDS runs T4g instances in **Unlimited** mode by default, which means sustained
 #    CPU above the baseline is billed per vCPU-hour rather than throttled — an unbounded charge
 #    on a stack whose whole premise is a zero bill. A draining credit balance is the early
 #    warning, and it arrives days before the invoice does.

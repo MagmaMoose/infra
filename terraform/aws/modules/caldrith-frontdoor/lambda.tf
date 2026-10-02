@@ -478,16 +478,12 @@ resource "aws_lambda_function_url" "producer" {
 
 # --- event source mappings ---------------------------------------------------------------------
 #
-# Push, not poll: the event source mapping is Lambda's own poller, and there is no server to
-# run it on.
+# The event source mapping is Lambda's own poller, so there is no server to run it on, but it
+# is not free. It long-polls the queue continuously, and every receive it makes is a billed SQS
+# request, the empty ones on an idle queue included, against the organisation's shared 1M a
+# month. This note used to leave that open; queues.tf has the measured answer, which is part
+# of why events.fifo was deleted. There is no knob to slow a poller down.
 #
-# ONE NUMBER TO WATCH AFTER A MONTH. Lambda's poller long-polls each queue continuously, and
-# AWS does not clearly document whether those empty receives count against SQS's always-free
-# 1M requests/month. Nievah has one such mapping live and org-wide SQS usage currently reads
-# about 4,900 of 1,000,000, which strongly suggests they do not — but Caldrith adds two more,
-# the allowance is org-wide rather than per-account, and there is no knob to slow a poller
-# down if the answer turns out to be yes. The daily free-tier message the cost-report leaf
-# posts to #finance is where this would show up first; read the SQS line there in a month.
 # The jobs mapping, where the caps are doing real work.
 resource "aws_lambda_event_source_mapping" "jobs" {
   event_source_arn = aws_sqs_queue.jobs.arn

@@ -145,7 +145,10 @@ resource "aws_lambda_function_url" "producer" {
   authorization_type = "NONE"
 }
 
-# Push, not poll: the event source mapping is Lambda's own poller, and it costs nothing.
+# The event source mapping is Lambda's own poller, so there is no server to run it on, but it
+# is not free. It long-polls events.fifo around the clock, and every receive it makes is a
+# billed SQS request, the empty ones on an idle queue included, against the organisation's
+# shared 1M a month. modules/caldrith-frontdoor/queues.tf has the measured numbers.
 resource "aws_lambda_event_source_mapping" "events" {
   event_source_arn = aws_sqs_queue.events.arn
   function_name    = aws_lambda_function.consumer.arn

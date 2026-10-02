@@ -220,20 +220,6 @@ variable "slack_channel_id" {
   default     = ""
 }
 
-variable "busy_alarm_requests_per_15min" {
-  description = <<-EOT
-    Requests in 15 minutes that mean something is wrong. Real traffic is a few hundred a MONTH,
-    so 100 in a quarter of an hour is two orders of magnitude above anything legitimate and
-    still far below anything that costs money.
-
-    This is a notification, not a control — nothing acts on it. It exists because the
-    deterministic throttle bounds the Lambda bill and not the gateway bill, so the only thing
-    standing between a sustained flood and a surprise is somebody noticing.
-  EOT
-  type        = number
-  default     = 100
-}
-
 variable "monthly_budget_usd" {
   description = <<-EOT
     Spend that should never be reached, in USD. Two budgets are free per account.
