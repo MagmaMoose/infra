@@ -10,8 +10,12 @@ exists now and how to get data back.
 |---|---|---|---|
 | Longhorn volumes (local) | `daily-snapshot` recurring job | on the Longhorn disks | 7 snapshots |
 | Longhorn volumes (offsite) | `weekly-backup` recurring job | OCI `longhorn-backups` | 4 backups |
-| Postgres (CNPG) | Barman continuous archiving | OCI `postgres-backups` | per cluster spec |
-| MinIO buckets | `minio-backup` CronJob (`rclone copy`) | OCI `minio-backups` | additive |
+| Postgres (CNPG) | Barman continuous archiving, gzip for WAL and base backups | OCI `postgres-backups` | per cluster spec |
+
+The OCI `minio-backups` bucket still holds what the old `minio-backup` CronJob copied
+there, but nothing writes to it any more. That job was an additive `rclone copy` with no
+expiry, and it was removed in October 2026 after growing the bucket to ~547 GiB. Whether to
+empty the bucket is a separate decision.
 
 Local snapshots cover **every** volume, including newly created ones: the job is
 attached to Longhorn's `default` group. They cost nothing offsite and handle the
@@ -76,6 +80,14 @@ explicit bucket-name allow-list generated from `bucket_names` in
 `terraform/oci/prod/eu-amsterdam-1/backups/terragrunt.hcl`. Adding a bucket
 anywhere else grants nothing.
 
+**The backup target polls the bucket once a day** (`pollInterval: 24h0m0s`). Every poll
+re-lists every backup in the bucket, and the old 5-minute interval was ~3.8M billed
+requests a month on its own. Backups this cluster takes show up as soon as they complete,
+whatever the interval. A backup written by anything else appears after the next poll; to
+force one, set `spec.syncRequestedAt` on the `default` BackupTarget to the current time.
+Never set the interval to `0`: that turns polling off, and failed backups are only
+cleaned up during a poll.
+
 **Lifecycle rules need their own grant.** The Object Storage *service principal*
 must be allowed to manage objects, or every lifecycle policy fails with
 `400-InsufficientServicePermissions`. This was missing until 2026-08-07, which
@@ -87,6 +99,7 @@ enabled, every "deleted" object stayed billable.
 - **The 20.9 TiB of bulk media** (`media/movies`, `media/series`,
   `backup/timemachine-share`, …) lives on NFS, not Longhorn, and is far beyond any
   offsite budget here.
-- **`thanos-metrics`** (~62 GiB in MinIO) holds up to a year of downsampled history
-  that exists nowhere else, since Prometheus keeps only 7 days. The `minio-backup`
-  CronJob covers a fraction of it. Treat long-range metrics as best-effort.
+- **`thanos-metrics` and the Loki buckets** hold up to a year of downsampled metrics
+  history, plus logs, that exist nowhere else, since Prometheus keeps only 7 days. They
+  have no offsite copy since the `minio-backup` CronJob was removed. Treat long-range
+  metrics and logs as best-effort.
