@@ -8,6 +8,9 @@ metadata:
   # (security-integrations, streaming-sync), and it costs nothing extra here because a
   # CronJob mounts the current ConfigMap fresh on every run — there is no rollout to
   # trigger and so no configmap-hash annotation to maintain.
+  #
+  # Tested in place: ../tests/test_report.py imports report.py out of THIS file, so run
+  # `python3 kubernetes/apps/oci-cost-report/tests/test_report.py` after editing it.
   name: oci-cost-report-script
   namespace: observability
 data:
@@ -404,16 +407,35 @@ data:
     # ---------------------------------------------------------------- report
 
 
+    def report_window(today: dt.date) -> tuple[dt.date, dt.date]:
+        """(first day, last day) of the window a run on `today` reports on.
+
+        ANCHORED TO THE REPORTED DAY, NOT TO TODAY. The reported day is yesterday, and
+        month-to-date is the month that CONTAINS it: from its 1st up to and including it. On
+        the 1st that is the whole previous month, so the 1st's report is that month's close.
+        Anchoring the month to today instead is what made the 1st print a full day of spend
+        for "yesterday" beside 0.00 for a month-to-date that had not started yet. Same rule,
+        same function name, as the AWS handler.
+        """
+        day = today - dt.timedelta(days=1)
+        return day.replace(day=1), day
+
+
+    def _span(first: dt.date, last: dt.date) -> str:
+        """`1–29 Sep 2026`, or `1 Oct 2026` when the window is a single day."""
+        if first == last:
+            return f"{last.day} {last:%b %Y}"
+        return f"{first.day}–{last.day} {last:%b %Y}"
+
+
     def collect(tenancy: Tenancy, today: dt.date) -> dict:
         """Everything one tenancy contributes to the message."""
-        yesterday = today - dt.timedelta(days=1)
-        month_start = today.replace(day=1)
-        # On the 1st, yesterday belongs to last month, so the window starts at whichever is
-        # earlier. The Usage API takes an arbitrary range, which is why this is one line here
-        # and a second file read in the AWS version.
-        window_start = min(month_start, yesterday)
+        month_start, yesterday = report_window(today)
 
-        cost_rows = query_usage(tenancy, window_start, today, "COST")
+        # [1st of the reported month, today): timeUsageEnded is exclusive, so this ends with
+        # yesterday. On the 1st it is the whole previous month, at most 31 days against the
+        # API's 90-day ceiling for DAILY granularity.
+        cost_rows = query_usage(tenancy, month_start, today, "COST")
 
         # Whether OCI has ANY row for yesterday, of either kind. Usage data lands with a lag,
         # and an early-morning run can find yesterday not yet written. Without this flag that
@@ -435,7 +457,7 @@ data:
                 currencies.add(row["currency"])
             if date == yesterday.isoformat():
                 day[service] += amount
-            if date >= month_start.isoformat():
+            if month_start.isoformat() <= date <= yesterday.isoformat():
                 mtd[service] += amount
 
         return {
@@ -452,10 +474,19 @@ data:
         }
 
 
-    def _tenancy_block(result: dict) -> list[str]:
+    def _tenancy_block(result: dict, today: dt.date) -> list[str]:
         currency = result["currency"] or FALLBACK_CURRENCY
         day_total = sum(result["day"].values(), Decimal(0))
         mtd_total = sum(result["mtd"].values(), Decimal(0))
+        _, yesterday = report_window(today)
+        closing = today.day == 1
+
+        def amounts(on_day: Decimal, in_month: Decimal, label: str = "") -> str:
+            # On the 1st the last day is one figure in the fleet total; everything below it
+            # is the month, because the month is what that report is about.
+            if closing:
+                return f"{_money(in_month, currency)}{label}"
+            return f"{_money(on_day, currency)} yesterday · {_money(in_month, currency)} MTD"
 
         # Thresholds are checked against MONTH-TO-DATE, not yesterday. A tenancy that is meant
         # to sit at zero can register a fraction of a cent on one day from rounding and mean
@@ -471,11 +502,16 @@ data:
 
         lines = [
             f"{marker}*{result['name']}* · {currency}",
-            f"{_money(day_total, currency)} yesterday · {_money(mtd_total, currency)} MTD",
+            amounts(day_total, mtd_total, " for the month"),
         ]
         if result["mixed_currency"]:
             lines.append("        _this tenancy reported more than one currency; totals are approximate_")
-        if not result["has_yesterday"]:
+        if not result["has_yesterday"] and closing:
+            lines.append(
+                f"        :hourglass_flowing_sand: _no rows for {yesterday.day} {yesterday:%b} yet: "
+                "OCI usage data lags, so this month total can still rise._"
+            )
+        elif not result["has_yesterday"]:
             lines.append(
                 "        :hourglass_flowing_sand: _no rows for yesterday yet — OCI usage data "
                 "lags; the yesterday column is unknown, not zero. MTD is still complete to the "
@@ -494,14 +530,14 @@ data:
         if not billing:
             lines.append("        _nothing billed_")
         for service in billing[:MAX_SERVICES]:
-            lines.append(
-                f"        • {service} — {_money(result['day'].get(service, Decimal(0)), currency)} yesterday"
-                f" · {_money(result['mtd'].get(service, Decimal(0)), currency)} MTD"
-            )
+            on_day = result["day"].get(service, Decimal(0))
+            in_month = result["mtd"].get(service, Decimal(0))
+            lines.append(f"        • {service} — {amounts(on_day, in_month)}")
         if len(billing) > MAX_SERVICES:
             hidden = billing[MAX_SERVICES:]
             rest = sum((result["mtd"].get(s, Decimal(0)) for s in hidden), Decimal(0))
-            lines.append(f"        • _+{len(hidden)} more — {_money(rest, currency)} MTD_")
+            suffix = "" if closing else " MTD"
+            lines.append(f"        • _+{len(hidden)} more — {_money(rest, currency)}{suffix}_")
 
         return lines
 
@@ -519,17 +555,28 @@ data:
         this scale a single day is frequently and legitimately zero, and "0.00 yesterday" alone
         says nothing about whether anything is running. Month-to-date is what makes a quiet day
         readable as quiet rather than as broken.
+
+        ON THE 1ST THE MESSAGE IS THE MONTH'S CLOSE. Yesterday is then the last day of the
+        previous month and month-to-date is all of it (see report_window), so the message
+        leads with the month, and the warn/alert thresholds meet the full month they were set
+        against.
         """
-        yesterday = today - dt.timedelta(days=1)
-        month_start = today.replace(day=1)
+        month_start, yesterday = report_window(today)
+        closing = today.day == 1
+        if closing:
+            subject = f"OCI cost: {yesterday:%B %Y}, full month"
+            alert_subject = f"{subject}, unexpected spend in"
+        else:
+            subject = f"OCI daily cost — {yesterday.isoformat()}"
+            alert_subject = "OCI daily cost — unexpected spend in"
 
         alerting = [r["name"] for r in results if sum(r["mtd"].values(), Decimal(0)) >= r["alert"]]
         if alerting:
-            title = f":rotating_light: OCI daily cost — unexpected spend in {', '.join(alerting)}"
+            title = f":rotating_light: {alert_subject} {', '.join(alerting)}"
         elif failures:
-            title = f":warning: OCI daily cost — {yesterday.isoformat()} ({len(failures)} tenancy unavailable)"
+            title = f":warning: {subject} ({len(failures)} tenancy unavailable)"
         else:
-            title = f":moneybag: OCI daily cost — {yesterday.isoformat()}"
+            title = f":moneybag: {subject}"
 
         lines = [f"*{title}*", ""]
 
@@ -548,18 +595,24 @@ data:
                 if not failures
                 else f"Total across {len(results)} of {len(results) + len(failures)} tenancies"
             )
-            lines.append(
-                f"*{scope}* — {_money(day_total, currency)} yesterday · "
-                f"{_money(mtd_total, currency)} month-to-date "
-                f"({month_start.day}–{today.day} {today:%b %Y})"
-            )
+            window = _span(month_start, yesterday)
+            if closing:
+                lines.append(
+                    f"*{scope}* — {_money(mtd_total, currency)} for {yesterday:%B %Y} ({window}) · "
+                    f"{_money(day_total, currency)} on {yesterday.isoformat()}"
+                )
+            else:
+                lines.append(
+                    f"*{scope}* — {_money(day_total, currency)} yesterday · "
+                    f"{_money(mtd_total, currency)} month-to-date ({window})"
+                )
         elif len(currencies) > 1:
             lines.append("*Fleet total* — _not shown: these tenancies bill in different currencies_")
         lines.append("")
 
         # Biggest spender first, so the tenancy that needs attention is not below the fold.
         for result in sorted(results, key=lambda r: (-sum(r["mtd"].values(), Decimal(0)), r["name"])):
-            lines += _tenancy_block(result)
+            lines += _tenancy_block(result, today)
             lines.append("")
 
         # Named, not silent. A tenancy missing from a cost report reads as "spent nothing",
