@@ -156,7 +156,7 @@ Every service here is **Always Free** except S3. Measured against ~950 deliverie
 | DynamoDB | 25 GB, 25 WCU, 25 RCU | a rolling day of ids, 2 WCU | 12× |
 | EventBridge Scheduler | 14M invocations | ~180 | ~78,000× |
 | SNS | 1M publishes | a handful of alarms | — |
-| CloudWatch | 10 alarms, 5 GB logs | 4 alarms, 14-day retention | — |
+| CloudWatch | 10 alarms, 5 GB logs | 3 alarms, 14-day retention | — |
 | SSM Parameter Store | 10,000 standard params | 3 | — |
 | **S3** (overflow + artifacts) | **5 GB — 12-MONTH** | see below | ~$0.005/mo |
 | **API Gateway** (HTTP API) | **1M req — 12-MONTH** | ~29k requests | ~$0.03/mo |

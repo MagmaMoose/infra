@@ -28,7 +28,7 @@
 #
 # Between the apply and that invocation the sweep schedule is already firing once a minute
 # against an empty database. `lambda_handler._sweep` treats a missing schema as a no-op for
-# exactly this window rather than erroring every 60 seconds and tripping the alarm.
+# exactly this window rather than erroring every 60 seconds.
 
 locals {
   creates_database = var.db_mode == "rds" && !var.localstack

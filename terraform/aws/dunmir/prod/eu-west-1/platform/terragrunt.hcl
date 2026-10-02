@@ -282,7 +282,6 @@ inputs = {
   # ON, and with `sweep_target_url` set that arms the HTTP sweep ONLY. The module
   # disables its in-account schedule whenever a target URL is given, because that
   # one invokes `dunmir-prod-api`, whose deployed zip predates the DynamoDB
-  # removal and has no DATABASE_URL: every firing would fail and the
-  # function-error alarm would email on a five-minute cycle for ever.
+  # removal and has no DATABASE_URL: every firing would fail, once a minute.
   sweep_enabled = true
 }

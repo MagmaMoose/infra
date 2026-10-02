@@ -8,7 +8,8 @@
 # IT FAILS HARD, WHICH IS THE POINT. `scripts/request-public-app-token.sh` exits 1 on any
 # non-200, so a broken broker is a red X on every consumer's release. MagmaMoose/diatreme#147 is
 # what that looks like: releases blocked across every consumer repository for hours because one
-# hostname lost egress. Read an alarm here as "nobody can release", not "a service is degraded".
+# hostname lost egress. That red X is the alarm: the module has no CloudWatch alarms of its own
+# (see its notify.tf). Read one as "nobody can release", not "a service is degraded".
 
 # NAMED include. Terragrunt 1.x requires a label on every include block.
 include "root" {

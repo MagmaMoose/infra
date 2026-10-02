@@ -188,7 +188,6 @@ stays in the source next to the code it governs.
 | `ops_email` | `string` | `""` | Address subscribed to the ops topic. |
 | `slack_workspace_id` | `string` | `""` | AWS Chatbot workspace id, for alarms in Slack. |
 | `slack_channel_id` | `string` | `""` | Slack channel id for alarms, e.g. C0123456789. |
-| `busy_alarm_requests_per_15min` | `number` | `100` | Requests in 15 minutes that mean something is wrong. |
 | `monthly_budget_usd` | `number` | `1` | Spend that should never be reached, in USD. |
 | `additional_domain_names` | `list(string)` | `[]` | Extra hostnames this API also answers on, each with its own ACM certificate, custom domain and mapping. |
 

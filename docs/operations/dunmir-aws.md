@@ -61,7 +61,9 @@ of the 18,600, so roughly **13 capacity units are left for Dün Mir**. On-demand
 always-free component at all, so switching a table to it is the one change here that looks
 like a modernisation and is actually a bill.
 
-CloudWatch's 10-alarm allowance is pooled the same way; this stack uses two.
+CloudWatch's 10-alarm allowance is pooled the same way. This stack uses none with
+`db_mode = "dynamodb"` and one (`CPUCreditBalance`) with `db_mode = "rds"`; the organisation
+runs nine, so that one would be the tenth.
 
 So:
 
@@ -74,8 +76,8 @@ There is no third option that keeps Postgres. The application is 200-odd hand-wr
 statements across nineteen tables with joins and aggregations; "port it to DynamoDB and be
 always-free" is a rewrite of the persistence layer, not a setting.
 
-A $1 budget alarm and three CloudWatch alarms are created either way. A dollar is not an
-operating budget — the premise is that this costs nothing, so any charge is news.
+A $1 budget alarm is created either way. A dollar is not an operating budget: the premise is
+that this costs nothing, so any charge is news.
 
 ---
 
@@ -301,12 +303,14 @@ a local computation, so it needs no egress.
 reached the function (a throttle, an oversized payload, a bad path) leaves its only trace.
 Retention is 14 days on both.
 
-**Alarms**: three, and they watch different things on purpose. `API 5xx` is the one that sees an
-application error, because Mangum returns a 500 *payload* rather than failing the invocation —
-so Lambda's own `Errors` metric stays at zero while the API is broken. `Errors` is still there
-because it is the only thing that sees the **sweep** fail (the scheduler invokes the function
-directly and never touches the gateway). `CPUCreditBalance` is a cost alarm: RDS runs T4g in
-Unlimited mode, so sustained CPU is billed rather than throttled.
+**Alarms**: only `CPUCreditBalance`, and only with `db_mode = "rds"`. It is a cost alarm: RDS
+runs T4g in Unlimited mode, so sustained CPU is billed rather than throttled. `API 5xx` and
+`Errors` were removed in October 2026 to keep the organisation inside CloudWatch's 10 free
+alarms, because the production API carries no traffic and its in-account sweep is disabled.
+If this API ever serves the application again, restore both: Mangum returns a 500 *payload*
+rather than failing the invocation, so only the gateway's `5xx` sees an application error,
+and only Lambda's `Errors` sees a **sweep** fail (the scheduler invokes the function directly
+and never touches the gateway).
 
 **The database** has no public address by design. To reach it, invoke the function — add a
 task to `lambda_handler.py` rather than opening a hole in the security group.

@@ -47,7 +47,7 @@ output "function_name" {
 }
 
 output "ops_topic_arn" {
-  description = "SNS topic every alarm and both budget notifications publish to."
+  description = "SNS topic both budget notifications publish to. This module has no alarms (see notify.tf)."
   value       = aws_sns_topic.ops.arn
 }
 
