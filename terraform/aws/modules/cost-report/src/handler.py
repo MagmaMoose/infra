@@ -600,7 +600,9 @@ def run(now: dt.datetime, client=None) -> dict:
     export_name = os.environ["CUR_EXPORT_NAME"]
     prefix = os.environ.get("CUR_PREFIX", "")
     topic_arn = os.environ["SNS_TOPIC_ARN"]
-    snapshot_prefix = os.environ.get("FREETIER_PREFIX", "freetier")
+    # Required, not defaulted: the value lives once, in storage.tf, beside the IAM grant that
+    # scopes the write to it.
+    snapshot_prefix = os.environ["FREETIER_PREFIX"]
 
     today = now.date()
     _, yesterday = report_window(today)
