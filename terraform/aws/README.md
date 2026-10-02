@@ -125,10 +125,11 @@ Both Vault entries must exist and be **ACTIVE** first — ESO resolves by name a
 whole nievah Secret sync on a missing key, which takes the running bot down rather than
 merely leaving the consumer off.
 
-**Ticks last, and in this order.** Suspend `nievah-planner-tick` and `nievah-standup-tick`
-in nievah's `k8s/base/cronjob.yaml` **before** setting `enable_ticks = true`. Both firing
-means two planner runs with different ARQ job ids that `unique=True` will not collapse —
-duplicate issues.
+**Ticks last, and in this order.** Suspend `nievah-planner-tick` in nievah's
+`k8s/base/cronjob.yaml` **before** setting `enable_ticks = true`. Both firing means two
+planner runs with different ARQ job ids that `unique=True` will not collapse — duplicate
+issues. The maintenance and reconcile ticks have no CronJob counterpart, so they need no
+ordering. The standup tick is retired: Nievah acknowledges a stray fire as a no-op.
 
 ## State holds a credential
 
