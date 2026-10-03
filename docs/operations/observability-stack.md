@@ -149,8 +149,8 @@ Resources are sized from the weekly **KRR** report (`apps/krr/`). The convention
 Observability PVCs use `local-path` on `ff-vm1`. The `thanos-metrics`, `loki-chunks` and
 `loki-ruler` buckets have **no offsite copy**. The `minio-backup` CronJob that used to copy them
 to OCI Object Storage was removed in October 2026: its additive `rclone copy` never expired
-anything and had grown the OCI `minio-backups` bucket to ~547 GiB. That bucket is still
-provisioned by the terraform `backups` module and still holds the old copies.
+anything and had grown the OCI `minio-backups` bucket to ~547 GiB. That bucket was emptied
+and removed from the terraform `backups` module, so no old copies remain either.
 
 ### Alerting
 

@@ -12,10 +12,9 @@ exists now and how to get data back.
 | Longhorn volumes (offsite) | `weekly-backup` recurring job | OCI `longhorn-backups` | 4 backups |
 | Postgres (CNPG) | Barman continuous archiving, gzip for WAL and base backups | OCI `postgres-backups` | per cluster spec |
 
-The OCI `minio-backups` bucket still holds what the old `minio-backup` CronJob copied
-there, but nothing writes to it any more. That job was an additive `rclone copy` with no
-expiry, and it was removed in October 2026 after growing the bucket to ~547 GiB. Whether to
-empty the bucket is a separate decision.
+The OCI `minio-backups` bucket no longer exists. The `minio-backup` CronJob that filled it
+was an additive `rclone copy` with no expiry; it was removed in October 2026 after growing
+the bucket to ~547 GiB, and the bucket was then emptied by a lifecycle rule and deleted.
 
 Local snapshots cover **every** volume, including newly created ones: the job is
 attached to Longhorn's `default` group. They cost nothing offsite and handle the
