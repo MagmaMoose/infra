@@ -144,7 +144,15 @@ spec:
       wal:
         compression: gzip
         maxParallel: 2
-    # 2-day recovery window. WAL archives ~1.2 GiB/day, so retention is the
-    # dominant driver of Object Storage size; kept short to stay inside OCI's
-    # 10 GiB Always Free tier. PITR within the window; primary data is on-cluster.
-    retentionPolicy: "2d"
+      # Base backups used to go up uncompressed: each daily data.tar was ~9.8 GiB, and the
+      # window below keeps several, so they were most of the bucket. gzip matches the WAL
+      # setting and is the quickest of the three this operator offers (gzip, bzip2,
+      # snappy) to restore from. Older uncompressed backups stay restorable: barman picks
+      # the decompressor per file from its extension.
+      data:
+        compression: gzip
+    # 1-day recovery window. WAL archives 0.4-1.5 GiB/day on a normal day (8 GiB/day
+    # was seen on 30 Sep-1 Oct), so retention is the dominant driver of Object Storage
+    # size. A paid OCI account gets 10 GB of Standard storage free across ALL buckets,
+    # so this stays short. PITR within the window; primary data is on-cluster.
+    retentionPolicy: "1d"

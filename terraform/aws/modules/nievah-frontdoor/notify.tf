@@ -8,7 +8,8 @@
 # indistinguishable from healthy. `jobs_stale` below is the first monitor Nievah has that is
 # not subject to that.
 #
-# CloudWatch's always-free tier covers 10 alarms. This uses four.
+# CloudWatch's always-free tier covers 10 alarms, pooled across the organisation. This uses
+# three; see the alarm-budget note in modules/caldrith-frontdoor/notify.tf before adding one.
 
 # trivy:ignore:AVD-AWS-0095
 resource "aws_sns_topic" "ops" {
@@ -107,25 +108,12 @@ resource "aws_cloudwatch_metric_alarm" "jobs_stale" {
   ok_actions    = [aws_sns_topic.ops.arn]
 }
 
-# Anything here is a genuine bug: nothing the cluster does can make an events-queue message
-# fail, so a redrive means the consumer itself rejected it five times.
-resource "aws_cloudwatch_metric_alarm" "events_dlq" {
-  count = var.localstack ? 0 : 1
-
-  alarm_name          = "${var.name_prefix}-events-dlq-not-empty"
-  alarm_description   = "A delivery could not be processed by ${aws_lambda_function.consumer.function_name} and was redriven. This is a code bug, not an outage."
-  namespace           = "AWS/SQS"
-  metric_name         = "ApproximateNumberOfMessagesVisible"
-  statistic           = "Maximum"
-  period              = 300
-  evaluation_periods  = 1
-  threshold           = 0
-  comparison_operator = "GreaterThanThreshold"
-
-  dimensions         = { QueueName = aws_sqs_queue.events_dlq.name }
-  treat_missing_data = "notBreaching"
-  alarm_actions      = [aws_sns_topic.ops.arn]
-}
+# NO EVENTS-DLQ ALARM, since 2026-10, to bring the organisation inside its 10 free alarms (see
+# the alarm-budget note in modules/caldrith-frontdoor/notify.tf). A consumer that RAISES is
+# still caught: `producer_errors` below watches every function in the account. What is no
+# longer caught is a forward the consumer reports as failed per record (`batchItemFailures`),
+# which Lambda does not count as an error. Five of those in a row move the delivery to
+# events-dlq.fifo without a word, and it waits there (14 days) to be redriven by hand.
 
 # Reaching this DLQ takes ~50 failed receives, so it means an outage that outlasted the
 # redrive budget. These are deliveries that are about to be lost unless someone redrives them.
@@ -149,11 +137,17 @@ resource "aws_cloudwatch_metric_alarm" "jobs_dlq" {
 
 # The producer failing is the only failure in this stack that GitHub sees. Everything else
 # degrades into a queue; this one returns a 5xx to a caller that will never retry.
+#
+# ACCOUNT-WIDE, NOT PER FUNCTION, so one alarm covers both functions. With no `dimensions`
+# this is Lambda's "across all functions" Errors metric for the region, and the producer and
+# the consumer are the only functions Terraform puts in this account. The name stays
+# `producer-erroring` because renaming an alarm replaces it; the description says what each
+# function failing means.
 resource "aws_cloudwatch_metric_alarm" "producer_errors" {
   count = var.localstack ? 0 : 1
 
   alarm_name          = "${var.name_prefix}-producer-erroring"
-  alarm_description   = "${aws_lambda_function.producer.function_name} is raising. Deliveries are being REFUSED at the edge and GitHub will not re-send them."
+  alarm_description   = "A Lambda in this account is raising. If it is ${aws_lambda_function.producer.function_name}, deliveries are being REFUSED at the edge and GitHub will not re-send them. If it is ${aws_lambda_function.consumer.function_name}, deliveries are stuck on ${aws_sqs_queue.events.name} and go to ${aws_sqs_queue.events_dlq.name} after five tries. The per-function Errors metric says which."
   namespace           = "AWS/Lambda"
   metric_name         = "Errors"
   statistic           = "Sum"
@@ -162,7 +156,6 @@ resource "aws_cloudwatch_metric_alarm" "producer_errors" {
   threshold           = 0
   comparison_operator = "GreaterThanThreshold"
 
-  dimensions         = { FunctionName = aws_lambda_function.producer.function_name }
   treat_missing_data = "notBreaching"
   alarm_actions      = [aws_sns_topic.ops.arn]
 }

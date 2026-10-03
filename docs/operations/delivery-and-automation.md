@@ -75,6 +75,35 @@ raw environment string. Bump its non-secret `session-api-key-revision` pod annot
 GitOps after every Vault rotation; secret-backed environment variables do not update inside a
 running pod.
 
+## Hermes: the owner's morning brief
+
+Hermes runs one git-managed cron job, `daily-brief`, at 07:30 Europe/Amsterdam, seeded by
+`kubernetes/apps/hermes/base/files/seed_cron.py` from `files/daily-brief.md`. It is the owner's
+single morning standup, delivered to the Slack home channel, and it has to fit on one phone
+screen:
+
+- **Needs you**: at most three bullets of what is new since the previous brief, from Nievah's
+  `needs_you` MCP tool (broken plumbing, stuck pull requests, incidents needing a person, plans
+  waiting for approval), then one `Still waiting: N (oldest Xd)` line for everything already
+  reported.
+- **Overnight**: one line of non-zero counts (shipped and auto-fixed from `recent_activity`,
+  failed jobs from `needs_you`).
+- **Cluster**: one line, only while critical alerts are firing.
+
+When nothing is new it answers `[SILENT]` and Hermes delivers nothing.
+
+"New" needs to know when the previous brief ran. The job's pre-run script,
+`files/daily_brief_context.py` (copied to `$HERMES_HOME/scripts`, the only place Hermes runs a
+cron script from), prints `previous_brief_at: <time>` from the newest good run's output file,
+and the brief passes it to `needs_you` as `new_since`. Do not replace it with `context_from`
+pointing at the job's own id: Hermes injects only the first 8,000 characters of that output
+file, which holds the whole prompt before the answer, so a job reading itself nests its prompts
+and loses the previous answer from the second run on.
+
+`cron.wrap_response: false` in the ConfigMap stops Hermes framing every cron message with a
+four-line "Cronjob Response" header and footer. Hermes converts Markdown to Slack formatting, so
+the prompt asks for `**bold**` and `[label](url)` links.
+
 ## Kyverno image-signature verification (SLSA scaffold)
 
 `kubernetes/apps/kyverno-policies` adds a Kyverno `ClusterPolicy` that **keyless**

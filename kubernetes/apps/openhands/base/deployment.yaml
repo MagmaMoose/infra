@@ -55,7 +55,7 @@ spec:
                 - ALL
           # OpenHands V1 agent-canvas serves the UI and agent-server in one container.
           # The pod is the sandbox boundary; it intentionally has GitHub write access.
-          image: ghcr.io/openhands/agent-canvas:1.22.0 # {"$imagepolicy": "flux-system:openhands"}
+          image: ghcr.io/openhands/agent-canvas:1.24.0 # {"$imagepolicy": "flux-system:openhands"}
           # A `claude setup-token` / clipboard-created Vault value can include one trailing
           # newline. Nievah strips HTTP-header values (required by HTTP), while agent-canvas
           # compares its raw environment value. Normalise the shared key before handing off to
@@ -65,6 +65,24 @@ spec:
             - -ec
           args:
             - |
+              # Prepend /git-hooks so the gh wrapper (PR body stripping) and any other
+              # hook-wrappers take precedence over system binaries for the entire process tree.
+              export PATH="/git-hooks:${PATH}"
+              # Start signing before the agent-server so normal OpenHands Git commands
+              # inherit both SSH_AUTH_SOCK and Git's SSH-signing configuration. The
+              # SessionStart hook repeats this idempotently for nested Claude sessions.
+              if ! /git-hooks/agent-bootstrap.sh; then
+                echo "[openhands] SSH signing setup unavailable; continuing without signing" >&2
+              fi
+              if [ -S /home/openhands/.openhands/ssh/agent.sock ]; then
+                export SSH_AUTH_SOCK=/home/openhands/.openhands/ssh/agent.sock
+              fi
+              if [ -z "${OPENHANDS_SSH_SIGNING_KEY:-}" ]; then
+                (
+                  while [ ! -s /var/run/openhands-signing/key ]; do sleep 5; done
+                  /git-hooks/agent-bootstrap.sh
+                ) &
+              fi
               if [ -n "${OH_SESSION_API_KEYS_0:-}" ]; then
                 OH_SESSION_API_KEYS_0="$(printf '%s' "$OH_SESSION_API_KEYS_0" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
                 export OH_SESSION_API_KEYS_0
@@ -150,6 +168,22 @@ spec:
                   name: openhands
                   key: session-api-key
                   optional: true
+            # GHE token for pinkroccade.ghe.com — used by the git credential helper wired
+            # in seed.sh so the agent can push to enterprise repos without manual auth.
+            - name: BOOTSTRAP_GHE_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: openhands
+                  key: ghe-token
+            # SSH signing key: OpenSSH private key content (op://Tech/raxfcw4kufj3yz6xh3rmp7a7zm).
+            # Optional: the pod starts fine without it; agent-bootstrap.sh skips silently
+            # when unset. Activate by provisioning `openhands-ssh-signing-key` in OCI Vault.
+            - name: OPENHANDS_SSH_SIGNING_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openhands-signing
+                  key: key
+                  optional: true
           lifecycle:
             postStart:
               exec:
@@ -218,6 +252,12 @@ spec:
             - name: subagents
               mountPath: /home/openhands/.agents/agents
               readOnly: true
+            - name: git-hooks
+              mountPath: /git-hooks
+              readOnly: true
+            - name: signing-key
+              mountPath: /var/run/openhands-signing
+              readOnly: true
         # Keeps /workspace/repos in step with GitHub. A sidecar rather than a CronJob
         # because the repos volume is ReadWriteOnce: a separate pod would have to attach
         # it on the same node and would fight the agent for the lock. Runs its own loop
@@ -234,7 +274,7 @@ spec:
           # lost its only endpoint and the agent went down with it. Nothing here should
           # install software at runtime. Both image lines carry the same $imagepolicy
           # marker, so Flux image automation moves them together and they cannot drift.
-          image: ghcr.io/openhands/agent-canvas:1.22.0 # {"$imagepolicy": "flux-system:openhands"}
+          image: ghcr.io/openhands/agent-canvas:1.24.0 # {"$imagepolicy": "flux-system:openhands"}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -244,7 +284,11 @@ spec:
               cpu: 25m
               memory: 96Mi
             limits:
-              memory: 512Mi
+              # 1536Mi, not 512Mi: git got this container OOMKilled at 512Mi, and a git
+              # killed part-way leaves its partial pack and an unfinished clone behind
+              # (see clean_leftovers in sync.sh). Only the limit is raised, since
+              # ff-vm1 is ~98% memory-requested and a limit is not scheduler-reserved.
+              memory: 1536Mi
           env:
             - name: HOME
               value: /home/sync
@@ -302,3 +346,12 @@ spec:
         - name: subagents
           configMap:
             name: openhands-subagents
+        - name: git-hooks
+          configMap:
+            name: openhands-git-hooks
+            defaultMode: 0755
+        - name: signing-key
+          secret:
+            secretName: openhands-signing
+            optional: true
+            defaultMode: 0440

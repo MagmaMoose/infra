@@ -4,7 +4,13 @@
 # from Git after a database restore.
 #
 # Idempotent: /key/update first, /key/generate on miss. The key VALUE comes from OCI
-# Vault, so re-running never rotates it and OpenHands keeps working across replays.
+# Vault, so re-running never rotates it and every client keeps working across replays.
+#
+# A VAULT VALUE MUST BE ONE LINE THAT STARTS WITH `sk-`. LiteLLM refuses to create any
+# other key and answers 401 to a client presenting one, and a trailing newline breaks every
+# client's header. `openssl rand -hex 32 | ... set` produces neither, so store keys with
+#   printf 'sk-%s' "$(openssl rand -hex 32)" | scripts/oci-vault-secrets.py -c firefly set <entry>
+# The Job checks every value before sending it and names the entry it skipped.
 #
 # Bump the name suffix (-v1, -v2, ...) whenever the payload below changes. Jobs are
 # immutable, so editing this in place would make Flux's apply fail; a new name makes
@@ -12,12 +18,12 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: litellm-keyseed-v2
+  name: litellm-keyseed-v7
   namespace: automation
   annotations:
     checkov.io/skip1: CKV_K8S_11=CPU limits are unset estate-wide by decision; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited.
     checkov.io/skip2: CKV_K8S_15=IfNotPresent is the house convention; image is tagged and pulled only when absent, not on every Job run
-    checkov.io/skip3: CKV_K8S_35=LITELLM_MASTER_KEY and OPENHANDS_KEY are consumed directly by curl in a single-use shell script; there is no file-based credential path without rewriting the script
+    checkov.io/skip3: CKV_K8S_35=LITELLM_MASTER_KEY and the seeded client keys are consumed directly by curl in a single-use shell script; there is no file-based credential path without rewriting the script
     checkov.io/skip4: CKV_K8S_43=curlimages/curl pinned to 8.11.1; digest pinning not warranted for this home-lab one-shot Job
 spec:
   ttlSecondsAfterFinished: 604800
@@ -61,6 +67,46 @@ spec:
                 secretKeyRef:
                   name: litellm
                   key: openhands-key
+            - name: HERMES_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm
+                  key: hermes-key
+            - name: HOLMES_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm
+                  key: holmes-key
+            - name: NIEVAH_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm
+                  key: nievah-key
+            - name: NIEVAH_FALLBACK_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm
+                  key: nievah-fallback-key
+            - name: MEM0_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm
+                  key: mem0-key
+            - name: CONTRIBUTIONS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm
+                  key: contributions-key
+            - name: TIMESHEET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm
+                  key: timesheet-key
+            - name: DOCS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: litellm
+                  key: docs-key
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -76,34 +122,120 @@ spec:
                 sleep 5
               done
 
+              # valid_key VALUE: one line, `sk-` and then only [A-Za-z0-9_-], 16+ characters.
+              valid_key() {
+                case "$1" in sk-*) ;; *) return 1 ;; esac
+                case "${1#sk-}" in ""|*[!A-Za-z0-9_-]*) return 1 ;; esac
+                [ "${#1}" -ge 16 ]
+              }
+
+              # seed ALIAS KEY MODELS_JSON MAX_BUDGET [TPM RPM]: upsert one key. A number is
+              # its budget per 30 days; `null` gives it none, and clears one it already had.
+              # TPM and RPM, where given, are LiteLLM's tpm_limit and rpm_limit: the tokens and
+              # requests per minute the key may use across every model it can call. Past
+              # either the gateway refuses the request with a 429 until the minute rolls over;
+              # it does not queue it. A key that gives neither keeps the limits it has.
+              seed() {
+                if ! valid_key "$2"; then
+                  echo "[keyseed] $1 SKIPPED: its vault entry does not hold one line starting with sk- (see the top of keyseed-job.yaml)"
+                  return 1
+                fi
+                if [ "$4" = null ]; then BD=null; else BD='"30d"'; fi
+                LIMITS=""
+                if [ -n "${5:-}" ]; then LIMITS="$LIMITS,\"tpm_limit\":$5"; fi
+                if [ -n "${6:-}" ]; then LIMITS="$LIMITS,\"rpm_limit\":$6"; fi
+                PAYLOAD=$(printf '{"key":"%s","key_alias":"%s","models":%s,"max_budget":%s,"budget_duration":%s%s,"metadata":{"owner":"%s","managed_by":"litellm-keyseed Job"}}' "$2" "$1" "$3" "$4" "$BD" "$LIMITS" "$1")
+                CODE=$(curl -s -o /tmp/out -w '%{http_code}' -X POST "$B/key/update" \
+                  -H "$H" -H 'Content-Type: application/json' -d "$PAYLOAD")
+                if [ "$CODE" = "200" ]; then
+                  echo "[keyseed] $1 key updated"
+                  return 0
+                fi
+                echo "[keyseed] $1 update returned $CODE, creating"
+                CODE=$(curl -s -o /tmp/out -w '%{http_code}' -X POST "$B/key/generate" \
+                  -H "$H" -H 'Content-Type: application/json' -d "$PAYLOAD")
+                if [ "$CODE" = "200" ]; then
+                  echo "[keyseed] $1 key created"
+                  return 0
+                fi
+                echo "[keyseed] $1 FAILED ($CODE):"
+                sed 's/sk-[A-Za-z0-9_-]*/sk-REDACTED/g' /tmp/out
+                return 1
+              }
+              FAILED=0
+
               # max_budget matters most in the case this key exists for: Claude quota runs
               # out, work moves to the per-token gpt-5.6 models, and the agent runs with
               # max_iterations 500 and confirmation_mode off. Without a ceiling a stuck
               # loop bills until someone notices. LiteLLM rejects requests past it.
               #
-              # The same key is Nievah's FALLBACK key (LITELLM_FALLBACK_API_KEY, from the
-              # same vault entry), so every Nievah fallback call, direct or through OpenHands,
-              # draws on this one budget. fallback-easy/medium/hard are the aliases it asks for
-              # (configmap.yaml); re-pointing an alias never needs this list to change.
-              PAYLOAD=$(printf '{"key":"%s","key_alias":"openhands","models":["fallback-easy","fallback-medium","fallback-hard","deepseek-v4-pro","deepseek-v4-flash","gpt-5.6-luna","gpt-5.6-sol","gpt-5.6-terra"],"max_budget":50,"budget_duration":"30d","metadata":{"owner":"openhands","managed_by":"litellm-keyseed Job"}}' "$OPENHANDS_KEY")
+              # Nievah uses keys of its own below, and no longer calls OpenHands at all.
+              # OpenHands owns the `openhands-only` access group, which expands to Terra and
+              # Sol; no other key is given it. Its fallback aliases remain available here for
+              # direct OpenHands requests. Re-pointing an alias never needs this list to change.
+              #
+              # The provider allows 500K tokens per minute on Luna for every key together, and
+              # an agent loop sends its whole conversation with each request. One OpenHands
+              # session on 28 Sep grew its context to 447K tokens, hit that limit 127 times and
+              # starved Holmes the next day. 150K tokens per minute keeps one session to under
+              # a third of the provider's limit. LiteLLM reserves a request's estimated tokens
+              # before sending it, so a single request larger than that is refused outright,
+              # which is the signal to start a fresh conversation. With nievah-fallback's 300K
+              # below, the two agent loops together always leave the other clients 50K.
+              seed openhands "$OPENHANDS_KEY" '["fallback-easy","fallback-medium","fallback-hard","gpt-5.6-luna","openhands-only"]' 50 150000 60 || FAILED=1
 
-              CODE=$(curl -s -o /tmp/out -w '%{http_code}' -X POST "$B/key/update" \
-                -H "$H" -H 'Content-Type: application/json' -d "$PAYLOAD")
-              if [ "$CODE" = "200" ]; then
-                echo "[keyseed] openhands key updated"
-                exit 0
-              fi
-              echo "[keyseed] update returned $CODE, creating"
+              # Hermes and HolmesGPT used to call the gateway with the MASTER key, which no
+              # budget applies to, so a looping cron job or a runaway investigation billed
+              # without limit. Each now has its own key, capped at $25 per 30 days and allowed
+              # only its ROLE names (configmap.yaml, tiers and roles), never a provider model,
+              # so a provider switch never needs these lists to change either. Past the cap
+              # LiteLLM answers 429 `budget_exceeded` until the window resets.
+              seed hermes "$HERMES_KEY" '["agent-chat","agent-light","speech-to-text","text-to-speech"]' 25 || FAILED=1
+              seed holmes "$HOLMES_KEY" '["agent-investigate","agent-light"]' 25 || FAILED=1
 
-              CODE=$(curl -s -o /tmp/out -w '%{http_code}' -X POST "$B/key/generate" \
-                -H "$H" -H 'Content-Type: application/json' -d "$PAYLOAD")
-              if [ "$CODE" = "200" ]; then
-                echo "[keyseed] openhands key created"
-                exit 0
-              fi
-              echo "[keyseed] FAILED ($CODE):"
-              sed 's/sk-[A-Za-z0-9_-]*/sk-REDACTED/g' /tmp/out
-              exit 1
+              # NIEVAH HOLDS TWO KEYS, and they must never be the same one.
+              #
+              # `nievah` is its GATEWAY key (LITELLM_API_KEY in the nievah namespace, vault
+              # entry nievah-litellm-api-key), which every primary leg presents: the Claude
+              # Code runs and the direct calls, each on the owner's Claude Max subscription
+              # through the three -max pass-through entries. Those entries cannot bill per
+              # token (configmap.yaml, the sentinel api_key), so this key can spend no money,
+              # and it carries NO budget: the gateway books subscription tokens at list price,
+              # and a cap would refuse Nievah's reviews for spend that was never money.
+              # (litellm-keyseed-v5 scoped this key to the fallback aliases with a $25 cap,
+              # which refuses every primary leg. The list below restores it, and `null` clears
+              # the cap.)
+              seed nievah "$NIEVAH_KEY" '["claude-haiku-4-5-max","claude-sonnet-4-6-max","claude-opus-4-8-max"]' null || FAILED=1
+
+              # `nievah-fallback` is its FALLBACK key (LITELLM_FALLBACK_API_KEY, vault entry
+              # nievah-fallback-litellm-api-key), reached only after every Claude leg failed.
+              # It can call the three fallback aliases and gpt-5.6-luna itself, and all three
+              # aliases are on Luna: Luna is the only fallback Nievah has. Nievah's direct calls
+              # name the aliases; its agent lanes fall back to the Codex CLI, which must name
+              # the real model, because Codex applies its model settings (reasoning levels,
+              # context window, its patch tool) only to a name it knows. Every fallback call
+              # draws on this one budget. Nievah no longer calls OpenHands.
+              #
+              # Codex sends its whole conversation with every request and does not retry a 429:
+              # a cap tighter than one leg's pace fails that leg rather than slowing it. So
+              # Nievah bounds the pace itself (one fallback leg at a time across the fleet,
+              # compaction at 100K tokens), and 300K tokens per minute, three fifths of the
+              # provider's limit, is the ceiling for when that is not enough.
+              #
+              # ORDER: this Job must finish before a Nievah image with the Codex fallback rolls
+              # out. Until it does, the key may not call gpt-5.6-luna and every fallback leg gets
+              # a 403. Check `kubectl -n automation logs job/litellm-keyseed-v7` for
+              # `nievah-fallback key updated` before merging that Nievah release.
+              seed nievah-fallback "$NIEVAH_FALLBACK_KEY" '["fallback-easy","fallback-medium","fallback-hard","gpt-5.6-luna"]' 25 300000 60 || FAILED=1
+
+              # These workloads previously shared the master key. They only need Luna
+              # (plus mem0's embedding model), so keep their budgets independent and
+              # prevent a compromised app credential from reaching Terra, Sol, or Ollama.
+              seed mem0 "$MEM0_KEY" '["gpt-5.6-luna","text-embedding-3-small"]' 10 || FAILED=1
+              seed github-contributions "$CONTRIBUTIONS_KEY" '["gpt-5.6-luna"]' 10 || FAILED=1
+              seed github-timesheet "$TIMESHEET_KEY" '["gpt-5.6-luna"]' 10 || FAILED=1
+              seed docs-distributor "$DOCS_KEY" '["gpt-5.6-luna"]' 10 || FAILED=1
+              exit "$FAILED"
           volumeMounts:
             - name: tmp
               mountPath: /tmp

@@ -1,0 +1,5 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Applied by prod-holmesgpt-checks, not with ../base: see prod/flux-kustomization.yaml.
+resources:
+  - scheduledhealthchecks.yaml

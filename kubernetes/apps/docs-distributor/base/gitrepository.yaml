@@ -1,0 +1,18 @@
+---
+# Chart source: MagmaMoose/docs-distributor ships its chart under ./charts/docs-distributor.
+# The values are firefly-specific and live in this repo's HelmRelease. Everything that
+# would identify a source (its URL, the mapping) is NOT here: it lives in OCI Vault and
+# reaches the pod through the ExternalSecret.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: docs-distributor
+  namespace: flux-system
+spec:
+  interval: 10m
+  provider: github
+  ref:
+    branch: main
+  secretRef:
+    name: github-app-magmamoose
+  url: https://github.com/magmamoose/docs-distributor

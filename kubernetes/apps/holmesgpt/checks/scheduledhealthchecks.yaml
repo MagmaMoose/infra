@@ -1,0 +1,84 @@
+# Holmes looking without waiting for an alert. The operator (enabled in
+# ../base/helmrelease.yaml) runs each of these on its schedule, in UTC, and records the
+# result in the object's status. A failed check becomes the critical alert
+# HolmesHealthCheckFailed, carrying Holmes's findings (kube-prometheus-stack,
+# holmes-health-checks), and from there it is an ordinary critical in Nievah's lane.
+#
+# WHAT BELONGS HERE: problems that need someone to act and that no Prometheus rule catches.
+# On 2026-09-24 a trial of the first two checks and the capacity queries run by hand found:
+# CronJob pods stuck for a month on a missing Secret, two Flux Kustomizations that no longer
+# build, three ExternalSecrets that never synced, and a 99.8% full volume nothing alerted
+# on. A condition a PromQL expression can state belongs in a PrometheusRule instead, which
+# is exact and free, rather than here.
+#
+# COST: every check runs on `agent-light`, the cheap role, which is enough to list and
+# compare. The trial cost about half a cent a run (5 model calls, 27k tokens), so nine
+# runs a day come to about $1.50 a month, from Holmes's own $25 cap. The expensive part is
+# what a failure triggers: Nievah asks Holmes about the alert on `agent-investigate`, once
+# per alert, not once per run.
+#
+# timeout is the operator's wait for Holmes, and the trial took 33s, so the 30s default
+# would record every run as an error. 300 is the largest the CRD allows.
+#
+# The query is what Holmes is asked, and it becomes the alert's text via the findings.
+# Keep each one to a list of things to look at, with the output format spelled out, so the
+# alert names objects rather than impressions.
+---
+apiVersion: holmesgpt.dev/v1alpha1
+kind: ScheduledHealthCheck
+metadata:
+  name: gitops
+  namespace: holmesgpt
+spec:
+  schedule: "17 */6 * * *"
+  mode: monitor
+  model: agent-light
+  timeout: 300
+  query: |-
+    Is any GitOps object in this cluster failing? Check with kubectl, across every namespace:
+    1. Flux: every Kustomization, HelmRelease, GitRepository, OCIRepository and HelmRepository is Ready=True. Skip any with spec.suspend: true. Ready=Unknown counts as failing only if it has been Unknown for more than 30 minutes (the condition's lastTransitionTime).
+    2. External Secrets: every ExternalSecret, SecretStore and ClusterSecretStore is Ready=True.
+    Fail if any is not. In the rationale, put each problem on its own line as "Kind namespace/name: reason", most serious first, at most ten lines. Pass if there are none.
+---
+apiVersion: holmesgpt.dev/v1alpha1
+kind: ScheduledHealthCheck
+metadata:
+  name: workloads
+  namespace: holmesgpt
+spec:
+  schedule: "37 */6 * * *"
+  mode: monitor
+  model: agent-light
+  timeout: 300
+  query: |-
+    Is any workload in this cluster stuck? Check with kubectl, across every namespace:
+    1. Pods, including pods that belong to Jobs: none has been Pending, or had a container waiting in ImagePullBackOff, ErrImagePull, CreateContainerConfigError or CrashLoopBackOff, for more than 30 minutes.
+    2. Controllers: every Deployment, StatefulSet and DaemonSet has as many ready replicas as it wants. Skip any that want 0.
+    3. Storage: every PersistentVolumeClaim is Bound.
+    Fail if you find any problem. In the rationale, put each problem on its own line as "Kind namespace/name: reason", most serious first, at most ten lines. Pass if there are none.
+---
+# Daily, and before the owner's 07:30 (Amsterdam) brief, so the brief sees a fresh result.
+# The queries are given verbatim, because a threshold should not depend on how the model
+# phrases PromQL. The PVC query leaves out volumes KubePersistentVolumeFillingUp already
+# fires for, so the same volume is not reported twice.
+apiVersion: holmesgpt.dev/v1alpha1
+kind: ScheduledHealthCheck
+metadata:
+  name: capacity
+  namespace: holmesgpt
+spec:
+  schedule: "47 4 * * *"
+  mode: monitor
+  model: agent-light
+  timeout: 300
+  query: |-
+    Is anything in this cluster close to running out of room? Run each of these Prometheus instant queries exactly as written:
+    1. Volumes over 90% used, or on course to fill within 7 days, that no firing alert already covers:
+    (max by (namespace, persistentvolumeclaim) (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) > 0.9 or max by (namespace, persistentvolumeclaim) (predict_linear(kubelet_volume_stats_available_bytes[3d], 7 * 86400)) < 0) unless on (namespace, persistentvolumeclaim) ALERTS{alertstate="firing", alertname="KubePersistentVolumeFillingUp"}
+    2. Node and NFS filesystems over 90% used, or on course to fill within 7 days:
+    max by (instance, mountpoint) (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}) > 0.9 or max by (instance, mountpoint) (predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs"}[3d], 7 * 86400)) < 0
+    3. Nodes where running and pending pods request more than 95% of the allocatable memory:
+    sum by (node) (kube_pod_container_resource_requests{resource="memory"} * on (namespace, pod) group_left () (max by (namespace, pod) (kube_pod_status_phase{phase=~"Running|Pending"}) == 1)) / on (node) max by (node) (kube_node_status_allocatable{resource="memory"}) > 0.95
+    4. The same for CPU:
+    sum by (node) (kube_pod_container_resource_requests{resource="cpu"} * on (namespace, pod) group_left () (max by (namespace, pod) (kube_pod_status_phase{phase=~"Running|Pending"}) == 1)) / on (node) max by (node) (kube_node_status_allocatable{resource="cpu"}) > 0.95
+    Fail if any query returns a series, or if Prometheus cannot be queried. In the rationale, put each finding on its own line with its labels and value, at most ten lines. Pass if all four return nothing.

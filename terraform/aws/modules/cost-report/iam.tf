@@ -1,11 +1,12 @@
 # kics-scan disable=CKV_AWS_355
-# The function's role, and why every action on it is a read.
+# The function's role, and why every action on it but one is a read.
 #
 # THIS ROLE CANNOT SPEND MONEY, only observe it. That is the whole security argument for
 # running a scheduled job in the management account — the account that can do the most damage
 # in the organisation — and it is worth stating rather than assuming. There is no
 # `organizations:*` write, no `ce:Create*`, no `iam:*`; the widest thing here is the ability
-# to read a cost figure and publish one string to one topic.
+# to read a cost figure and publish one string to one topic. The one write is a PutObject
+# confined to the handler's own prefix of its own bucket, for the free-tier snapshot.
 
 data "aws_caller_identity" "current" {}
 
@@ -46,6 +47,16 @@ resource "aws_iam_role_policy" "report" {
         Effect   = "Allow"
         Action   = ["s3:ListBucket"]
         Resource = aws_s3_bucket.cur.arn
+      },
+      {
+        # One object per month, overwritten daily: the free-tier allowances the report on the
+        # 1st measures the closed month against, since the Free Tier API only describes the
+        # current month. Prefix-scoped, so the export's own files stay out of reach. Reading
+        # it back is covered by ReadTheExport above.
+        Sid      = "KeepTheFreeTierSnapshot"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject"]
+        Resource = "${aws_s3_bucket.cur.arn}/${local.freetier_prefix}/*"
       },
       {
         # Free-tier allowances and forecasts. Free to call, and org-wide by nature — it is

@@ -67,6 +67,7 @@ resource "aws_lambda_function" "report" { # nosemgrep: terraform.aws.security.aw
       CUR_BUCKET_REGION = aws_s3_bucket.cur.region
       CUR_EXPORT_NAME   = var.name_prefix
       CUR_PREFIX        = var.export_prefix
+      FREETIER_PREFIX   = local.freetier_prefix
     }
   }
 

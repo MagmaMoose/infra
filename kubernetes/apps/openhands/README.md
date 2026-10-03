@@ -1,10 +1,12 @@
 # OpenHands V1
 
-OpenHands is the in-cluster autonomous-coding lane used by Nievah when a repository or
-operator selects `harness: openhands`. The deployment uses the multi-arch
+OpenHands is the in-cluster autonomous-coding agent, used through its UI. Nievah no longer
+calls it: Nievah's fallback after its Claude accounts is the Codex CLI on its own
+`nievah-fallback` LiteLLM key, and a `harness: openhands` setting runs on Claude Code.
+OpenHands stays deployed for interactive use. The deployment uses the multi-arch
 `ghcr.io/openhands/agent-canvas:1.5.2` image. Its public UI/proxy listens on port 8000
 (and forwards `/api` to the internal V1 agent-server), and it routes inference through the
-in-cluster LiteLLM gateway using the `litellm_proxy/deepseek-v4-pro` model alias.
+in-cluster LiteLLM gateway using the `litellm_proxy/gpt-5.6-luna` model alias.
 
 The pod is deliberately a single stateful instance. Its 10Gi `local-path` volume stores the
 OpenHands settings and per-conversation workspaces. The pod itself is the sandbox boundary:
@@ -21,12 +23,11 @@ the fallback when the Cloudflare edge is unavailable.
 ## Authentication and secrets
 
 The OpenHands `ExternalSecret` reads the LiteLLM key, the bootstrap GitHub token, and the stable
-`openhands-session-api-key` from OCI Vault. The latter is also mirrored into Nievah as
-`OPENHANDS_SESSION_API_KEY`; Nievah sends it as `X-Session-API-Key` for headless conversations.
-Inject it into agent-canvas as **`OH_SESSION_API_KEYS_0`**, its canonical V1 key variable.
+`openhands-session-api-key` from OCI Vault. Nievah used to send the latter as
+`X-Session-API-Key` for headless conversations; it no longer reads it. Inject it into agent-canvas as **`OH_SESSION_API_KEYS_0`**, its canonical V1 key variable.
 `SESSION_API_KEY` is a legacy fallback: using it alone causes agent-canvas to generate a
-different public-proxy key, so Nievah receives 401 responses despite both deployments sourcing
-the same Vault value. The bootstrap script uses the canonical key and falls back to the
+different public-proxy key, so a headless client receives 401 responses despite both sides
+sourcing the same Vault value. The bootstrap script uses the canonical key and falls back to the
 image-generated key only for manual operation when the Vault key is absent. The deployment
 normalizes leading/trailing whitespace from the Vault value before starting agent-canvas: HTTP
 headers cannot carry a pasted trailing newline, while the agent server otherwise treats it as
@@ -34,19 +35,21 @@ part of the key. After rotating this Vault secret, bump the non-secret
 `openhands.magmamoose.com/session-api-key-revision` pod-template annotation through GitOps so
 the new environment value reaches the process.
 
-Do not put any of these values in Git. If the Vault entry is missing, create it before enabling
-an OpenHands harness entry in the Nievah admin allowlist. Flux will then reconcile the
-ExternalSecrets and deployment from this directory.
+Do not put any of these values in Git. If the Vault entry is missing, create it before using
+OpenHands headlessly. Flux will then reconcile the ExternalSecrets and deployment from this
+directory.
 
 ## Operations
 
 OpenHands is enabled in `kubernetes/apps/kustomization.yaml`, and `openhands` is published in
-the LAN DNS role. Nievah remains on `claude-code` by default; select OpenHands per repository
-with `harness: openhands` or for one authorized command with
-`/pr-review --harness openhands` / `/pr-triage --harness openhands`.
-Nievah passes the per-run GitHub token through OpenHands' secret registry; the pod does not
-receive Nievah's SSH signing private key, so OpenHands commits use its configured Git identity
-without SSH verification.
+the LAN DNS role. Its LiteLLM key is capped at 150K tokens and 60 requests per minute
+(`kubernetes/apps/litellm/base/keyseed-job.yaml`), so one long session cannot take the whole
+Luna limit every other client shares. When the optional
+`openhands-ssh-signing-key` Vault entry is provisioned, the container startup initializes an
+`ssh-agent`, exports its socket, and configures Git SSH signing for normal OpenHands commits;
+nested Claude sessions repeat that setup through the SessionStart hook. If the Vault entry is
+created after startup, the mounted Secret is watched and the key is loaded without a manual
+restart. Without that Vault entry, the pod continues without signing.
 
 The workspace is node-local scratch state, so a node loss discards active conversations and
 requires a new run. Keep the PVC bounded and monitor its usage; completed agent workspaces are
@@ -60,10 +63,10 @@ the instance and hand-edits made in the UI are overwritten on the next restart. 
 deliberate: OpenHands keeps its settings encrypted on the state PVC, where Git cannot
 reach them, so the API is the only declarative surface available.
 
-- **LLM profiles** — one per gateway model: `gpt-5.6-luna` (active), `gpt-5.6-sol`,
-  `gpt-5.6-terra`, `deepseek-v4-pro`. All use the `litellm_proxy/` provider prefix. Using
-  `openai/` instead reaches the same endpoint but skips LiteLLM's model-group routing, so
-  budgets and the key's allow-list stop applying.
+- **LLM profiles** — `gpt-5.6-luna` (active), `gpt-5.6-sol`, and `gpt-5.6-terra`.
+  These are the only provider models allowed by the OpenHands virtual key. All use the
+  `litellm_proxy/` provider prefix. Using `openai/` instead reaches the same endpoint but
+  skips LiteLLM's model-group routing, so budgets and the key's allow-list stop applying.
 - **Credentials** — the scoped `openhands` LiteLLM key (see the LiteLLM keyseed Job), not
   the gateway master key. An agent with GitHub write access should not also hold admin
   rights over the gateway every other workload shares.
@@ -72,11 +75,16 @@ reach them, so the API is the only declarative surface available.
 - **Sub-agents** — markdown definitions in `configmap-subagents.yaml`, mounted at
   `~/.agents/agents` (outside the PVC, so they cannot drift) and enabled via
   `enable_sub_agents`. They default to off; mounting alone does nothing.
-- **MCP servers** — GitHub and Context7 over HTTP, Slack, ClickUp, Playwright, Mermaid and
-  Microsoft 365 over stdio. Servers whose credentials are absent are omitted rather than
-  configured broken. Microsoft 365 needs its `login` tool run once interactively; the
-  hosted MermaidChart server would need an OAuth round-trip through the UI, so the local
-  renderer is used instead.
+- **MCP servers** — GitHub, Context7, the authenticated Nievah endpoint, and the two
+  public documentation endpoints use HTTP. Slack, ClickUp, Playwright, Mermaid and Microsoft
+  365 use stdio. Servers whose credentials are absent are omitted rather than configured
+  broken. Microsoft 365 needs its `login` tool run once interactively; Mermaid uses the local
+  Playwright-backed renderer with its browser cache on the state PVC, while the hosted
+  MermaidChart server would require an OAuth round-trip through the UI.
+- **Git hooks** — `/git-hooks` is the global Git hooks path for the agent and strips unwanted
+  PR-body attribution lines, rejects hook-bypass flags before Git commands run, and runs the
+  local Chargate check, action SHA pinning, branch policy, commit-message cleanup, and optional
+  SSH signing hooks.
 
 Read the seed log with `kubectl -n openhands logs deploy/openhands | grep openhands-seed`.
 
@@ -100,7 +108,10 @@ syncs working trees detached from their own history.
 The sidecar never touches work in progress. A repository with uncommitted changes, on a
 non-default branch, or ahead of its remote is fetched and then left alone. Repositories
 the API stops returning are moved to `/workspace/repos/.attic`, never deleted, so a
-rate-limited or partial API response cannot destroy local work. Owners are listed in
+rate-limited or partial API response cannot destroy local work. The only deletions are
+a failed transfer's leftover `tmp_pack_*` files, and a clone that never finished and has
+nothing checked out (HEAD still on git's `refs/heads/.invalid` placeholder, or no pack
+at all), which the next pass re-clones. Neither can hold work. Owners are listed in
 `configmap-reposync.yaml`.
 
 Migration: `openhands-migrate-state-v1` copies the old local-path state across once. It

@@ -14,3 +14,25 @@ spec:
   timeout: 5m
   wait: true
 # No `decryption` block: the only secret is an ExternalSecret (OCI Vault).
+---
+# The scheduled health checks, in their own Kustomization because their kind comes from
+# the chart above. Helm installs the chart's CRDs, so on a rebuild the kind does not exist
+# until prod-holmesgpt is Ready, and a Kustomization whose dry-run meets an unknown kind
+# applies none of its objects. Inside ../base they would hold back the HelmRelease that
+# brings the CRDs, and nothing would ever apply.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: prod-holmesgpt-checks
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./kubernetes/apps/holmesgpt/checks
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  timeout: 2m
+  wait: true
+  dependsOn:
+    - name: prod-holmesgpt

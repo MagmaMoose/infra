@@ -111,6 +111,7 @@ it is a physically separate k3s cluster and cannot reach firefly's `postgres`.
 - Kustomizations labeled `app.kubernetes.io/sops=enabled` carry an inline `decryption:` block referencing the `sops-keys` Secret in `flux-system`.
 - Resource profiles (`components/resource-profiles/c.medium`: 500m-2 CPU, 1-4Gi memory etc.) are kustomize Components targeting labels on workloads.
 - GitHub App-backed Flux `GitRepository` resources must use the matching App installation for the repository owner. In particular, the shared infra image automation uses `github-app-magmamoose` for `MagmaMoose/infra` (not the legacy `buxfer-sync-github-app` credential); installation tokens cannot write outside their installation.
+- A `ServiceMonitor` or `PrometheusRule` for a component in `infrastructure/controllers` goes in the kube-prometheus-stack HelmRelease values (`prometheus.additionalServiceMonitors`, `additionalPrometheusRulesMap`), never beside the controller. Those CRDs come from that chart in the apps tier, and a Flux Kustomization that meets an unknown kind applies nothing, so on a rebuild the controllers tier would never apply. App-tier components keep theirs beside the app (e.g. `apps/thanos-compactor/base/`). See `docs/operations/observability-stack.md#alerting`.
 
 ### 3. Secret Management (Preferred → Fallback Order)
 
@@ -124,7 +125,7 @@ it is a physically separate k3s cluster and cannot reach firefly's `postgres`.
 
 ### 4. Terraform PR Integration
 
-`.github/workflows/terragrunt.yml` (a thin wrapper around `scripts/terragrunt-pipeline.sh`) plans every leaf a pull request affects and applies from `main` behind a protected environment. It replans every leaf when `terraform/root.hcl`, a `region.hcl` or a shared module changes, and it excludes `terraform/oci/cloudworkers/**`. See `docs/operations/terraform-delivery.md`. Atlantis was removed on 2026-09-16.
+`.github/workflows/terragrunt.yml` (a thin wrapper around `scripts/terragrunt-pipeline.sh`) plans every leaf a pull request affects and applies from `main` behind a protected environment. It replans every leaf when `terraform/root.hcl`, a `region.hcl` or a shared module changes, and it excludes `terraform/oci/cloudworkers/**`. Plans run on `ubuntu-latest` except the leaves in `LAN_STACKS` (`scripts/terragrunt-pipeline.sh`), whose providers reach on-prem devices and so plan on `firefly-amd64`; a new leaf that talks to home-network kit must be added there. See `docs/operations/terraform-delivery.md`. Atlantis was removed on 2026-09-16.
 
 ## Critical Developer Workflows
 
@@ -218,6 +219,7 @@ LiteLLM (`kubernetes/apps/litellm`) intentionally separates Claude Code OAuth pa
 - Claude subscription-backed (`-max`) model entries must carry the **sentinel** `litellm_params.api_key: "oauth-pass-through-only-no-api-key"`, plus non-secret `model_info` metadata such as `auth_mode: claude-code-oauth-pass-through` and `billing_mode: claude-max-subscription`. **Never leave `api_key` unset on these** — an absent key is not "client must supply one"; litellm falls back to the `ANTHROPIC_API_KEY` env var, so a client that omits its OAuth bearer silently bills the operator's per-token account while the entry claims subscription billing (the 2026-08-12 finding). The sentinel makes that fail closed; a genuine `sk-ant-oat…` bearer still overrides it.
 - Do **not** set `general_settings.forward_client_headers_to_llm_api` (global — forwards every client `x-*` header to *every* provider) or `litellm_settings.forward_llm_provider_auth_headers` (lets any client override the deployment key for any model via `x-api-key`). Neither is required for OAuth pass-through: on 1.95.0 the bearer travels via `add_provider_specific_headers_to_request()`, which is unconditional and already scoped to `anthropic,bedrock,vertex_ai`. Scope header forwarding per-group with `litellm_settings.model_group_settings.forward_client_headers_to_llm_api`.
 - API-key-backed models are fine for plain OpenAI-compatible clients when they use the ingress or `:8080` proxy path.
+- LiteLLM's UI is `admin_only` and non-admin personal key generation is restricted to `proxy_admin`; do not reintroduce self-service signup. `key_generation_settings`, `default_key_generate_params` and `default_internal_user_params` only work under `litellm_settings` (at the top level LiteLLM ignores them). A key created with no model list gets `gpt-5.6-luna` only. Every workload gets a dedicated OCI-Vault-backed virtual key with a model allow-list and a finite budget; the one exception is Nievah's gateway key (`nievah`), which reaches only the Claude `-max` subscription entries and must carry no budget. Nievah's fallback rides its own `nievah-fallback` key: never point two consumers, or Nievah's two keys, at one vault entry. A key's vault value is one line starting with `sk-` (`printf 'sk-%s' "$(openssl rand -hex 32)"`), and `scripts/oci-vault-secrets.py set` overwrites an existing entry, so check it exists before writing. Only the OpenHands key may name the `openhands-only` access group (`gpt-5.6-terra`/`gpt-5.6-sol`); all other managed chat roles resolve to `gpt-5.6-luna`. Never mount `litellm-master-key` into an application.
 - Do not force LiteLLM onto `type=pi`; the Pi node can be too resource-constrained during rolling updates, and a stuck rollout leaves ingress targeting `:8080` while only the old `:4000` pod is ready. Keep LiteLLM on a memory-oriented profile (`m.nano` or larger); the process has been observed using about 1Gi at idle.
 - LiteLLM reads its YAML config at process start, and the Nginx auth-proxy mounts its config with `subPath`. When either LiteLLM ConfigMap changes, update the pod-template `checksum/config` or `checksum/auth-proxy-config` annotation in the Deployment so Flux rolls the pod and the UI/API reflects the new config.
 - Warp custom inference requests come from Warp's backend, so they cannot use the LAN-only `litellm.sargeant.co` hostname. Use `litellm-warp.sargeant.co`, a public Cloudflare Tunnel hostname that routes only `/v1/chat/completions` and `/v1/models` to `http://litellm.automation.svc.cluster.local:8080`; all other paths should remain `http_status:404`. Do not put Cloudflare Access in front unless Warp can send the required Access headers.
@@ -523,6 +525,10 @@ If you accidentally stage a secret, remove it with `git reset HEAD <file>` befor
     signing, or reverting the change that enabled it, while the parent still has the DS makes
     every validating resolver SERVFAIL the whole zone. Remove the DS first, wait out its TTL,
     then turn signing off. SVCB/HTTPS records in that module take `data`, not `value`.
+11. **Hermes `context_from` on a job's own id** — Hermes saves each run's whole prompt in its
+   output file and injects only the first 8,000 characters of the newest one, so a job that
+   reads itself nests its prompts and loses the previous answer from the second run on. Pass
+   state forward with the job's pre-run `script` instead (see `files/daily_brief_context.py`).
 
 ## Tool Use and Output Discipline
 

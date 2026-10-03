@@ -8,11 +8,13 @@ on:
       - "n8n-v*"
       - "openfortivpn-v*"
       - "mem0-server-v*"
+      - "hermes-v*"
   pull_request:
     paths:
       - "dockerfiles/n8n/**"
       - "dockerfiles/openfortivpn/**"
       - "dockerfiles/mem0-server/**"
+      - "dockerfiles/hermes/**"
 
 jobs:
   determine-changes:
@@ -27,6 +29,7 @@ jobs:
       build_n8n: ${{ steps.filter.outputs.n8n }}
       build_openfortivpn: ${{ steps.filter.outputs.openfortivpn }}
       build_mem0_server: ${{ steps.filter.outputs.mem0_server }}
+      build_hermes: ${{ steps.filter.outputs.hermes }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -42,6 +45,8 @@ jobs:
               - 'dockerfiles/openfortivpn/**'
             mem0_server:
               - 'dockerfiles/mem0-server/**'
+            hermes:
+              - 'dockerfiles/hermes/**'
 
   build:
     needs: determine-changes
@@ -71,6 +76,16 @@ jobs:
           # live here is what pinned mem0 to the OCI nodes, away from its own Postgres.
           # Published under the ORG namespace to match the rest of the agent fleet.
           - { name: "mem0_server", path: "dockerfiles/mem0-server", tag_prefix: "mem0-server-v", registry_name: "mem0-server", registry_owner: "magmamoose", platforms: "linux/amd64,linux/arm64" }
+          # Upstream nousresearch/hermes-agent plus the ddgs package (see its Dockerfile).
+          # amd64 ONLY by choice, not because the base forces it: upstream's v2026.6.19
+          # index carries amd64 and arm64. Hermes runs on the on-prem tier, which is the
+          # amd64 worker, so an arm64 leg would double a ~1.3 GB push for an image nothing
+          # pulls. Add linux/arm64 here if Hermes ever leaves that tier.
+          # Version tags track UPSTREAM plus a build number, hermes-v<upstream>-<n>:
+          # hermes-v2026.6.19-1 publishes ghcr.io/magmamoose/hermes:2026.6.19-1. Bump <n>
+          # to rebuild the same upstream (e.g. a new ddgs pin) and start again at -1 when
+          # the FROM moves. Deploy a version tag, never :latest, which PR builds push too.
+          - { name: "hermes", path: "dockerfiles/hermes", tag_prefix: "hermes-v", registry_name: "hermes", registry_owner: "magmamoose", platforms: "linux/amd64" }
 
     steps:
       - name: Determine if Build is Needed

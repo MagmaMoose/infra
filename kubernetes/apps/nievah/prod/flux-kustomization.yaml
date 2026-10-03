@@ -148,18 +148,17 @@ spec:
                   env:
                     - name: REDIS_URL
                       value: redis://valkey-oci.database.svc.cluster.local:6379
-  # Same override for the scheduled-tick CronJobs (nievah-planner-tick /
-  # nievah-standup-tick), which ENQUEUE the planner and standup jobs the worker then runs.
-  # These must land on the same instance as the worker for a sharper reason than the
-  # Deployments: a tick enqueued onto the wrong valkey does not error, it reports SUCCESS.
-  # The Job exits 0, `kubectl get jobs` is green, and the planner simply never runs — the
-  # #20 failure mode, but self-congratulating.
+  # Same override for the scheduled-tick CronJob (nievah-planner-tick), which ENQUEUES the
+  # planner job the worker then runs. It must land on the same instance as the worker for a
+  # sharper reason than the Deployments: a tick enqueued onto the wrong valkey does not error,
+  # it reports SUCCESS. The Job exits 0, `kubectl get jobs` is green, and the planner simply
+  # never runs — the #20 failure mode, but self-congratulating.
   #
   # Deliberately targeted by KIND ALONE, with no `name:`, unlike the two Deployment patches
   # above — which is the lesson of #20 applied rather than repeated. An unnamed target cannot
   # be orphaned by an app-repo rename, and it covers any tick CronJob added later for free.
-  # Verified by rendering the app overlay and re-applying these patches to it: both CronJobs
-  # come out on valkey-oci. The container name (`tick`) is the one cross-repo coupling left,
+  # Verified by rendering the app overlay and re-applying these patches to it: the CronJob
+  # comes out on valkey-oci. The container name (`tick`) is the one cross-repo coupling left,
   # and the pod now checks itself for that — it looks for arq's worker health key on the
   # valkey it just wrote to and raises a Slack error naming this exact split if it is absent.
     - target:
@@ -179,3 +178,17 @@ spec:
                       env:
                         - name: REDIS_URL
                           value: redis://valkey-oci.database.svc.cluster.local:6379
+    # Nievah's fallback key must be neither OpenHands' key (which also reaches Terra and
+    # Sol) nor Nievah's own gateway key (nievah-litellm-api-key, LITELLM_API_KEY): that
+    # one is scoped to the Claude -max entries, so a fallback on it is refused, and
+    # scoping it to the fallback aliases instead takes every primary leg off Claude. The
+    # fallback gets its own Luna-only key, seeded as `nievah-fallback` by the LiteLLM
+    # keyseed Job. The nievah repo's ExternalSecret names the same entry; this patch keeps
+    # the fallback on it whatever that file says, since this overlay owns the deployment.
+    - target:
+        kind: ExternalSecret
+        name: nievah-litellm-fallback
+      patch: |
+        - op: replace
+          path: /spec/data/0/remoteRef/key
+          value: nievah-fallback-litellm-api-key

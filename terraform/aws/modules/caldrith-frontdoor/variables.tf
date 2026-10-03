@@ -199,7 +199,7 @@ variable "reconcile_timeout_seconds" {
     `queues.tf` derives the jobs queue's visibility timeout as 6x this — it is also what sets
     how long a poison message is invisible between retries. Raising it to 900 would make a
     stuck message invisible for 90 minutes at a time and stretch the redrive budget from
-    ~5 hours to ~15, delaying the DLQ alarm by most of a working day.
+    ~5 hours to ~15, so a poison message would take most of a working day to reach the DLQ.
 
     300s is ~10x the expected duration of a single-repo reconcile. Raise it with a measured
     duration in hand, not a guess, and re-read the arithmetic in queues.tf when you do.

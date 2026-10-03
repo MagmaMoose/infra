@@ -4,11 +4,12 @@
 # `scripts/request-app-token.sh` emits an empty token and exits 0 on every error path, and the
 # action falls back to `github-actions[bot]`. A broker that is down, misconfigured, or missing
 # its SSM grant produces no red check in any consumer's repository — just PR comments quietly
-# losing their byline. These alarms and the weekly smoke workflow are the ONLY signals.
+# losing their byline. This alarm and the weekly smoke workflow are the ONLY signals.
 #
-# CloudWatch's free allowance is 10 alarm metrics — POOLED ACROSS THE ORGANIZATION, not granted
-# per account, because free-tier usage aggregates at the payer. Nievah's front door already uses
-# four. This uses three, for seven of ten.
+# CloudWatch's free allowance is 10 alarm metrics, POOLED ACROSS THE ORGANIZATION rather than
+# granted per account, because free-tier usage aggregates at the payer. This module has one,
+# and it is deployed twice (chargate and brimyr). See the alarm-budget note in
+# modules/caldrith-frontdoor/notify.tf before adding another.
 
 # trivy:ignore:AVD-AWS-0095
 resource "aws_sns_topic" "ops" {
@@ -79,7 +80,7 @@ resource "aws_iam_role_policy" "chatbot" {
 # byline rather than an error. Everything else about this service is invisible from outside.
 resource "aws_cloudwatch_metric_alarm" "broker_errors" {
   alarm_name          = "${var.name_prefix}-broker-erroring"
-  alarm_description   = "${aws_lambda_function.broker.function_name} is raising. PR comments across every consumer are silently falling back to github-actions[bot]. Check CloudWatch Logs — /healthz will look fine regardless, it answers before configuration is read."
+  alarm_description   = "${aws_lambda_function.broker.function_name} is raising. PR comments across every consumer are silently falling back to github-actions[bot]. Check CloudWatch Logs — /healthz will look fine regardless, it answers before configuration is read. If bylines go missing while this alarm is green, check Throttles: Lambda excludes them from the Errors metric, and there is no throttle alarm in this account by design (see notify.tf)."
   namespace           = "AWS/Lambda"
   metric_name         = "Errors"
   statistic           = "Sum"
@@ -98,44 +99,20 @@ resource "aws_cloudwatch_metric_alarm" "broker_errors" {
   ok_actions    = [aws_sns_topic.ops.arn]
 }
 
-# The account's TOTAL Lambda concurrency is 10. Throttles here mean either a flood that got past
-# the gateway limit or another workload in this account eating the quota.
-resource "aws_cloudwatch_metric_alarm" "broker_throttled" {
-  alarm_name          = "${var.name_prefix}-broker-throttled"
-  alarm_description   = "${aws_lambda_function.broker.function_name} is being throttled — the account's concurrency quota (10) is exhausted. Token requests are failing and consumers are falling back silently."
-  namespace           = "AWS/Lambda"
-  metric_name         = "Throttles"
-  statistic           = "Sum"
-  period              = 300
-  evaluation_periods  = 1
-  threshold           = 0
-  comparison_operator = "GreaterThanThreshold"
-
-  dimensions         = { FunctionName = aws_lambda_function.broker.function_name }
-  treat_missing_data = "notBreaching"
-  alarm_actions      = [aws_sns_topic.ops.arn]
-}
-
-# --- the cost early-warning -----------------------------------------------------------------
+# NO THROTTLE OR FRONT-DOOR-BUSY ALARM, since 2026-10, to bring the organisation inside its 10
+# free alarms (see the alarm-budget note in modules/caldrith-frontdoor/notify.tf).
 #
-# The stage throttle bounds the LAMBDA bill deterministically. It does not bound the GATEWAY
-# bill, because AWS does not document whether it charges for the 429s it issues. Cloudflare's
-# proxy is what keeps a flood away from the meter; this fires if something arrives anyway.
-resource "aws_cloudwatch_metric_alarm" "front_door_busy" {
-  alarm_name          = "${var.name_prefix}-front-door-busy"
-  alarm_description   = "More than ${var.busy_alarm_requests_per_15min} requests in 15 minutes against ${aws_apigatewayv2_api.broker.name}. Real traffic is a few hundred a MONTH, so this is either a misconfigured consumer or abuse. AWS Budgets will not tell you for another 8-24 hours."
-  namespace           = "AWS/ApiGateway"
-  metric_name         = "Count"
-  statistic           = "Sum"
-  period              = 900
-  evaluation_periods  = 1
-  threshold           = var.busy_alarm_requests_per_15min
-  comparison_operator = "GreaterThanThreshold"
-
-  dimensions         = { ApiId = aws_apigatewayv2_api.broker.id }
-  treat_missing_data = "notBreaching"
-  alarm_actions      = [aws_sns_topic.ops.arn]
-}
+# A FLOOD is still bounded and still reported. The stage throttle caps what reaches Lambda, so
+# it bounds the compute bill exactly, and the budget's FORECASTED notification reports what a
+# sustained flood costs, 8-24 hours late, as AWS Budgets always is. Cloudflare's proxy is what
+# keeps a flood away from the gateway meter in the first place.
+#
+# WHAT IS GIVEN UP is the throttle signal itself. Chargate fails SOFT: a throttled token request
+# fails, the client turns any failure into an empty token, and the PR comment loses its byline
+# without anything going red. The account's total Lambda concurrency is 10, so a burst at the
+# stage limit can throttle a few requests, and that now shows up only as missing bylines.
+# Lambda excludes throttles from `Errors`, which is why the description above says to check
+# Throttles by hand.
 
 # --- the receipt ------------------------------------------------------------------------------
 #

@@ -5,8 +5,8 @@ resources:
   # Second tunnel, for hostnames in the `tengen` Cloudflare account. Tunnel
   # routes are account-scoped, so the tunnel above (Magma Moose account) cannot
   # serve them; see its externalsecret.yaml.
-  - cloudflared-tengen
-  - minio
+  # - cloudflared-tengen
+  # - minio
   - external-dns-cloudflare
   - external-dns-mikrotik
   # Adopted from an unmanaged hand-installed Helm release, then renamed off its

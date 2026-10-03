@@ -1,0 +1,80 @@
+# The buckets SeaweedFS serves. Only `admin` may create one, and the clients (Thanos, Loki)
+# expect theirs to exist, so this creates them, the way minio-setup did for MinIO. Idempotent:
+# rclone mkdir on an existing bucket is a no-op.
+#
+# Job specs cannot change once created: give it a new name (-2) to add a bucket.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: seaweedfs-buckets-1
+  namespace: general-system
+  labels:
+    app.kubernetes.io/name: seaweedfs-buckets
+  annotations:
+    checkov.io/skip1: CKV_K8S_11=CPU limits are unset estate-wide by decision; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited.
+    checkov.io/skip2: CKV_K8S_15=IfNotPresent is the house convention; the image is pinned by digest, so a pull can only ever fetch the same bytes
+    checkov.io/skip3: CKV_K8S_35=rclone builds the remote from RCLONE_CONFIG_* env, as the backup CronJob does; a file would mean writing a config with the key in it
+spec:
+  # No ttlSecondsAfterFinished: Flux would re-create a Job the TTL deleted, and run it again.
+  backoffLimit: 6
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: seaweedfs-buckets
+    spec:
+      restartPolicy: OnFailure
+      priorityClassName: low
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: rclone
+          image: rclone/rclone:1.75.1@sha256:45401ad7410db1d67ffdb58e19059ad20b0d8e0285a60e38bbec55cc1019c7a5
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              for b in thanos-metrics loki; do
+                rclone mkdir "dst:$b"
+                echo "bucket $b ready"
+              done
+          env:
+            - name: RCLONE_CONFIG_DST_TYPE
+              value: s3
+            - name: RCLONE_CONFIG_DST_PROVIDER
+              value: SeaweedFS
+            - name: RCLONE_CONFIG_DST_ENDPOINT
+              value: "http://seaweedfs.general-system.svc.cluster.local:8333" # DevSkim: ignore DS137138 - in-cluster ClusterIP, TLS not configured for pod-to-pod traffic
+            - name: RCLONE_CONFIG_DST_ACCESS_KEY_ID
+              value: admin
+            # SeaweedFS's admin identity shares MinIO's root vault entry.
+            - name: RCLONE_CONFIG_DST_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-credentials
+                  key: root-password
+            - name: RCLONE_CACHE_DIR
+              value: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: tmp
+          emptyDir: {}

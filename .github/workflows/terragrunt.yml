@@ -2,7 +2,15 @@
 # Atlantis replacement, per cleanup.md's appendix.
 #
 # Differences from the appendix sketch, all deliberate:
-#   - runs-on is `firefly-amd64`, an ARC runner scale set NAME. This is not a label
+#   - runs-on is GitHub-hosted `ubuntu-latest` for `discover` and for every `plan`
+#     except the leaves in LAN_STACKS (scripts/terragrunt-pipeline.sh). This repo is
+#     PUBLIC, so hosted minutes are free, while the self-hosted amd64 pool is one node
+#     shared with every repo in the org: on 2026-09-29 the weekday replan's plans sat
+#     queued there for 8-10 hours behind a hung runner. A LAN_STACKS leaf has a
+#     provider that connects to a device only the home network can reach, so it plans
+#     on `firefly-amd64`. Every `apply` still runs there too.
+#
+#     `firefly-amd64` is an ARC runner scale set NAME. This is not a label
 #     array and cannot be one: actions-runner-controller matches a job to a scale
 #     set by name only, so `[self-hosted, Linux, X64]` would never be picked up
 #     even though those labels describe the runner accurately. The appendix
@@ -15,8 +23,8 @@
 #     fail at `init`, per stack, with an error that reads like a network problem; and
 #     (b) this repo is PUBLIC, and the arm64 pool is deliberately reserved for the
 #     private repos whose GitHub-hosted minutes are metered. `firefly-amd64` is ff-vm1,
-#     the exact node these jobs already run on, so this pin is a no-op today and only
-#     exists to KEEP it a no-op.
+#     the on-prem node, which is what a LAN_STACKS plan needs. The shared `pool-amd64`
+#     label would not do: it also matches the franklinhouse cluster, a different site.
 #   - the OCI provider is configured from OCI_* environment variables (see
 #     terraform/root.hcl), so those are passed explicitly rather than relying on a
 #     ~/.oci/config that a runner will not have.
@@ -52,9 +60,9 @@ env:
   OCI_USER_OCID: ${{ secrets.OCI_USER_OCID }}
   OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
   OCI_REGION: eu-amsterdam-1
-  # Pinned so a plan and the apply that follows it run the same toolchain. Both are
-  # installed only when the runner does not already provide them, so bumping the
-  # image out from under this is safe.
+  # Pinned so a plan and the apply that follows it run the same toolchain. `plan`
+  # always installs exactly these; `apply` installs them only when its runner does
+  # not already provide them, and the firefly-amd64 image does not.
   TERRAGRUNT_VERSION: 1.1.4
   TOFU_VERSION: 1.12.6
 
@@ -62,10 +70,14 @@ jobs:
   discover:
     # A self-hosted runner must never execute untrusted fork code with private
     # cloud credentials. Same-repository pull requests still receive plan output.
+    # This job is hosted, but the guard is still load-bearing here: every job after
+    # it needs it, including the LAN_STACKS plans and every apply on `firefly-amd64`.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
-    runs-on: firefly-amd64
+    runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.stacks.outputs.matrix }}
+      plan_matrix: ${{ steps.stacks.outputs.plan_matrix }}
+      lan_stacks: ${{ steps.stacks.outputs.lan_stacks }}
       has_stacks: ${{ steps.stacks.outputs.has_stacks }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -91,13 +103,26 @@ jobs:
             bash scripts/terragrunt-pipeline.sh discover changed "$changed" > "$RUNNER_TEMP/stacks.txt"
           fi
           matrix=$(jq -Rsc '{include: (split("\n") | map(select(length > 0) | {stack: ., id: (gsub("[^A-Za-z0-9]+"; "-") | sub("-$"; ""))}))}' "$RUNNER_TEMP/stacks.txt")
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          echo "has_stacks=$([[ $(jq '.include|length' <<<"$matrix") -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          # `plan` gets the same entries with the LAN_STACKS leaves moved LAST. It runs
+          # max-parallel: 1, so a LAN plan waiting on a busy or hung self-hosted runner
+          # would otherwise hold up every hosted plan after it. `apply` keeps `matrix`.
+          bash scripts/terragrunt-pipeline.sh lan-stacks > "$RUNNER_TEMP/lan.txt"
+          lan=$(jq -Rsc 'split("\n") | map(select(length > 0))' "$RUNNER_TEMP/lan.txt")
+          plan_matrix=$(jq -c --argjson lan "$lan" '.include |= sort_by(.stack | IN($lan[]))' <<<"$matrix")
+          {
+            echo "matrix=$matrix"
+            echo "plan_matrix=$plan_matrix"
+            echo "lan_stacks=$lan"
+            echo "has_stacks=$([[ $(jq '.include|length' <<<"$matrix") -gt 0 ]] && echo true || echo false)"
+          } >> "$GITHUB_OUTPUT"
 
   plan:
     needs: discover
     if: needs.discover.outputs.has_stacks == 'true'
-    runs-on: firefly-amd64
+    # Hosted unless the leaf is in LAN_STACKS; see the header. Chosen per entry by
+    # expression rather than by a `runner` key in the matrix, because every matrix
+    # value is appended to the job's check name and those names must not change.
+    runs-on: ${{ contains(fromJSON(needs.discover.outputs.lan_stacks), matrix.stack) && 'firefly-amd64' || 'ubuntu-latest' }}
     # Whether a plan actually RAN, as opposed to whether the job ended green. Every
     # matrix entry computes the same value from the same repository secrets, so the
     # usual last-writer-wins caveat on a matrix job output does not bite here.
@@ -106,45 +131,55 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 1
-      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.discover.outputs.plan_matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The runner image is expected to carry these, and does not: every apply since
-      # this pipeline landed has died on `terragrunt: command not found` (exit 127) --
-      # run 33958691272 on the Cloudflare leaf, run 34212061664 on an AWS one. The
-      # `command -v` guard makes this a no-op the moment the `firefly-amd64` image
-      # does ship them, so fixing the image later needs no change here.
+      # A job that finds the pinned pair in the Actions cache makes no release
+      # download at all. On 2026-10-02 two of 33 plans failed on HTTP 500s from the
+      # terragrunt release download, four attempts each. The key carries both
+      # versions, so a bump can never restore an old binary.
+      - name: Restore the terragrunt toolchain
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/terragrunt-toolchain
+          key: terragrunt-toolchain-${{ runner.os }}-${{ runner.arch }}-tofu-${{ env.TOFU_VERSION }}-tg-${{ env.TERRAGRUNT_VERSION }}
+
+      # Always exactly TOFU_VERSION and TERRAGRUNT_VERSION, whatever the runner image
+      # carries. Plans run on two images now (neither ships these today), and using
+      # whatever binary one of them picks up later would let a plan and the apply
+      # after it run different toolchains.
       #
       # Checksummed, because an unverified binary fetched over the network is handed
-      # every credential this job has.
+      # every credential this job has. Only a verified binary is moved into the
+      # cached directory, and actions/cache saves it only when the job succeeds.
       - name: Install the terragrunt toolchain
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/bin"
+          bin="$RUNNER_TEMP/terragrunt-toolchain"
+          mkdir -p "$bin"
           # $GITHUB_PATH only reaches LATER steps, so this step has to put the
           # directory on its own PATH too or the verification below cannot see what
           # it just installed.
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-          export PATH="$RUNNER_TEMP/bin:$PATH"
+          echo "$bin" >> "$GITHUB_PATH"
+          export PATH="$bin:$PATH"
 
-          if ! command -v tofu >/dev/null 2>&1; then
+          if [[ ! -x "$bin/tofu" ]]; then
             base="https://github.com/opentofu/opentofu/releases/download/v${TOFU_VERSION}"
             archive="tofu_${TOFU_VERSION}_linux_amd64.tar.gz"
             curl -fsSL --retry 3 -o "$RUNNER_TEMP/$archive" "$base/$archive"
             curl -fsSL --retry 3 -o "$RUNNER_TEMP/tofu.sums" "$base/tofu_${TOFU_VERSION}_SHA256SUMS"
             (cd "$RUNNER_TEMP" && grep " $archive\$" tofu.sums | sha256sum -c -)
-            tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/bin" tofu
+            tar -xzf "$RUNNER_TEMP/$archive" -C "$bin" tofu
           fi
 
-          if ! command -v terragrunt >/dev/null 2>&1; then
+          if [[ ! -x "$bin/terragrunt" ]]; then
             base="https://github.com/gruntwork-io/terragrunt/releases/download/v${TERRAGRUNT_VERSION}"
-            curl -fsSL --retry 3 -o "$RUNNER_TEMP/bin/terragrunt" "$base/terragrunt_linux_amd64"
+            curl -fsSL --retry 3 -o "$RUNNER_TEMP/terragrunt_linux_amd64" "$base/terragrunt_linux_amd64"
             curl -fsSL --retry 3 -o "$RUNNER_TEMP/tg.sums" "$base/SHA256SUMS"
-            (cd "$RUNNER_TEMP/bin" && grep " terragrunt_linux_amd64\$" "$RUNNER_TEMP/tg.sums" \
-              | sed 's/terragrunt_linux_amd64/terragrunt/' | sha256sum -c -)
-            chmod +x "$RUNNER_TEMP/bin/terragrunt"
+            (cd "$RUNNER_TEMP" && grep " terragrunt_linux_amd64\$" tg.sums | sha256sum -c -)
+            install -m 755 "$RUNNER_TEMP/terragrunt_linux_amd64" "$bin/terragrunt"
           fi
 
           terragrunt --version

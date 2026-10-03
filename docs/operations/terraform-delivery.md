@@ -39,6 +39,7 @@ bash scripts/terragrunt-pipeline.sh discover all
 | --- | --- | --- |
 | `discover all` | none | Every leaf, one repo-relative path per line |
 | `discover changed` | `<changed-files-file>` | Only the leaves affected by those files |
+| `lan-stacks` | none | The leaves that plan on the self-hosted pool, one per line. Fails if an entry isn't a leaf |
 | `plan` | `<stack> <outdir>` | Writes `<outdir>/status` and `<outdir>/plan.txt` |
 | `apply` | `<stack> <outdir>` | Writes `<outdir>/status` |
 | `redact` | `<file>` | Strips sensitive-looking lines, to stdout |
@@ -62,19 +63,51 @@ flowchart TD
     A -->|environment: all/deploy| H[human approval]
 ```
 
-Three jobs, all on the `firefly-amd64` runner scale set:
+Three jobs:
 
-- **`discover`** builds the matrix of leaves to plan. It carries a fork guard: pull requests
-  from forks are skipped entirely, because the runners hold private cloud credentials.
-- **`plan`** runs one job per leaf and posts the result to the pull request.
-- **`apply`** runs only on `push` to `main`, only when every plan succeeded, and only inside
-  the protected `all/deploy` environment, which is where the human approval lives. It runs
-  `max-parallel: 1` with `fail-fast: false`.
+- **`discover`** builds the matrix of leaves to plan, on `ubuntu-latest`. It carries a fork
+  guard: pull requests from forks are skipped entirely, because the jobs after it hold private
+  cloud credentials and some of them run on self-hosted runners.
+- **`plan`** runs one job per leaf and posts the result to the pull request. Most leaves plan
+  on `ubuntu-latest`; see [Where plans run](#where-plans-run).
+- **`apply`** runs on the `firefly-amd64` runner scale set, only on `push` to `main`, only
+  when every plan succeeded, and only inside the protected `all/deploy` environment, which is
+  where the human approval lives. It runs `max-parallel: 1` with `fail-fast: false`.
 
 !!! note "The runner name is not a label"
     `runs-on: firefly-amd64` is an actions-runner-controller **scale set name**, not a label
     array. ARC matches jobs to scale sets by name only, so `[self-hosted, Linux, X64]` would
     never be picked up even though those labels describe the runner accurately.
+
+## Where plans run
+
+A plan runs on GitHub-hosted `ubuntu-latest` unless its leaf is in `LAN_STACKS` in
+`scripts/terragrunt-pipeline.sh`. This repository is public, so hosted minutes are free, and
+the self-hosted amd64 pool is a single node shared with every repository in the organisation.
+The listed leaves have a provider that connects to a device only the home network can reach,
+so they plan on `firefly-amd64`:
+
+| Leaf | What it connects to |
+| --- | --- |
+| `terraform/fortigate/prod` | `fortios`: the FortiGates' management addresses on the home LAN |
+| `terraform/mikrotik/prod` | `routeros`: the CRS switches on the home LAN |
+| `terraform/mikrotik/wireguard-mesh/prod` | `routeros`: ff-crs1 on the home LAN, plus the CHRs |
+| `terraform/oci/prod/eu-amsterdam-1/mikrotik` | `routeros`: the CHRs' API port, which the OCI security list only opens to the operator management CIDRs |
+
+Every other leaf only calls public cloud APIs. `terraform/oci/prod/eu-amsterdam-1/vpn-fortigate`
+is one of them despite its name: it creates the OCI side of the VPN and never talks to a
+FortiGate.
+
+The plan matrix lists the `LAN_STACKS` leaves last. Plans run one at a time, so a LAN plan
+waiting on a busy self-hosted runner can't hold up the hosted plans after it.
+
+A new leaf whose provider talks to on-prem hardware has to be added to `LAN_STACKS`. On a
+hosted runner its plan fails at provider connect, which looks like a network outage.
+`discover` fails if a `LAN_STACKS` entry isn't a leaf, so renaming one breaks loudly rather
+than quietly moving it to a hosted runner.
+
+The `plan` job installs the pinned `tofu` and `terragrunt` versions on both runner types and
+caches them with `actions/cache`, keyed on both versions.
 
 ## Running a plan yourself
 

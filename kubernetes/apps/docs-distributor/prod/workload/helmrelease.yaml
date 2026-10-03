@@ -1,0 +1,83 @@
+# docs-distributor: a weekly CronJob that anonymises a private docs source into one pull
+# request on the public docs site. The chart comes from MagmaMoose/docs-distributor via
+# the GitRepository in base/; the values below are firefly's.
+#
+# Nothing here names the source. It is `cloud-platform`, and its URL, its mapping and its
+# token are in the ExternalSecret-managed Secret, because this repository is public and a
+# named source would undo the anonymisation it exists to perform.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: docs-distributor
+  namespace: docs-distributor
+spec:
+  interval: 30m
+  releaseName: docs-distributor
+  chart:
+    spec:
+      chart: charts/docs-distributor
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: docs-distributor
+        namespace: flux-system
+      interval: 10m
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  values:
+    image:
+      repository: ghcr.io/magmamoose/docs-distributor
+      # Auto-bumped by Flux image automation; the marker is the setter.
+      tag: v0.0.3 # {"$imagepolicy": "flux-system:docs-distributor:tag"}
+    imagePullSecrets:
+      - name: ghcr-pull-secret
+    # Monday 05:17. The first run is the slow one: every new term goes to the model once,
+    # and the answers are cached on the volume for every run after it.
+    schedule: "17 5 * * 1"
+    timeZone: Europe/Amsterdam
+    priorityClassName: low
+    target:
+      repo: CalebSargeant/docs
+      base: master
+      navAfter: Platform
+    sources:
+      - name: cloud-platform
+        title: Cloud Platform
+        target: docs/cloud-platform
+        ref: main
+        auth:
+          type: token
+          tokenSecretKey: source-token-cloud-platform
+    llm:
+      # The chart's Anthropic Messages backend is compatible with LiteLLM's
+      # /v1/messages translation and keeps this scheduled tool on Luna only.
+      backend: anthropic
+      model: gpt-5.6-luna
+      # :8080 maps Authorization: Bearer <virtual key> to x-litellm-api-key.
+      baseUrl: http://litellm.automation.svc.cluster.local:8080 # DevSkim: ignore DS137138 - in-cluster ClusterIP, not externally reachable
+    report:
+      issueRepo: MagmaMoose/docs-distributor
+    secrets:
+      existingSecret: docs-distributor
+      keys:
+        mapping: [mapping.yml, mapping-terms.yml]
+        slackWebhook: ""
+        # The anthropic backend reads its key from ANTHROPIC_API_KEY, which the chart only
+        # renders when this names a Secret key; LITELLM_API_KEY is rendered for the
+        # claude-code backend alone. Unset, the job sent `Authorization: Bearer ` with no
+        # key and LiteLLM answered 401 on every call. `litellm-api-key` is the job's own
+        # Luna-only virtual key (externalsecret.yaml).
+        anthropicApiKey: litellm-api-key
+    persistence:
+      size: 1Gi
+      storageClass: longhorn
+    networkPolicy:
+      enabled: true
+      # The chart's egress rule allows the gateway on this port only, and it defaults to
+      # LiteLLM's raw :4000. baseUrl above is the auth proxy on :8080, which is also the
+      # pod port a NetworkPolicy matches (the Service maps 8080 to the proxy's 8080).
+      gatewayPort: 8080

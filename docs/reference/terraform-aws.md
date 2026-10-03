@@ -128,7 +128,7 @@ stays in the source next to the code it governs.
 | `log_retention_days` | `number` | `14` | Lambda log retention. |
 | `jobs_retention_seconds` | `number` | `1209600` | How long the jobs queue holds a delivery the cluster has not taken. |
 | `stale_jobs_alarm_seconds` | `number` | `900` | Age of the oldest unconsumed job that means the cluster has stopped taking work. |
-| `enable_ticks` | `bool` | `false` | Create the EventBridge schedules that replace the two Kubernetes CronJobs. |
+| `enable_ticks` | `bool` | `false` | Create the EventBridge tick schedules (planner, maintenance, reconcile). The planner one replaces Nievah's suspended `nievah-planner-tick` CronJob. |
 | `ops_email` | `string` | `""` | Address subscribed to the ops topic. |
 | `slack_workspace_id` | `string` | `""` | AWS Chatbot workspace id, for alarms in Slack. |
 | `slack_channel_id` | `string` | `""` | Slack channel id for alarms, e.g. C0123456789. |
@@ -188,7 +188,6 @@ stays in the source next to the code it governs.
 | `ops_email` | `string` | `""` | Address subscribed to the ops topic. |
 | `slack_workspace_id` | `string` | `""` | AWS Chatbot workspace id, for alarms in Slack. |
 | `slack_channel_id` | `string` | `""` | Slack channel id for alarms, e.g. C0123456789. |
-| `busy_alarm_requests_per_15min` | `number` | `100` | Requests in 15 minutes that mean something is wrong. |
 | `monthly_budget_usd` | `number` | `1` | Spend that should never be reached, in USD. |
 | `additional_domain_names` | `list(string)` | `[]` | Extra hostnames this API also answers on, each with its own ACM certificate, custom domain and mapping. |
 

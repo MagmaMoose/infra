@@ -11,8 +11,8 @@
 # holding 41 GiB. Losing a node meant losing whatever single replica lived on it,
 # with no offsite copy and no way to roll a volume back to a known-good point.
 #
-# S3 credentials come from the same OCI Vault key the MinIO offsite mirror already
-# uses (`backup-oci-s3-credentials`), so this introduces no new secret material.
+# S3 credentials come from the same OCI Vault key the CNPG backups already use
+# (`backup-oci-s3-credentials`), so this introduces no new secret material.
 # Longhorn insists on the AWS_* names regardless of provider, and AWS_ENDPOINTS is
 # what points it at OCI's S3-compatible endpoint rather than real AWS.
 apiVersion: external-secrets.io/v1beta1
@@ -58,7 +58,14 @@ spec:
   # AWS_ENDPOINTS in the credential secret above.
   backupTargetURL: s3://longhorn-backups@eu-amsterdam-1/
   credentialSecret: longhorn-backup-oci # kics-scan ignore-line - reference name, not a hardcoded secret
-  pollInterval: 5m0s
+  # Once a day, not every 5 minutes. Each poll re-lists every backup volume and backup in
+  # the bucket, and at 5m that was ~3.8M billed requests a month: 96% of all our Object
+  # Storage requests, against a free 50K. Backups this cluster takes do not wait for a
+  # poll: Longhorn syncs a volume's backup list as soon as one of its backups completes.
+  # The poll only picks up changes made outside this cluster, and it is where failed
+  # backups are deleted once `failed-backup-ttl` passes, so never 0 (0 turns polling off
+  # and keeps them forever). Force a sync by setting spec.syncRequestedAt to now.
+  pollInterval: 24h0m0s
 
 ---
 # Local snapshots for EVERY volume. These cost nothing offsite — they are
@@ -103,5 +110,9 @@ metadata:
 spec:
   cron: "0 3 * * 0"
   task: backup
-  retain: 4
+  # One offsite restore point per volume. Each extra weekly copy is the bulk of this
+  # bucket's size, and the opted-in volumes hold app config that the latest copy
+  # restores fully. Longhorn prunes older backups itself after the next run; never
+  # expire them with an Object Storage lifecycle rule (Longhorn forbids it).
+  retain: 1
   concurrency: 1

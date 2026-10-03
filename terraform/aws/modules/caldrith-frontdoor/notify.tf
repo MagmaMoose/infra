@@ -7,28 +7,43 @@
 # below observes from outside the failure domain.
 #
 # ─────────────────────────────────────────────────────────────────────────────────────────────
-# THE ALARM BUDGET, WHICH IS TIGHT AND IS THE REASON THIS FILE HAS FOUR ALARMS AND NOT NINE.
+# THE ALARM BUDGET, WHICH IS TIGHT AND IS THE REASON THIS FILE HAS THREE ALARMS AND NOT NINE.
 #
-# CloudWatch's always-free tier is 10 alarms, and — like every other allowance in this design —
-# it is shared across the ORGANISATION rather than per account.
+# CloudWatch's always-free tier is 10 standard alarms, and (like every other allowance in this
+# design) it is shared across the ORGANISATION rather than per account. Alarms are spread over
+# the member accounts and the Root account, so count them live across all of them, never from
+# the AWS free-tier report: it UNDERSTATES BY ~26%, because it divides usage data that lags
+# about a day by elapsed calendar days.
 #
-# THE BUDGET IS ALREADY BLOWN, AND NOT BY THIS FILE, AND ON 2026-09-04 IT WAS DECIDED TO LEAVE
-# IT BLOWN. An earlier version of this note said "nievah uses 4, the five here take the
-# organisation to 9, ONE SPARE". That counted two accounts. Seven hold alarms — caldrith,
-# nievah, brimyr, chargate, diatreme, dunmir and the Root account — and the live count is 21,
-# not the 13.42 the AWS free-tier report forecasts. THAT REPORT UNDERSTATES BY ~26%, because it
-# divides usage data that lags about a day by elapsed calendar days; do not size this decision
-# from it. Deleting the events DLQ alarm below took the estate to 20 and dropping
-# `diatreme-broker-throttled` takes it to 19: NINE BILLABLE, $0.90/month, $10.80/year.
+# ON 2026-09-04 IT WAS DECIDED TO STAY AT 19 and pay for nine ($0.90/month). In 2026-10 THAT WAS
+# REVERSED: ten were deleted, taking the estate to NINE, inside the free ten with one spare.
+# Each one was either covered by a faster signal or watching something with no traffic:
 #
-# GETTING UNDER 10 WOULD MEAN DELETING NINE MORE ACROSS SEVEN ACCOUNTS — half the estate's
-# monitoring — and every alternative mechanism was priced and is WORSE:
+#   caldrith-jobs-dlq-not-empty     `jobs_stale` fires ~15 minutes into a persistent failure,
+#                                   hours before a job reaches the DLQ.
+#   nievah-events-dlq-not-empty     nievah's `producer_errors` now watches every function in its
+#                                   account, so a consumer that raises is still caught.
+#   {chargate,brimyr}-broker-throttled, {chargate,brimyr}-front-door-busy
+#                                   the stage throttle bounds a flood, and the budget forecasts
+#                                   report what one costs.
+#   diatreme-broker-erroring, diatreme-front-door-busy
+#                                   diatreme fails hard: a red release run, plus its weekly smoke
+#                                   workflow.
+#   dunmir-prod-api-5xx, dunmir-prod-api-errors
+#                                   that API carries no traffic.
+#
+# The nine that stay: caldrith-{jobs-not-being-reconciled,producer-erroring,front-door-flooded},
+# nievah-{jobs-not-being-consumed,jobs-dlq-not-empty,producer-erroring},
+# {chargate,brimyr}-broker-erroring and mm-cost-report-failing. dunmir's CPU-credit alarm exists
+# only with `db_mode = "rds"`, so switching dunmir to RDS makes it the tenth.
+#
+# Every other mechanism was priced on 2026-09-04 and costs more than the alarms it replaces:
 #
 #   a cross-account poller   GetMetricData is $0.01/1,000 metrics and is one of the three
 #                            operations explicitly EXCLUDED from CloudWatch's free 1M API
-#                            requests. 21 metrics at 5-minute cadence is $1.81/month, twice the
-#                            overage it replaces, before the seven cross-account roles, the
-#                            code, or the dead-man alarm it would itself need to be trusted.
+#                            requests. 21 metrics at 5-minute cadence is $1.81/month, twice what
+#                            the nine billable alarms cost, before the seven cross-account roles,
+#                            the code, or the dead-man alarm it would itself need to be trusted.
 #                            The free variant, sqs:GetQueueAttributes, cannot return
 #                            ApproximateAgeOfOldestMessage at all — that metric exists only in
 #                            CloudWatch — so it cannot replace `jobs_stale`, the one alarm this
@@ -37,14 +52,13 @@
 #   metric math / SEARCH     billed per metric referenced, so no saving, and it would collapse
 #                            these descriptions into "something breached".
 #
-# So the estate stays at 19 and pays $10.80 a year. Alarms that evaluate in a regional service,
-# need no code, cannot drift out of sync with what they watch, and carry a runbook in every
-# description are worth more than that. Spend the effort on the gaps instead: an alarm cannot
-# fire on a failure IN FRONT of the function, because no invocation means no datapoint and
-# `treat_missing_data = notBreaching` reads that as healthy.
+# So the spare is not to be spent casually: an eleventh alarm anywhere in the organisation is
+# billed, and adding one means deciding which existing alarm it is worth more than. Spend the
+# effort on the gaps instead: an alarm cannot fire on a failure IN FRONT of the function,
+# because no invocation means no datapoint and `treat_missing_data = notBreaching` reads that
+# as healthy.
 #
-# So the spare is not to be spent casually, and two alarms that would otherwise be obvious were
-# deliberately NOT created:
+# Two alarms that would otherwise be obvious were deliberately NOT created:
 #
 #   reconcile-erroring   `jobs_stale` already covers it and covers it FASTER. A job that raises
 #                        goes back on the queue and keeps ageing, so a persistent reconcile
@@ -143,7 +157,7 @@ resource "aws_cloudwatch_metric_alarm" "jobs_stale" {
   count = var.localstack ? 0 : 1
 
   alarm_name          = "${var.name_prefix}-jobs-not-being-reconciled"
-  alarm_description   = "Oldest job on ${aws_sqs_queue.jobs.name} is older than ${var.stale_jobs_alarm_seconds}s — ${var.name_prefix}-reconcile is not draining, or is failing every attempt. Deliveries are safe (14-day retention) but no configuration is being enforced and drift is accumulating."
+  alarm_description   = "Oldest job on ${aws_sqs_queue.jobs.name} is older than ${var.stale_jobs_alarm_seconds}s — ${var.name_prefix}-reconcile is not draining, or is failing every attempt. Deliveries are safe (14-day retention) but no configuration is being enforced and drift is accumulating. If this clears by itself ~5 hours after firing, the failing job was dead-lettered: fix the cause, then redrive ${aws_sqs_queue.jobs_dlq.name} or, usually better, POST /reconcile."
   namespace           = "AWS/SQS"
   metric_name         = "ApproximateAgeOfOldestMessage"
   statistic           = "Maximum"
@@ -163,27 +177,13 @@ resource "aws_cloudwatch_metric_alarm" "jobs_stale" {
   ok_actions    = [aws_sns_topic.ops.arn]
 }
 
-# Reaching this DLQ takes ten failed receives at a 30-minute visibility timeout — roughly five
-# hours of sustained failure. So it means either a GitHub incident that outlasted the redrive
-# budget, or a job that fails deterministically (a revoked installation, a repo deleted between
-# the fan-out and the job, a config that no longer validates).
-resource "aws_cloudwatch_metric_alarm" "jobs_dlq" {
-  count = var.localstack ? 0 : 1
-
-  alarm_name          = "${var.name_prefix}-jobs-dlq-not-empty"
-  alarm_description   = "Reconcile jobs exhausted the redrive budget on ${aws_sqs_queue.jobs.name}. Fix the cause, then either redrive ${aws_sqs_queue.jobs_dlq.name} from the console or — usually better — POST /reconcile, which re-derives the work from the current config instead of replaying stale jobs."
-  namespace           = "AWS/SQS"
-  metric_name         = "ApproximateNumberOfMessagesVisible"
-  statistic           = "Maximum"
-  period              = 300
-  evaluation_periods  = 1
-  threshold           = 0
-  comparison_operator = "GreaterThanThreshold"
-
-  dimensions         = { QueueName = aws_sqs_queue.jobs_dlq.name }
-  treat_missing_data = "notBreaching"
-  alarm_actions      = [aws_sns_topic.ops.arn]
-}
+# NO JOBS-DLQ ALARM, since 2026-10 (the alarm budget above). Reaching the DLQ takes ten failed
+# receives at a 30-minute visibility timeout, roughly five hours of sustained failure, and
+# `jobs_stale` has fired about 15 minutes into the same failure. What lands there is a GitHub
+# incident that outlasted the redrive budget, or a job that fails deterministically (a revoked
+# installation, a repo deleted between the fan-out and the job, a config that no longer
+# validates). The trace it leaves is `jobs_stale` clearing ON ITS OWN hours after it fired,
+# with nothing fixed, which is why that alarm's description says to look in the DLQ.
 
 # The producer failing is the only failure in this stack that GitHub sees. Everything else
 # degrades into a queue; this one returns a 5xx to a caller that POSTs each delivery exactly

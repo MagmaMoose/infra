@@ -125,10 +125,11 @@ Both Vault entries must exist and be **ACTIVE** first — ESO resolves by name a
 whole nievah Secret sync on a missing key, which takes the running bot down rather than
 merely leaving the consumer off.
 
-**Ticks last, and in this order.** Suspend `nievah-planner-tick` and `nievah-standup-tick`
-in nievah's `k8s/base/cronjob.yaml` **before** setting `enable_ticks = true`. Both firing
-means two planner runs with different ARQ job ids that `unique=True` will not collapse —
-duplicate issues.
+**Ticks last, and in this order.** Suspend `nievah-planner-tick` in nievah's
+`k8s/base/cronjob.yaml` **before** setting `enable_ticks = true`. Both firing means two
+planner runs with different ARQ job ids that `unique=True` will not collapse — duplicate
+issues. The maintenance and reconcile ticks have no CronJob counterpart, so they need no
+ordering. The standup tick is retired: Nievah acknowledges a stray fire as a no-op.
 
 ## State holds a credential
 
@@ -156,7 +157,7 @@ Every service here is **Always Free** except S3. Measured against ~950 deliverie
 | DynamoDB | 25 GB, 25 WCU, 25 RCU | a rolling day of ids, 2 WCU | 12× |
 | EventBridge Scheduler | 14M invocations | ~180 | ~78,000× |
 | SNS | 1M publishes | a handful of alarms | — |
-| CloudWatch | 10 alarms, 5 GB logs | 4 alarms, 14-day retention | — |
+| CloudWatch | 10 alarms, 5 GB logs | 3 alarms, 14-day retention | — |
 | SSM Parameter Store | 10,000 standard params | 3 | — |
 | **S3** (overflow + artifacts) | **5 GB — 12-MONTH** | see below | ~$0.005/mo |
 | **API Gateway** (HTTP API) | **1M req — 12-MONTH** | ~29k requests | ~$0.03/mo |
@@ -232,6 +233,12 @@ key necessary. If the AWS rollout is not urgent, waiting is the better trade.
 Two Slack messages in `#finance` every morning at 07:00 UTC: what was spent, per account and
 per service, and how much of the organisation's free-tier allowance is left.
 
+**Every window is anchored to the reported day, yesterday, not to today.** Month-to-date is
+the month that contains yesterday, from its 1st up to and including yesterday. So on the 1st
+the two messages close the previous month: `AWS cost: September 2026, full month` with the
+whole month per account and service, and the month's final free-tier usage against its
+allowances. The OCI report in `kubernetes/apps/oci-cost-report` follows the same rule.
+
 ```
 EventBridge Scheduler ─► mm-cost-report ─┬─► SNS ─► Chatbot ─► Slack #finance
    cron(0 7 * * ? *)          │           │   ▲
@@ -241,6 +248,9 @@ EventBridge Scheduler ─► mm-cost-report ─┬─► SNS ─► Chatbot ─�
         s3://mm-cost-report-857256953358/cur/…   ← CUR 2.0, written daily by AWS, free
                     +
         freetier:GetFreeTierUsage                ← org-wide allowances, free to call
+                    +
+        s3://mm-cost-report-857256953358/freetier/YYYY-MM.json
+                                                 ← this month's allowances, kept for the 1st
 ```
 
 **It runs in the management account and cannot run anywhere else.** A member account's cost
@@ -252,8 +262,8 @@ rather than a duplicate stack.
 **No Slack token exists anywhere in this stack.** Chatbot already owns an authorised connection
 to the workspace and renders a [documented custom-notification envelope][cn] into Slack
 markdown, so delivery is `sns:Publish` on one topic and there is no secret to mint, store or
-rotate. The function's role can read one S3 prefix, one free billing API and the account list;
-it cannot spend money.
+rotate. The function's role can read the export bucket, one free billing API and the account
+list, and write one prefix of its own bucket (`freetier/`); it cannot spend money.
 
 [cn]: https://docs.aws.amazon.com/chatbot/latest/adminguide/custom-notifs.html
 
@@ -282,7 +292,8 @@ Everything here sits inside a permanent always-free allowance — EventBridge Sc
 after 14 million invocations/month against the 30 this makes, Lambda after 400,000 GB-seconds
 against roughly 8, SNS after a million publishes against 60, and Chatbot, Data Exports,
 Organizations and the Free Tier API are all free to call. The only thing that bills at all is
-the S3 bucket, and it is capped **three independent ways** so that any one of them failing
+the S3 bucket (the export's bytes, plus one small PUT a day for the free-tier snapshot, about
+$0.00015 a month), and it is capped **three independent ways** so that any one of them failing
 still leaves the other two:
 
 1. the export is `OVERWRITE_REPORT` — each delivery **replaces** the last rather than adding
@@ -304,11 +315,23 @@ figures** below a cent. That is the whole reason the report is legible rather th
 zeros:
 
 ```
-*Org total* — $0.0000000801 on 2026-08-17 · $0.0000447 month-to-date (1–18 Aug 2026)
+*Org total* — $0.0000000801 on 2026-08-17 · $0.0000447 month-to-date (1–17 Aug 2026)
 
 *prd-nievah* · `666802049426`
 $0.0000000801 yesterday · $0.0000396 MTD
         • AmazonS3 — $0.0000000801 yesterday · $0.0000396 MTD
+```
+
+On the 1st the same message is the month's close, titled `AWS cost: September 2026, full
+month`:
+
+```
+*Org total* — $1.08 for September 2026 (1–30 Sep 2026) · $0.06 on 2026-09-30
+
+*prd-nievah* · `666802049426`
+$0.81 for the month
+        • AmazonS3 — $0.56
+        • AWSLambda — $0.25
 ```
 
 The free-tier message answers a different question — not "what did this cost" but "what is
@@ -347,6 +370,17 @@ is quietly wrong.
 
 Sorted by proportion of the limit *forecast* to be consumed, so the line most likely to start
 costing money is the first one read. Above 80% it warns; at 100% the title itself shouts.
+
+**On the 1st the free-tier message closes the previous month, which the Free Tier API cannot
+do.** `GetFreeTierUsage` takes no period (its only inputs are `filter`, `maxResults` and
+`nextToken`) and describes the current month, which on the 1st is a few hours old and usually
+empty. So every run saves that day's response to `freetier/YYYY-MM.json` in the export bucket,
+overwriting the month's earlier copy, and the 1st reads the closed month's last copy for the
+allowances. The usage comes from that month's export, matched to each allowance exactly as the
+per-account split is, and is never reported below AWS's own last reading: usage only accrues,
+so a lower export total means a missed usage type. An allowance the export cannot match shows
+AWS's last reading and forecast, labelled as not final, and a month with no saved copy says so
+rather than guessing.
 
 ### Cold start
 
@@ -394,8 +428,9 @@ CUR's first file appears up to 24 hours after the export is created, so the pars
 written before any real file existed to read it. They cover the ways a cost report goes wrong
 *quietly*: columns read by name so a reordered export cannot silently transpose values, a
 malformed row that must not cost the whole file, `$0.00` line items that must still count
-toward free-tier usage, an account that spent nothing still appearing, and the first-of-month
-case where yesterday belongs to the previous billing period's file.
+toward free-tier usage, an account that spent nothing still appearing, and the window: which
+billing period a normal day, the 2nd, the 1st and 1 January each read, the month close they
+post, and the free-tier close built from the saved allowances.
 
 ### Silence is the failure mode
 

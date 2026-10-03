@@ -16,6 +16,16 @@
 #      cannot quietly start accumulating.
 # Any one of those failing still leaves the other two.
 
+locals {
+  # The handler's own corner of the bucket: one small JSON object per billing period holding
+  # the free-tier allowances as GetFreeTierUsage reported them on that period's last run.
+  # That API only describes the current month, so this is what the 1st's report measures the
+  # closed month against. Outside the export's prefix, so the export never overwrites it and
+  # the handler's CUR listing never reads it. Covered by the lifecycle rule below like
+  # everything else here.
+  freetier_prefix = "freetier"
+}
+
 # trivy:ignore:AVD-AWS-0089
 # trivy:ignore:AVD-AWS-0090
 # trivy:ignore:AVD-AWS-0132

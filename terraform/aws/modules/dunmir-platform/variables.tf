@@ -458,9 +458,8 @@ variable "sweep_enabled" {
     Whether the dead-man sweep schedule is armed.
 
     Off is the correct state for a stack whose database is not wired up yet: the sweep fires
-    once a minute, every firing fails, and the function-error alarm then emails on a five-minute
-    cycle forever — which is how an operator learns to ignore the one alarm that can see the
-    sweep fail at all.
+    once a minute and every firing fails. Nothing alarms on that since the function-error alarm
+    was removed (see the alarms section of schedule.tf), so it would fail unnoticed.
 
     `lambda_handler._sweep` already tolerates a database with no SCHEMA (the window between
     apply and migrate). It cannot tolerate no database AT ALL, and should not pretend to.
