@@ -393,6 +393,11 @@ data:
       # model are still recorded). The default is already false; pinned here because a
       # value saved from the admin UI wins over the default but not over a YAML key.
       store_prompts_in_spend_logs: false
+      # Spend logs had no retention (292 MB since June) and they ride every Postgres base
+      # backup to OCI. 90 days covers the monthly cost reports and the console's history;
+      # the cleanup is bounded per run and drains a backlog over several nights.
+      maximum_spend_logs_retention_period: "90d"
+      maximum_spend_logs_cleanup_cron: "0 4 * * *"
       # NOTE: `forward_client_headers_to_llm_api` is deliberately NOT set here.
       # As a global flag it forwarded every client `x-*` header to EVERY provider
       # (OpenAI, DeepSeek, Ollama), not just the Claude pass-through entries. It is
