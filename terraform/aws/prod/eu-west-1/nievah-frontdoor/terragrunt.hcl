@@ -70,7 +70,7 @@ inputs = {
   # Cold start: this must name an object that already exists. Apply ../artifacts, run the
   # publish workflow once, then set this to what it produced.
   # ─────────────────────────────────────────────────────────────────────────────────────────
-  edge_artifact_version = "1.41.3-gb5726f6"
+  edge_artifact_version = "1.43.77-gdf42250"
 
   # A clean hostname for the GitHub App's webhook URL. The module requests its own REGIONAL
   # ACM certificate (see api.tf); `certificate_arn` is only for reusing one managed elsewhere.

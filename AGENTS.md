@@ -125,7 +125,7 @@ it is a physically separate k3s cluster and cannot reach firefly's `postgres`.
 
 ### 4. Terraform PR Integration
 
-`.github/workflows/terragrunt.yml` (a thin wrapper around `scripts/terragrunt-pipeline.sh`) plans every leaf a pull request affects and applies from `main` behind a protected environment. It replans every leaf when `terraform/root.hcl`, a `region.hcl` or a shared module changes, and it excludes `terraform/oci/cloudworkers/**`. See `docs/operations/terraform-delivery.md`. Atlantis was removed on 2026-09-16.
+`.github/workflows/terragrunt.yml` (a thin wrapper around `scripts/terragrunt-pipeline.sh`) plans every leaf a pull request affects and applies from `main` behind a protected environment. It replans every leaf when `terraform/root.hcl`, a `region.hcl` or a shared module changes, and it excludes `terraform/oci/cloudworkers/**`. Plans run on `ubuntu-latest` except the leaves in `LAN_STACKS` (`scripts/terragrunt-pipeline.sh`), whose providers reach on-prem devices and so plan on `firefly-amd64`; a new leaf that talks to home-network kit must be added there. See `docs/operations/terraform-delivery.md`. Atlantis was removed on 2026-09-16.
 
 ## Critical Developer Workflows
 
@@ -518,6 +518,10 @@ If you accidentally stage a secret, remove it with `git reset HEAD <file>` befor
    Nievah correctly strips HTTP-header values, while the agent server otherwise compares the
    raw environment string (a clipboard/Vault trailing newline produces an unavoidable 401).
    Bump the non-secret pod-template session-key revision after Vault rotation so pods reload it.
+10. **Hermes `context_from` on a job's own id** — Hermes saves each run's whole prompt in its
+   output file and injects only the first 8,000 characters of the newest one, so a job that
+   reads itself nests its prompts and loses the previous answer from the second run on. Pass
+   state forward with the job's pre-run `script` instead (see `files/daily_brief_context.py`).
 
 ## Tool Use and Output Discipline
 
