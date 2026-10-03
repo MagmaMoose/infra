@@ -110,5 +110,9 @@ metadata:
 spec:
   cron: "0 3 * * 0"
   task: backup
-  retain: 4
+  # One offsite restore point per volume. Each extra weekly copy is the bulk of this
+  # bucket's size, and the opted-in volumes hold app config that the latest copy
+  # restores fully. Longhorn prunes older backups itself after the next run; never
+  # expire them with an Object Storage lifecycle rule (Longhorn forbids it).
+  retain: 1
   concurrency: 1
