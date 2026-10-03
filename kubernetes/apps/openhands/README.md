@@ -1,7 +1,9 @@
 # OpenHands V1
 
-OpenHands is the in-cluster autonomous-coding lane used by Nievah when a repository or
-operator selects `harness: openhands`. The deployment uses the multi-arch
+OpenHands is the in-cluster autonomous-coding agent, used through its UI. Nievah no longer
+calls it: Nievah's fallback after its Claude accounts is the Codex CLI on its own
+`nievah-fallback` LiteLLM key, and a `harness: openhands` setting runs on Claude Code.
+OpenHands stays deployed for interactive use. The deployment uses the multi-arch
 `ghcr.io/openhands/agent-canvas:1.5.2` image. Its public UI/proxy listens on port 8000
 (and forwards `/api` to the internal V1 agent-server), and it routes inference through the
 in-cluster LiteLLM gateway using the `litellm_proxy/gpt-5.6-luna` model alias.
@@ -21,12 +23,11 @@ the fallback when the Cloudflare edge is unavailable.
 ## Authentication and secrets
 
 The OpenHands `ExternalSecret` reads the LiteLLM key, the bootstrap GitHub token, and the stable
-`openhands-session-api-key` from OCI Vault. The latter is also mirrored into Nievah as
-`OPENHANDS_SESSION_API_KEY`; Nievah sends it as `X-Session-API-Key` for headless conversations.
-Inject it into agent-canvas as **`OH_SESSION_API_KEYS_0`**, its canonical V1 key variable.
+`openhands-session-api-key` from OCI Vault. Nievah used to send the latter as
+`X-Session-API-Key` for headless conversations; it no longer reads it. Inject it into agent-canvas as **`OH_SESSION_API_KEYS_0`**, its canonical V1 key variable.
 `SESSION_API_KEY` is a legacy fallback: using it alone causes agent-canvas to generate a
-different public-proxy key, so Nievah receives 401 responses despite both deployments sourcing
-the same Vault value. The bootstrap script uses the canonical key and falls back to the
+different public-proxy key, so a headless client receives 401 responses despite both sides
+sourcing the same Vault value. The bootstrap script uses the canonical key and falls back to the
 image-generated key only for manual operation when the Vault key is absent. The deployment
 normalizes leading/trailing whitespace from the Vault value before starting agent-canvas: HTTP
 headers cannot carry a pasted trailing newline, while the agent server otherwise treats it as
@@ -34,17 +35,16 @@ part of the key. After rotating this Vault secret, bump the non-secret
 `openhands.magmamoose.com/session-api-key-revision` pod-template annotation through GitOps so
 the new environment value reaches the process.
 
-Do not put any of these values in Git. If the Vault entry is missing, create it before enabling
-an OpenHands harness entry in the Nievah admin allowlist. Flux will then reconcile the
-ExternalSecrets and deployment from this directory.
+Do not put any of these values in Git. If the Vault entry is missing, create it before using
+OpenHands headlessly. Flux will then reconcile the ExternalSecrets and deployment from this
+directory.
 
 ## Operations
 
 OpenHands is enabled in `kubernetes/apps/kustomization.yaml`, and `openhands` is published in
-the LAN DNS role. Nievah remains on `claude-code` by default; select OpenHands per repository
-with `harness: openhands` or for one authorized command with
-`/pr-review --harness openhands` / `/pr-triage --harness openhands`.
-Nievah passes the per-run GitHub token through OpenHands' secret registry. When the optional
+the LAN DNS role. Its LiteLLM key is capped at 150K tokens and 60 requests per minute
+(`kubernetes/apps/litellm/base/keyseed-job.yaml`), so one long session cannot take the whole
+Luna limit every other client shares. When the optional
 `openhands-ssh-signing-key` Vault entry is provisioned, the container startup initializes an
 `ssh-agent`, exports its socket, and configures Git SSH signing for normal OpenHands commits;
 nested Claude sessions repeat that setup through the SessionStart hook. If the Vault entry is
