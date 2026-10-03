@@ -1,5 +1,5 @@
 # kics-scan disable=CKV_AWS_297
-# The scheduled ticks that replace the two Kubernetes CronJobs.
+# The scheduled ticks that replace the Kubernetes CronJobs.
 #
 # THIS IS NOT A LIKE-FOR-LIKE MOVE, and the difference is the reason to make it. A CronJob
 # runs INSIDE the cluster, so a wedged cluster silently stops ticking, and the only thing
@@ -13,8 +13,8 @@
 # tick.py has always described, one hop further out.
 
 locals {
-  # THE `tick` VALUE MUST MATCH nievah.worker.tick.CRONJOB_TICKS EXACTLY, which is
-  # ("planner_tick", "standup_tick") — WITH the suffix. This map's keys used to be the
+  # THE `tick` VALUE MUST MATCH A NAME IN nievah.worker.tick.CRONJOB_TICKS EXACTLY — WITH
+  # the `_tick` suffix ("planner_tick", not "planner"). This map's keys used to be the
   # payload as well as the resource name, so the schedules shipped `planner`/`standup` and
   # every fire would have been refused by enqueue_tick as `tick.unknown`. Nothing would have
   # caught it: the message IS consumed, `_run_tick` maps the refusal to 400, the consumer
@@ -34,16 +34,7 @@ locals {
       tick = "planner_tick"
       cron = "cron(7 6,8,10,12,14 * * ? *)"
     }
-    # 06:30 UTC, matching k8s/base/cronjob.yaml. This read `12` until 2026-08-18, which
-    # would have moved the standup 18 minutes earlier the moment ticks were enabled and cut
-    # the planner-to-standup gap from 23 minutes to 5 — the exact margin that file's own
-    # comment says to WIDEN, not shrink, since the standup reports on what the planner just
-    # did. A schedule copied between two systems has to be diffed, not eyeballed.
-    standup = {
-      tick = "standup_tick"
-      cron = "cron(30 6 * * ? *)"
-    }
-    # THE EVALUATOR, not the schedule. Unlike the two above — which each ARE one job's
+    # THE EVALUATOR, not the schedule. Unlike the planner above — which IS one job's
     # schedule — this one only wakes the maintenance tick so it can read the per-repo crons in
     # the admin repo's `.github/nievah-maintenance.yml` and decide what is owed. Hourly is the
     # cadence, and it is a contract in two directions: a per-repo cron whose MINUTE is not one
