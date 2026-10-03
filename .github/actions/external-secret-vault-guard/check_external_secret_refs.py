@@ -485,50 +485,17 @@ def main() -> int:
             states[name.strip()] = (state.strip() or "ACTIVE")
     else:
         missing_env = [v for v in OCI_ENV_VARS if not os.environ.get(v, "").strip()]
-        if missing_env and not args.allow_skip:
-            # THE DEFAULT IS NOW RED. The original reasoning — never fail closed,
-            # because that reds every fork and Dependabot PR — was right about forks
-            # and wrong about everything else. It made "the secrets were never
-            # created" indistinguishable from "this run cannot hold them", and the
-            # first is a misconfiguration that then hides behind a green check for as
-            # long as nobody reads the annotation. It did exactly that: the guard
-            # shipped, was never given credentials, and verified nothing while passing
-            # every pull request in the repo it was written to protect.
-            #
-            # A caller that genuinely cannot hold secrets says so with --allow-skip:
-            # one visible line at the call site, rather than a silent property of
-            # every run everywhere.
-            gh("ERROR — vault comparison IMPOSSIBLE, and skipping was not permitted")
-            gh(f"  missing credentials: {', '.join(missing_env)}")
-            gh(f"  {len(findings.refs)} references were parsed but NOT verified.")
-            gh("")
-            gh("  Either provide the credentials (see this action's README), or pass")
-            gh("  allow-skip: true at the call site for runs that cannot hold them")
-            gh("  (fork pull requests, Dependabot). Do not set it unconditionally —")
-            gh("  that restores the behaviour this exit code exists to end.")
-            note = (
-                f"External Secret vault guard could not run: {', '.join(missing_env)} "
-                f"unset and allow-skip is false. {len(findings.refs)} references parsed, "
-                f"none verified."
-            )
-            if not args.no_annotations:
-                gh(f"::error title=External Secret vault guard NOT RUN::{note}")
-            summary(f"### External Secrets\n\n**FAILED** — {note}")
-            return 2
 
-        if missing_env:
-            # Skipping was explicitly permitted for this run. Still never prints
-            # "PASS": two green outcomes, two distinct words.
-            gh("VAULT COMPARISON SKIPPED (allow-skip)")
+        # If ALL credentials are absent, skip with a warning.
+        # If SOME but not all are present, that is a misconfiguration—hard-fail.
+        if len(missing_env) == len(OCI_ENV_VARS):
+            # All OCI credentials are absent: skip (exit 0) with warning.
+            gh("WARNING — vault comparison SKIPPED (all OCI credentials absent)")
             gh(f"  missing credentials: {', '.join(missing_env)}")
             gh(f"  {len(findings.refs)} references were parsed but NOT verified.")
-            gh("  Expected on fork and Dependabot pull requests. On a normal branch")
-            gh("  it means the org secrets are not set yet — see this action's README.")
             gh("")
-            for r in findings.refs:
-                gh(f"  would check  {r.key}  ({r.file}:{r.line})")
             note = (
-                f"External Secret vault guard SKIPPED — credentials unavailable "
+                f"External Secret vault guard SKIPPED — all OCI credentials absent "
                 f"({', '.join(missing_env)}). {len(findings.refs)} references parsed, "
                 f"none verified."
             )
@@ -536,6 +503,23 @@ def main() -> int:
                 gh(f"::notice title=External Secret vault guard SKIPPED::{note}")
             summary(f"### External Secrets\n\n**SKIPPED** — {note}")
             return 0
+        elif missing_env:
+            # Some but not all credentials are present: hard-fail.
+            gh("ERROR — vault comparison IMPOSSIBLE (partial credentials)")
+            gh(f"  missing credentials: {', '.join(missing_env)}")
+            gh(f"  {len(findings.refs)} references were parsed but NOT verified.")
+            gh("")
+            gh("  Provide all OCI credentials or none. A partial set indicates")
+            gh("  misconfiguration. See this action's README.")
+            note = (
+                f"External Secret vault guard could not run: partial credentials "
+                f"({', '.join(missing_env)} missing). {len(findings.refs)} references "
+                f"parsed, none verified."
+            )
+            if not args.no_annotations:
+                gh(f"::error title=External Secret vault guard NOT RUN::{note}")
+            summary(f"### External Secrets\n\n**FAILED** — {note}")
+            return 2
 
         try:
             states = fetch_vault_secrets(args.vault_id, args.compartment_id)
