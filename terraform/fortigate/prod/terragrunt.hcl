@@ -130,6 +130,23 @@ inputs = {
       peer_lan_subnet = "192.168.220.0/22"
       bgp_asn         = 65010
       peer_bgp_asn    = 65020
+
+      # OCI VPN — oci-t1 only (first import slice; oci-t2 follows in a later PR).
+      # BGP inside IPs must match terraform/oci/prod/eu-amsterdam-1/vpn-fortigate.
+      # Import the three hand-built FortiOS objects before the first apply:
+      #   terragrunt import 'fortios_vpnipsec_phase1interface.oci["fgt1/oci-t1"]' oci-t1
+      #   terragrunt import 'fortios_vpnipsec_phase2interface.oci["fgt1/oci-t1"]' oci-t1-p2
+      #   terragrunt import 'fortios_system_interface.oci_tunnel["fgt1/oci-t1"]'  oci-t1
+      oci_vpn = {
+        tunnels = [
+          {
+            name            = "oci-t1"
+            remote_gw       = "193.123.39.30"
+            bgp_customer_ip = "169.254.22.2/30"
+            bgp_oracle_ip   = "169.254.22.1"
+          }
+        ]
+      }
     }
 
     fgt2 = {
