@@ -29,7 +29,8 @@ name and age. If cluster.readable is false, write `**Cluster**: alerts could not
 Otherwise leave it out.
 
 Reply exactly [SILENT] and nothing else when no needs_you item is new, the Overnight line would
-be empty, and no alert in cluster.critical_firing is new.
+be empty, cluster.critical_firing is empty, and cluster.readable is true. A critical alert that
+is still firing keeps its one Cluster line every morning until it clears.
 
 If needs_you fails or returns an error, reply with one line saying Nievah could not be checked
 and why, and nothing else.
