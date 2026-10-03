@@ -484,11 +484,15 @@ def main() -> int:
             name, _, state = ln.partition("\t")
             states[name.strip()] = (state.strip() or "ACTIVE")
     else:
+        # OCI_REGION always carries a workflow default, so it can't signal
+        # "no credentials supplied". Decide the skip on the secret-bearing vars.
+        secret_env = [v for v in OCI_ENV_VARS if v != "OCI_REGION"]
         missing_env = [v for v in OCI_ENV_VARS if not os.environ.get(v, "").strip()]
+        missing_secrets = [v for v in secret_env if not os.environ.get(v, "").strip()]
 
-        # If ALL credentials are absent, skip with a warning.
+        # If ALL secret credentials are absent, skip with a warning.
         # If SOME but not all are present, that is a misconfiguration—hard-fail.
-        if len(missing_env) == len(OCI_ENV_VARS):
+        if len(missing_secrets) == len(secret_env):
             # All OCI credentials are absent: skip (exit 0) with warning.
             gh("WARNING — vault comparison SKIPPED (all OCI credentials absent)")
             gh(f"  missing credentials: {', '.join(missing_env)}")

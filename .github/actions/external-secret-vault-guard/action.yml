@@ -38,13 +38,11 @@ inputs:
     default: "25"
   allow-skip:
     description: >-
-      Permit exiting 0 when the OCI credentials are absent. FALSE BY DEFAULT, and
-      that default is the whole point of this input: the guard previously skipped
-      whenever credentials were missing and reported success, so a repository that
-      had simply never set the secrets got a green check that verified nothing —
-      for as long as nobody looked. Set this true ONLY where the run genuinely
-      cannot hold secrets: a pull request from a fork, or Dependabot. Anywhere
-      else, missing credentials are a misconfiguration and should be red.
+      Retained for backward compatibility; the guard no longer uses this flag.
+      The skip decision is now automatic: when all five secret-bearing OCI vars
+      are absent the guard skips (exit 0); when some but not all are present it
+      hard-fails (exit 2). OCI_REGION is excluded from the check because the
+      workflow always provides a default for it.
     required: false
     default: "false"
   oci-tenancy-ocid:
