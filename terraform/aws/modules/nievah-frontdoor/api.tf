@@ -84,8 +84,9 @@ resource "aws_apigatewayv2_stage" "producer" {
   # gateway with a 429 and never reach Lambda — so an abusive burst costs gateway requests
   # rather than gateway requests AND invocations.
   #
-  # Applied both at the stage level (default_route_settings) and explicitly for all routes
-  # (route_settings) to ensure AWS enforces them regardless of account-level settings.
+  # Applied at the stage level (default_route_settings) for any routes without explicit overrides,
+  # and pinned explicitly via route_settings for $default so the gateway enforces this ceiling
+  # over any account-level throttling defaults — the most-specific match wins in API Gateway.
   default_route_settings {
     throttling_rate_limit  = var.throttle_rate_limit
     throttling_burst_limit = var.throttle_burst_limit
