@@ -120,3 +120,10 @@ build failure, which is what you want before you push.
 | Terragrunt | A plan fails on any affected leaf |
 
 See [GitHub Actions workflows](../reference/github-workflows.md).
+
+### Resolving security findings
+
+When a security scanner flags an issue in Terraform code that you have deliberately accepted,
+suppress it in-source using the syntax your scanner honours. See
+[Terraform security suppression conventions](../guides/chargate-terraform.md) for the exact
+comment syntax, mandatory justification rule, and how to verify your work.
