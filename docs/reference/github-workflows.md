@@ -52,7 +52,10 @@ works arrives on `main`.
 
 ## Runners
 
-Terraform jobs run on `firefly-amd64`, an actions-runner-controller scale set name. The docs
+Terraform `apply` jobs, and the plans for the few leaves that reach devices on the home
+network, run on `firefly-amd64`, an actions-runner-controller scale set name. Every other
+Terraform job runs on `ubuntu-latest`; see
+[Where plans run](../operations/terraform-delivery.md#where-plans-run). The docs
 build runs on `ubuntu-latest` on purpose: this repository is public, so hosted minutes are
 unmetered, and self-hosting would only put the job behind the private repos in the
 self-hosted queue.

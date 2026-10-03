@@ -8,6 +8,7 @@
 # Subcommands:
 #   discover all                     every leaf, one path per line
 #   discover changed <changed-files> only leaves affected by those files
+#   lan-stacks                       leaves that plan on the self-hosted pool
 #   plan    <stack> <outdir>         writes <outdir>/{status,plan.txt}
 #   apply   <stack> <outdir>         writes <outdir>/status
 #   redact  <file>                   strips sensitive-looking lines to stdout
@@ -90,6 +91,43 @@ discover_changed() {
   } | sort -u
 }
 
+# Leaves whose plan has to run on the self-hosted `firefly-amd64` pool, because a
+# provider in them connects to a device only the home network can reach. Every
+# other leaf only calls public cloud APIs and plans on a GitHub-hosted runner (see
+# the header of .github/workflows/terragrunt.yml). Decided from each leaf's
+# provider config, not its name:
+#
+#   fortigate/prod                fortios: the units' management IPs are home-LAN
+#                                 addresses
+#   mikrotik/prod                 routeros: the CRS switches' API is on the home LAN
+#   mikrotik/wireguard-mesh/prod  routeros: ff-crs1's API is on the home LAN, and
+#                                 the CHR APIs are restricted as below
+#   oci/.../mikrotik              routeros: the CHRs' API port is on public IPs,
+#                                 but the OCI edge security list only admits the
+#                                 operator management CIDRs
+#                                 (routeros_api_management_cidrs)
+#
+# oci/.../vpn-fortigate is not here despite its name: it only calls the OCI API.
+# A new leaf that talks to on-prem kit has to be added, or its plan fails at
+# provider connect on a hosted runner with an error that reads like an outage.
+LAN_STACKS=(
+  terraform/fortigate/prod
+  terraform/mikrotik/prod
+  terraform/mikrotik/wireguard-mesh/prod
+  terraform/oci/prod/eu-amsterdam-1/mikrotik
+)
+
+# An entry that names no leaf (after a rename or a move) would otherwise send
+# that leaf to a hosted runner without a word, so it fails discovery instead.
+lan_stacks() {
+  local all s
+  all="$(discover_all)"
+  for s in "${LAN_STACKS[@]}"; do
+    grep -Fxq -- "$s" <<<"$all" || { echo "LAN_STACKS entry is not a leaf: $s" >&2; exit 2; }
+  done
+  printf '%s\n' "${LAN_STACKS[@]}"
+}
+
 run_stack() {
   local action="$1" stack="$2" outdir="$3"
   mkdir -p "$outdir"
@@ -145,11 +183,12 @@ case "${1:-}" in
       *) echo "usage: $0 discover all|changed <file>" >&2; exit 2 ;;
     esac
     ;;
+  lan-stacks) lan_stacks ;;
   plan)   run_stack plan  "${2:?stack}" "${3:?outdir}" ;;
   apply)  run_stack apply "${2:?stack}" "${3:?outdir}" ;;
   redact) redact "${2:?file}" ;;
   *)
-    echo "usage: $0 {discover all|discover changed <file>|plan <stack> <out>|apply <stack> <out>|redact <file>}" >&2
+    echo "usage: $0 {discover all|discover changed <file>|lan-stacks|plan <stack> <out>|apply <stack> <out>|redact <file>}" >&2
     exit 2
     ;;
 esac

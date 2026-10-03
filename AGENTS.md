@@ -125,7 +125,7 @@ it is a physically separate k3s cluster and cannot reach firefly's `postgres`.
 
 ### 4. Terraform PR Integration
 
-`.github/workflows/terragrunt.yml` (a thin wrapper around `scripts/terragrunt-pipeline.sh`) plans every leaf a pull request affects and applies from `main` behind a protected environment. It replans every leaf when `terraform/root.hcl`, a `region.hcl` or a shared module changes, and it excludes `terraform/oci/cloudworkers/**`. See `docs/operations/terraform-delivery.md`. Atlantis was removed on 2026-09-16.
+`.github/workflows/terragrunt.yml` (a thin wrapper around `scripts/terragrunt-pipeline.sh`) plans every leaf a pull request affects and applies from `main` behind a protected environment. It replans every leaf when `terraform/root.hcl`, a `region.hcl` or a shared module changes, and it excludes `terraform/oci/cloudworkers/**`. Plans run on `ubuntu-latest` except the leaves in `LAN_STACKS` (`scripts/terragrunt-pipeline.sh`), whose providers reach on-prem devices and so plan on `firefly-amd64`; a new leaf that talks to home-network kit must be added there. See `docs/operations/terraform-delivery.md`. Atlantis was removed on 2026-09-16.
 
 ## Critical Developer Workflows
 
