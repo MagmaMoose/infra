@@ -200,8 +200,10 @@ data:
 
     # Nievah's events to the owner. Nievah POSTs a signed JSON event to
     # /webhooks/nievah on :8644 (ClusterIP only, never behind the ingress) when
-    # something needs the owner or closes a loop they started: a critical alert it
-    # filed a fix for, a plan waiting for approval, a PR opened, merged or failed.
+    # something needs the owner or closes a loop they started: a plan waiting for
+    # approval, a question waiting for an answer, a PR opened, merged or failed.
+    # Alerts are not among them: Nievah posts each incident once in the errors
+    # channel and mentions the owner there when it needs a person.
     # deliver_only means no model runs: Nievah writes the whole message, and `{text}`
     # is posted verbatim to the Slack home channel (the owner's DM), so it arrives at
     # once and costs nothing. Every message names its exact reference (owner/repo#n),

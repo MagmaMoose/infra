@@ -341,9 +341,17 @@ spec:
             # No `continue` here. With it, a critical CNPG backup alert went on to
             # match the CNPGBackup route below too and was posted to the same
             # channel twice.
+            #
+            # Repeats daily, not every 4h. Nievah's alert lane posts each critical
+            # incident once, with HolmesGPT's look at it, and replies in that post's
+            # thread while it keeps firing, so this raw post is the backstop for when
+            # that lane is down. At 4h, the full NAS of 29 Sep (four alert groups over
+            # 30 hours) was about 32 raw posts here; daily it is about 8. An alert
+            # joining a group still posts within group_interval.
             - receiver: slack-critical
               matchers:
                 - 'severity="critical"'
+              repeat_interval: 24h
             # Now only sees the CNPG backup alerts that are not critical
             # (CNPGBackupMetricMissing), which still belong in slack-critical.
             - receiver: slack-critical
