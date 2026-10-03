@@ -83,9 +83,20 @@ resource "aws_apigatewayv2_stage" "producer" {
   # alarm can catch long before it matters. Requests over the limit are rejected by the
   # gateway with a 429 and never reach Lambda — so an abusive burst costs gateway requests
   # rather than gateway requests AND invocations.
+  #
+  # Applied both at the stage level (default_route_settings) and explicitly for all routes
+  # (route_settings) to ensure AWS enforces them regardless of account-level settings.
   default_route_settings {
     throttling_rate_limit  = var.throttle_rate_limit
     throttling_burst_limit = var.throttle_burst_limit
+  }
+
+  # Explicit route settings for $default to override any account-level throttling defaults.
+  # This ensures the documented ceiling is actually enforced.
+  route_settings {
+    route_key                       = "$default"
+    throttling_rate_limit           = var.throttle_rate_limit
+    throttling_burst_limit          = var.throttle_burst_limit
   }
 
   # No access_log_settings. Every decision the producer makes is already one JSON line in its
