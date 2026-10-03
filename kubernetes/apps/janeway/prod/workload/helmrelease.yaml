@@ -266,6 +266,13 @@ spec:
 
     cronJobs:
       priorityClassName: medium
+      # CronJobs do not need the shared files PVC (ReadWriteOnce, held by
+      # Deployment) — they operate against the database via Django ORM, not
+      # direct file I/O. Prevent volume attachment contention by not mounting
+      # the shared persistence volume: override the chart's default volumeMounts
+      # to exclude it.
+      volumeMounts: []
+      volumes: []
       jobs:
         # Enabled beyond the chart defaults: rolls per-access rows up into
         # HistoricArticleAccess. ArticleAccess gets a row per view AND per
