@@ -221,6 +221,11 @@ spec:
               # Nievah bounds the pace itself (one fallback leg at a time across the fleet,
               # compaction at 100K tokens), and 300K tokens per minute, three fifths of the
               # provider's limit, is the ceiling for when that is not enough.
+              #
+              # ORDER: this Job must finish before a Nievah image with the Codex fallback rolls
+              # out. Until it does, the key may not call gpt-5.6-luna and every fallback leg gets
+              # a 403. Check `kubectl -n automation logs job/litellm-keyseed-v7` for
+              # `nievah-fallback key updated` before merging that Nievah release.
               seed nievah-fallback "$NIEVAH_FALLBACK_KEY" '["fallback-easy","fallback-medium","fallback-hard","gpt-5.6-luna"]' 25 300000 60 || FAILED=1
 
               # These workloads previously shared the master key. They only need Luna
