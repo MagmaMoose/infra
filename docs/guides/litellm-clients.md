@@ -121,7 +121,7 @@ Claude Code client supplied and never stores or selects a personal versus Enterp
 account itself. Separate workloads can therefore use their own subscription account through the
 same model alias and gateway virtual key. The workload, not LiteLLM, owns the routing policy;
 for example Nievah selects its Enterprise bearer for `samenlevingszaken`, retries personal
-Claude, then falls back to OpenHands.
+Claude, then falls back to the Codex CLI on its own fallback key.
 
 If the UI does not expose the custom `model_info` fields directly, query the model
 metadata through the proxy API while authenticated with the master key:
@@ -222,21 +222,34 @@ The gateway's per-client access is virtual keys in Postgres, not anything in
 `config.yaml`. Each key has an alias, a budget, and a `models` allow-list, so a compromised
 client reaches only what its key names:
 
-| Alias | Vault entry | Models | Budget per 30 days |
-|---|---|---|---|
-| `openhands` | `openhands-litellm-api-key` | `gpt-5.6-luna`, the fallback aliases, and the `openhands-only` group (`gpt-5.6-terra`, `gpt-5.6-sol`) | $50 |
-| `nievah` | `nievah-litellm-api-key` | `claude-haiku-4-5-max`, `claude-sonnet-4-6-max`, `claude-opus-4-8-max` | none (subscription only, so no money) |
-| `nievah-fallback` | `nievah-fallback-litellm-api-key` | `fallback-easy`, `fallback-medium`, `fallback-hard` (all Luna) | $25 |
-| `hermes` | `hermes-litellm-api-key` | `agent-chat`, `agent-light` (Luna), the speech roles | $25 |
-| `holmes` | `holmesgpt-litellm-api-key` | `agent-investigate`, `agent-light` (Luna) | $25 |
-| `mem0` | `mem0-litellm-api-key` | `gpt-5.6-luna`, `text-embedding-3-small` | $10 |
-| `github-contributions`, `github-timesheet`, `docs-distributor` | `<alias>-litellm-api-key` | `gpt-5.6-luna` | $10 each |
+| Alias | Vault entry | Models | Budget per 30 days | Per minute |
+|---|---|---|---|---|
+| `openhands` | `openhands-litellm-api-key` | `gpt-5.6-luna`, the fallback aliases, and the `openhands-only` group (`gpt-5.6-terra`, `gpt-5.6-sol`) | $50 | 150K tokens, 60 requests |
+| `nievah` | `nievah-litellm-api-key` | `claude-haiku-4-5-max`, `claude-sonnet-4-6-max`, `claude-opus-4-8-max` | none (subscription only, so no money) | none |
+| `nievah-fallback` | `nievah-fallback-litellm-api-key` | `fallback-easy`, `fallback-medium`, `fallback-hard` (all Luna), and `gpt-5.6-luna` itself for the Codex CLI | $25 | 300K tokens, 60 requests |
+| `hermes` | `hermes-litellm-api-key` | `agent-chat`, `agent-light` (Luna), the speech roles | $25 | none |
+| `holmes` | `holmesgpt-litellm-api-key` | `agent-investigate`, `agent-light` (Luna) | $25 | none |
+| `mem0` | `mem0-litellm-api-key` | `gpt-5.6-luna`, `text-embedding-3-small` | $10 | none |
+| `github-contributions`, `github-timesheet`, `docs-distributor` | `<alias>-litellm-api-key` | `gpt-5.6-luna` | $10 each | none |
 
 **Nievah has two keys, and they must stay two.** `nievah` is its gateway key
 (`LITELLM_API_KEY`), which every primary leg presents on the Claude Max subscription. A
 budget on it would count subscription tokens at list price and refuse reviews for spend
 that was never money, and scoping it to the fallback aliases takes every primary leg off
-Claude. `nievah-fallback` is the only key Nievah's fallback rides.
+Claude. `nievah-fallback` is the only key Nievah's fallback rides: its direct calls name the
+aliases, and its agent lanes fall back to the Codex CLI, which names `gpt-5.6-luna` itself
+because Codex applies its model settings only to a model name it knows. Nievah no longer calls
+OpenHands.
+
+**The per-minute limits share one provider limit.** OpenAI allows 500K tokens per minute on Luna
+for every key together, and an agent loop sends its whole conversation with each request, so
+one long OpenHands session can fill it alone (one did on 28 Sep, 127 times, and starved Holmes).
+The two agent loops are capped (`tpm_limit`, `rpm_limit`) so that together they leave the other
+clients at least 50K. LiteLLM reserves a request's estimated tokens before sending it and
+refuses it with a 429 when they would not fit in the key's minute; it never queues. A single
+request larger than the key's limit is therefore always refused. The Codex CLI does not retry a
+429, so Nievah keeps its own pace under the cap (one fallback leg at a time, compaction at 100K
+tokens) rather than relying on it.
 
 Keys are database rows, so a restore from backup brings back whatever the dump held and
 nothing in Git corrects it. `kubernetes/apps/litellm/base/keyseed-job.yaml` upserts every
