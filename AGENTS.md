@@ -6,7 +6,7 @@ This guide provides essential architectural knowledge for AI agents working in t
 
 This monolithic repository manages a **distributed home lab** across multiple cloud providers and a local Kubernetes cluster:
 
-- **Kubernetes Core**: 4-node k3s cluster "firefly" — Raspberry Pi 5 control plane, one on-prem amd64 worker, and two arm64 OCI free-tier VMs (the native-cloud tier). Two more native-cloud VMs (`ff-oci3`/`ff-oci4`) are declared in Terraform in a **second OCI tenancy** but not yet applied
+- **Kubernetes Core**: k3s cluster "firefly" (5 nodes) — Raspberry Pi 5 control plane, one on-prem amd64 worker (`ff-vm1`), two arm64 OCI free-tier VMs in the caleb tenancy (`ff-oci1`/`ff-oci2`), and two more in the traceysargeant tenancy (`ff-oci3`/`ff-oci4`). All four OCI VMs form the **native-cloud** tier
 - **Cloud Infrastructure**: Multi-provider Terraform via Terragrunt (GCP, OCI, Cloudflare, AWS/Azure future)
 - **Configuration Management**: Ansible for system setup, bootstrapping, and complex provisioning
 - **GitOps Pipeline**: FluxCD v2 watches this repo and auto-deploys Kubernetes manifests
@@ -80,7 +80,8 @@ kubernetes/
     configs/                     # Cluster-wide namespaces (Flux Kustomization: infrastructure-configs)
     controllers/                 # cert-manager, external-secrets, 1password-connect, cloudnative-pg
                                  # (Flux Kustomization: infrastructure-controllers, dependsOn configs)
-    services/                    # cloudflared, minio, external-dns×2, postgres, mariadb
+    services/                    # cloudflared, external-dns×3, postgres, postgres-oci, mariadb,
+                                 # valkey, valkey-oci, pod-gateway  (minio dir exists but is inactive)
                                  # (Flux Kustomization: infrastructure-services, dependsOn controllers)
 ```
 
