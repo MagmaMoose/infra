@@ -11,7 +11,7 @@ spec:
   releaseName: github-timesheet
   chart:
     spec:
-      chart: charts/github-timesheet
+      chart: charts/timesheet
       reconcileStrategy: Revision # re-render when main advances
       sourceRef:
         kind: GitRepository
