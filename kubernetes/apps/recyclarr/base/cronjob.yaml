@@ -22,7 +22,7 @@ spec:
             - name: recyclarr
               # Bumped by the `media` ImageUpdateAutomation within 8.x (image-automation.yaml).
               # A new major changes the config syntax, so it needs a deliberate migration.
-              image: ghcr.io/recyclarr/recyclarr:8.7.2 # {"$imagepolicy": "flux-system:recyclarr"}
+              image: ghcr.io/recyclarr/recyclarr:8.7.3 # {"$imagepolicy": "flux-system:recyclarr"}
               args: ["sync"]
               env:
                 - name: SONARR_API_KEY
