@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-24T00:00:00Z",
+  "generated": "2026-10-07T00:00:00Z",
   "summary": "Monolithic infrastructure-as-code repo for a Raspberry Pi home lab plus multi-cloud (GCP/OCI/Cloudflare/AWS). Terragrunt-wrapped Terraform provisions cloud, Ansible bootstraps systems, FluxCD reconciles TWO k3s clusters: 'firefly' (Pi + OCI nodes) and 'franklinhouse' (6 VMs on a 3-node Proxmox cluster, folded in from calebsargeant/infra-v2 on 2026-08-13).",
   "entrypoints": [
     "kubernetes/clusters/firefly/kustomization.yaml",
@@ -132,6 +132,8 @@
         "recyclarr",
         "renovate",
         "sabnzbd",
+        "seaweedfs",
+        "seaweedfs-migration",
         "security-integrations",
         "sonarqube",
         "sonarr",
@@ -145,7 +147,7 @@
         "trivy-operator",
         "wordpress"
       ],
-      "notes": "access-control is franklinhouse-only and absent from kubernetes/apps/kustomization.yaml. mem0 directory exists but is commented out of kustomization.yaml (pending OCI Vault entries mem0-admin-api-key and mem0-jwt-secret).",
+      "notes": "access-control is franklinhouse-only and absent from kubernetes/apps/kustomization.yaml. seaweedfs replaces infrastructure/services/minio as the S3 backend for Thanos and Loki; seaweedfs-migration is a one-shot migration job alongside it.",
       "depends_on": [
         "kubernetes-components",
         "kubernetes-infrastructure"
@@ -157,7 +159,7 @@
       "tiers": {
         "configs": "infrastructure-configs — namespaces only",
         "controllers": "infrastructure-controllers — cert-manager, external-secrets, 1password-connect, cloudnative-pg (dependsOn configs)",
-        "services": "infrastructure-services — cloudflared, minio, external-dns×2, postgres, postgres-oci (CNPG pinned to the OCI native-cloud tier, ns database-oci), mariadb (dependsOn controllers)"
+        "services": "infrastructure-services — cloudflared, minio, external-dns×2, postgres, postgres-oci (CNPG pinned to the OCI native-cloud tier, ns database-oci), mariadb, pod-gateway, valkey, valkey-oci (dependsOn controllers)"
       },
       "depends_on": [
         "kubernetes-components"
