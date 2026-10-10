@@ -66,7 +66,7 @@ data:
       mkdir -p "$(dirname "$GH_HOSTS")"
       : > "$GH_HOSTS"
       while read -r host _api var; do
-        case "$host" in ''|\#*) continue ;; esac
+        case "$host" in ''|\#*) continue ;; esac  # nosemgrep: generic.nginx.security.request-host-used.request-host-used - shell variable from `read`, not an nginx request variable
         tok="$(printenv "BOOTSTRAP_${var}" || true)"
         [ -n "$tok" ] || continue
         printf '%s:\n    oauth_token: %s\n    git_protocol: https\n' "$host" "$tok" >> "$GH_HOSTS"
