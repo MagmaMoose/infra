@@ -92,7 +92,7 @@ spec:
               # spec. BOOTSTRAP_GITHUB_TOKEN and BOOTSTRAP_GHE_TOKEN stay: git's credential
               # helper reads them at push time.
               unset BOOTSTRAP_LLM_API_KEY BOOTSTRAP_SLACK_BOT_TOKEN BOOTSTRAP_CLICKUP_TOKEN \
-                BOOTSTRAP_AZURE_OPENAI_API_KEY BOOTSTRAP_AZURE_OPENAI_BASE_URL
+                BOOTSTRAP_TIER_GATEWAY_KEY BOOTSTRAP_TIER_GATEWAY_URL
               exec tini -- /opt/agent-canvas/entrypoint.sh
           ports:
             - name: http
@@ -190,19 +190,19 @@ spec:
                 secretKeyRef:
                   name: openhands
                   key: ghe-token
-            # Azure OpenAI endpoint and key, seeded into the azure-* LLM profiles (see
-            # seed.sh and externalsecret-azure-openai.yaml). Optional: without them the pod
-            # keeps the gateway profiles only.
-            - name: BOOTSTRAP_AZURE_OPENAI_BASE_URL
+            # The second gateway's URL and virtual key, seeded into the tier-* LLM profiles (see
+            # seed.sh and externalsecret-llm-gateway.yaml). Optional: without them the pod
+            # keeps this cluster's gateway profiles only.
+            - name: BOOTSTRAP_TIER_GATEWAY_URL
               valueFrom:
                 secretKeyRef:
-                  name: openhands-azure-openai
+                  name: openhands-llm-gateway
                   key: base-url
                   optional: true
-            - name: BOOTSTRAP_AZURE_OPENAI_API_KEY
+            - name: BOOTSTRAP_TIER_GATEWAY_KEY
               valueFrom:
                 secretKeyRef:
-                  name: openhands-azure-openai
+                  name: openhands-llm-gateway
                   key: api-key
                   optional: true
             # SSH signing key: OpenSSH private key content (op://Tech/raxfcw4kufj3yz6xh3rmp7a7zm).

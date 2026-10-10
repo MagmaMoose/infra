@@ -199,18 +199,16 @@ data:
     put_profile gpt-5.6-sol   litellm_proxy/gpt-5.6-sol   "$LLM_BASE" "${BOOTSTRAP_LLM_API_KEY:-}" high
     put_profile gpt-5.6-terra litellm_proxy/gpt-5.6-terra "$LLM_BASE" "${BOOTSTRAP_LLM_API_KEY:-}" medium
 
-    # Azure OpenAI, for Caleb's manual use in the UI. It goes straight to Azure, NOT through
-    # the LiteLLM gateway: the key is for manual use here only, and on the gateway any
-    # client with a broad enough key (Nievah, Hermes, the fallback aliases) could reach it.
-    # 2025-04-01-preview is the oldest api_version at which Azure serves the Responses API,
-    # which the SDK uses for the gpt-5 family; the SDK's own Azure default is older. When
-    # the key is present, the Azure profile is the default.
-    AZURE_OPENAI_API_VERSION="2025-04-01-preview"
-    if [ -n "${BOOTSTRAP_AZURE_OPENAI_API_KEY:-}" ] && [ -n "${BOOTSTRAP_AZURE_OPENAI_BASE_URL:-}" ]; then
-      put_profile azure-gpt-5.6-sol   azure/gpt-5.6-sol   "$BOOTSTRAP_AZURE_OPENAI_BASE_URL" "$BOOTSTRAP_AZURE_OPENAI_API_KEY" high   "$AZURE_OPENAI_API_VERSION"
-      put_profile azure-gpt-5.6-terra azure/gpt-5.6-terra "$BOOTSTRAP_AZURE_OPENAI_BASE_URL" "$BOOTSTRAP_AZURE_OPENAI_API_KEY" medium "$AZURE_OPENAI_API_VERSION"
-      put_profile azure-gpt-5.6-luna  azure/gpt-5.6-luna  "$BOOTSTRAP_AZURE_OPENAI_BASE_URL" "$BOOTSTRAP_AZURE_OPENAI_API_KEY" high   "$AZURE_OPENAI_API_VERSION"
-      PRIMARY_PROFILE="azure-gpt-5.6-sol"
+    # A second LiteLLM gateway, for Caleb's manual use in the UI, on a virtual key of its own that
+    # allows only that gateway's tier aliases and carries its own budget. The tiers name no model,
+    # so a model upgrade there needs nothing here, and spend is metered where the budget lives.
+    # Not added to this cluster's gateway: its clients (Nievah, Hermes, the fallback aliases) must
+    # not reach those models. When the key is present, tier-standard is the default.
+    if [ -n "${BOOTSTRAP_TIER_GATEWAY_KEY:-}" ] && [ -n "${BOOTSTRAP_TIER_GATEWAY_URL:-}" ]; then
+      put_profile tier-standard litellm_proxy/tier-standard "$BOOTSTRAP_TIER_GATEWAY_URL" "$BOOTSTRAP_TIER_GATEWAY_KEY" medium
+      put_profile tier-heavy    litellm_proxy/tier-heavy    "$BOOTSTRAP_TIER_GATEWAY_URL" "$BOOTSTRAP_TIER_GATEWAY_KEY" high
+      put_profile tier-light    litellm_proxy/tier-light    "$BOOTSTRAP_TIER_GATEWAY_URL" "$BOOTSTRAP_TIER_GATEWAY_KEY" low
+      PRIMARY_PROFILE="tier-standard"
     fi
 
     # ---- MCP servers ----------------------------------------------------------
@@ -347,7 +345,7 @@ data:
     # identity. enable_sub_agents defaults to false, so the mounted definitions in
     # ~/.agents/agents are inert until this flips it. There is no `llm` in the diff on
     # purpose: active_profile then loads that profile's LLM whole, so switching between
-    # the gateway and Azure leaves no stale field (an api_version, say) behind.
+    # the two gateways leaves no stale field behind.
     jq -n \
       --arg p "$PRIMARY_PROFILE" \
       --arg gn "${GIT_AUTHOR_NAME:-}" \
