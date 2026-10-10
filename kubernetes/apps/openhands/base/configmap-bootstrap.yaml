@@ -65,11 +65,11 @@ data:
       GH_HOSTS="${HOME}/.config/gh/hosts.yml"
       mkdir -p "$(dirname "$GH_HOSTS")"
       : > "$GH_HOSTS"
-      while read -r host _api var; do
-        case "$host" in ''|\#*) continue ;; esac  # nosemgrep: generic.nginx.security.request-host-used.request-host-used - shell variable from `read`, not an nginx request variable
+      while read -r forge _api var; do
+        case "$forge" in ''|\#*) continue ;; esac
         tok="$(printenv "BOOTSTRAP_${var}" || true)"
         [ -n "$tok" ] || continue
-        printf '%s:\n    oauth_token: %s\n    git_protocol: https\n' "$host" "$tok" >> "$GH_HOSTS"
+        printf '%s:\n    oauth_token: %s\n    git_protocol: https\n' "$forge" "$tok" >> "$GH_HOSTS"
       done < /reposync/hosts.txt
     )
     log "gh authenticated for $(grep -c '^[^[:space:]].*:$' "${HOME}/.config/gh/hosts.yml" 2>/dev/null || echo 0) host(s)"
