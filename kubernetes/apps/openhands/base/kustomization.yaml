@@ -5,13 +5,13 @@ resources:
   - namespace.yaml
   - externalsecret.yaml
   - externalsecret-signing.yaml
+  - externalsecret-azure-openai.yaml
   - pvc.yaml
   - configmap-bootstrap.yaml
   - configmap-git-hooks.yaml
   - configmap-subagents.yaml
   - configmap-skills.yaml
   - configmap-reposync.yaml
-  - migration-job.yaml
   - deployment.yaml
   - service.yaml
   - ingress.yaml

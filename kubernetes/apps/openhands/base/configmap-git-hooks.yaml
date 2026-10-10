@@ -11,8 +11,11 @@ metadata:
 data:
   # PATH-interceptor wrapper for the gh CLI. /git-hooks is prepended to PATH in the
   # container startup command, so this script runs instead of the system gh.
-  # Strips the OpenHands "created by an AI agent" footer from PR bodies before they
-  # reach the GitHub API, and passes everything else through unchanged.
+  # Strips OpenHands attribution ("created by an AI agent (OpenHands)", "Generated with
+  # OpenHands", co-author trailers) from PR, issue, comment and review bodies before
+  # they reach the GitHub API, and passes everything else through unchanged. The seed's
+  # attribution policy tells the model not to write these; this catches what slips past
+  # it on the gh path. The GitHub MCP server is not covered.
   gh: |
     #!/usr/bin/env bash
     set -euo pipefail
@@ -22,28 +25,32 @@ data:
     _GH="$(PATH="${PATH#/git-hooks:}" command -v gh 2>/dev/null || true)"
     [[ -n "$_GH" ]] || { echo "gh wrapper: real gh binary not found" >&2; exit 1; }
 
-    # Patterns to strip from PR bodies (case-sensitive, whole-line match).
+    # Lines to drop, case-insensitive. The SDK prompt only gives an example sentence, so
+    # the model words it differently each time ("This PR was created by an AI agent
+    # (OpenHands) on behalf of Caleb", "Opened with OpenHands"): match the shapes.
+    _ATTRIBUTION_RE='created by an ai agent|ai agent \(openhands\)|(generated|created|opened|written|authored|posted) (with|by|using|via) \[?openhands|co-authored-by:.*(openhands|all-hands)|<!--.*this pr was.*-->'
     _strip() {
-      { grep -v \
-          -e 'This pull request was created by an AI agent (OpenHands) on behalf of the user\.' \
-          -e '<!--.*This PR was.*-->' \
-          "$@" || true; } | \
+      { grep -viE "$_ATTRIBUTION_RE" "$@" || true; } | \
         awk 'BEGIN{t=0} /^[[:space:]]*$/{t++; next} {while(t>0){print ""; t--}; print}'
     }
 
-    if [[ "${1:-}" == "pr" && ("${2:-}" == "create" || "${2:-}" == "edit") ]]; then
+    case "${1:-} ${2:-}" in
+      "pr create"|"pr edit"|"pr comment"|"pr review"|"issue create"|"issue edit"|"issue comment")
       _args=("$@")
       _tmp_files=()
       trap 'rm -f "${_tmp_files[@]}"' EXIT
       for i in "${!_args[@]}"; do
         case "${_args[$i]}" in
-          --body)
+          --body|-b)
             j=$((i + 1))
             if [[ $j -lt ${#_args[@]} ]]; then
               _args[$j]="$(printf '%s' "${_args[$j]}" | _strip)"
             fi
             ;;
-          --body-file)
+          --body=*)
+            _args[$i]="--body=$(printf '%s' "${_args[$i]#--body=}" | _strip)"
+            ;;
+          --body-file|-F)
             j=$((i + 1))
             if [[ $j -lt ${#_args[@]} ]]; then
               _tmp=$(mktemp)
@@ -71,7 +78,8 @@ data:
       done
       "$_GH" "${_args[@]}"
       exit $?
-    fi
+      ;;
+    esac
 
     exec "$_GH" "$@"
 

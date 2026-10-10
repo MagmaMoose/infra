@@ -1023,8 +1023,9 @@ resource "cloudflare_zero_trust_access_policy" "dependency_track_api_host_token"
 # in-cluster OpenHands service (tunnels.tf). This is the strictest app in this
 # file on purpose: OpenHands runs an autonomous agent that writes code and acts
 # as Caleb on GitHub, so anyone who reaches the UI inherits that authority.
-# Hence Caleb-only (no Friends policy), device posture required, and a short
-# 8h session instead of the usual 24h. No bypass path apps — OpenHands has no
+# Hence Caleb-only (no Friends policy, one exact email), hardened cookies, and a
+# short 8h session instead of the usual 24h. Device posture was dropped on
+# 2026-09-16 (see the policy below). No bypass path apps — OpenHands has no
 # public callback or webhook surface that needs one.
 resource "cloudflare_zero_trust_access_application" "openhands" {
   account_id                = var.account_id
