@@ -11,8 +11,10 @@ profiles stay selectable.
 
 The pod is deliberately a single stateful instance. The pod itself is the sandbox boundary:
 it has GitHub write credentials and cluster DNS, but it has no Docker socket or Kubernetes API
-access. Every token it holds is readable from the agent's shell, so a prompt injection from a
-repository or fetched page can reach them; that is the cost of this design.
+access. The agent's shell sees the GitHub and enterprise tokens (git and gh need them); the
+seed-only tokens (LiteLLM, Slack, ClickUp, Azure) are unset before the agent server starts,
+and the SDK strips the session key. A prompt injection running as the same user can still
+reach all of them through the stored settings, so the pod remains the boundary.
 
 Two ingresses. `openhands.magmamoose.com` is the primary entrypoint: a proxied CNAME to the
 firefly cloudflared tunnel, gated by a Caleb-only Cloudflare Access app (one exact email,
@@ -100,9 +102,11 @@ reach them, so the API is the only declarative surface available.
 - **Credentials** — the scoped `openhands` LiteLLM key (see the LiteLLM keyseed Job), not
   the gateway master key. An agent with GitHub write access should not also hold admin
   rights over the gateway every other workload shares.
-- **Stored secrets** — `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN` (gh on GitHub Enterprise
-  repositories), `SLACK_BOT_TOKEN` and `CLICKUP_API_KEY`, which the agent's shell sees as
-  environment variables.
+- **gh** — per-host tokens in `~/.config/gh/hosts.yml`, written from repo-sync's
+  `hosts.txt`. Env vars cannot do it: the terminal exports a stored secret only into
+  commands that name it, and gh reads `GH_TOKEN`/`GITHUB_TOKEN` for `*.ghe.com` hosts too.
+- **Stored secrets** — `GITHUB_TOKEN`, `GHE_TOKEN`, `SLACK_BOT_TOKEN` and `CLICKUP_API_KEY`,
+  exported into a command only when the command names them.
 - **Git identity** — `misc_settings.app_preferences`, set from the `GIT_AUTHOR_*` env vars
   so the Deployment stays the single source.
 - **Sub-agents** — markdown definitions in `configmap-subagents.yaml`, mounted at
