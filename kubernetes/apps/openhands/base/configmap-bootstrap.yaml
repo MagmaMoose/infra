@@ -207,7 +207,7 @@ data:
     if [ -n "${BOOTSTRAP_TIER_GATEWAY_KEY:-}" ] && [ -n "${BOOTSTRAP_TIER_GATEWAY_URL:-}" ]; then
       put_profile tier-standard litellm_proxy/tier-standard "$BOOTSTRAP_TIER_GATEWAY_URL" "$BOOTSTRAP_TIER_GATEWAY_KEY" medium
       put_profile tier-heavy    litellm_proxy/tier-heavy    "$BOOTSTRAP_TIER_GATEWAY_URL" "$BOOTSTRAP_TIER_GATEWAY_KEY" high
-      put_profile tier-light    litellm_proxy/tier-light    "$BOOTSTRAP_TIER_GATEWAY_URL" "$BOOTSTRAP_TIER_GATEWAY_KEY" medium
+      put_profile tier-light    litellm_proxy/tier-light    "$BOOTSTRAP_TIER_GATEWAY_URL" "$BOOTSTRAP_TIER_GATEWAY_KEY" low
       PRIMARY_PROFILE="tier-standard"
     fi
 
