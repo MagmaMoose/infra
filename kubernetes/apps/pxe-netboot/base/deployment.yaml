@@ -4,16 +4,16 @@ metadata:
   name: pxe-netboot
   namespace: networking
   annotations:
-    checkov.io/skip1: "CKV_K8S_11=CPU limits unset estate-wide by design; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited."
-    checkov.io/skip2: "CKV_K8S_19=hostNetwork required: TFTP is a two-channel protocol and the data transfer uses client-selected ephemeral ports; any NAT or Service layer breaks the data channel."
-    checkov.io/skip3: "CKV_K8S_8=tftp runs dnsmasq in TFTP-only mode (--enable-tftp --port=0); it is a UDP-only server with no HTTP endpoint to probe."
-    checkov.io/skip4: "CKV_K8S_9=same as skip3: no HTTP endpoint."
-    checkov.io/skip5: "CKV_K8S_22=prepare initContainer writes temp files to /tmp for dnf5 metadata and rpm extraction; its outputs go to emptyDir mounts, not the root fs."
-    checkov.io/skip6: "CKV_K8S_23=prepare runs as UID 0 to import the Fedora RPM signing key and verify package signatures with rpmkeys; rpmkeys --import writes to the RPM database which requires root."
-    checkov.io/skip7: "CKV_K8S_25=tftp needs NET_BIND_SERVICE to bind 69/udp and SETUID/SETGID to drop to the dnsmasq system account; these are the minimum capabilities for a privilege-dropping daemon."
-    checkov.io/skip8: "CKV_K8S_28=NET_RAW is not added; this rule fires on any non-empty capabilities set. The three capabilities on tftp (NET_BIND_SERVICE, SETUID, SETGID) are necessary — see skip7."
-    checkov.io/skip9: "CKV_K8S_37=same as skip7: tftp's capabilities are the minimum required."
-    checkov.io/skip10: "CKV_K8S_40=dnsmasq drops to its own system account after binding; that UID is below 10000 by the upstream package. Changing it would require rebuilding the image."
+    # Checkov skips, per resource. Every container is non-root with a read-only root
+    # filesystem and drops ALL capabilities except tftp, which is what the rest are about.
+    checkov.io/skip1: "CKV_K8S_11=CPU limits unset estate-wide by design; see .trivyignore.yaml KSV-0011 and the Kyverno default-limitrange. Memory is limited."
+    checkov.io/skip2: "CKV_K8S_19=hostNetwork required: a TFTP transfer runs on a fresh ephemeral port the server picks, which no Service or NAT layer can follow."
+    checkov.io/skip3: "CKV_K8S_8=tftp has no probe: dnsmasq serves UDP only, the image has no TFTP client to probe with, and as PID 1 a dead dnsmasq restarts the container anyway."
+    checkov.io/skip4: "CKV_K8S_9=tftp: same as skip3. Nothing routes to it through a Service, so readiness gates nothing."
+    checkov.io/skip5: "CKV_K8S_23=tftp starts as root to bind 69/udp, then dnsmasq setuid()s to its own account. The other containers run as non-root."
+    checkov.io/skip6: "CKV_K8S_25=tftp adds NET_BIND_SERVICE (bind 69/udp) and SETUID/SETGID (drop to the dnsmasq user) after dropping ALL; nothing else."
+    checkov.io/skip7: "CKV_K8S_37=tftp: same as skip6."
+    checkov.io/skip8: "CKV_K8S_40=tftp starts as UID 0 (skip5) and dnsmasq then runs as the image's UID 100. The other containers run above 10000."
 spec:
   replicas: 1
   # hostNetwork binds 69/udp and HTTP_PORT on the node: a second pod could not
@@ -47,16 +47,25 @@ spec:
         - name: prepare
           image: quay.io/coreos/coreos-installer:release@sha256:6f48c735dd84156672d756a9a43434e75ceea5114f128c07d680fdc3e2d6ed79
           command: ["/bin/sh", "/pxe/prepare.sh"]
+          envFrom:
+            - configMapRef:
+                name: pxe-netboot-settings
           env:
             - name: HOST_IP
               valueFrom:
                 fieldRef:
                   fieldPath: status.hostIP
-          envFrom:
-            - configMapRef:
-                name: pxe-netboot-settings
+            # dnf5 keeps its repo cache under $HOME.
+            - name: HOME
+              value: /tmp
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
           resources:
             requests:
               cpu: 100m
@@ -77,6 +86,8 @@ spec:
               mountPath: /srv/ignition
             - name: nginx-conf
               mountPath: /srv/nginx
+            - name: prepare-tmp
+              mountPath: /tmp
       containers:
         - name: tftp
           image: docker.io/dockurr/dnsmasq:2.93@sha256:b40fbaa3a9c3742d5943a4bec789dabc6c5c932b2db76a4e052c84f0b8d173a2
@@ -127,6 +138,8 @@ spec:
             periodSeconds: 30
           securityContext:
             runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
@@ -147,6 +160,10 @@ spec:
             - name: ignition
               mountPath: /srv/ignition
               readOnly: true
+            # nginx writes its pid and temp files under /tmp; without this it
+            # exits at start on the read-only root filesystem.
+            - name: http-tmp
+              mountPath: /tmp
       volumes:
         - name: files
           configMap:
@@ -167,3 +184,11 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 1Mi
+        # dnf5's repo cache. The FCOS download lands straight in `boot`.
+        - name: prepare-tmp
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: http-tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi

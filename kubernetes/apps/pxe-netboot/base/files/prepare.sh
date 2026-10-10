@@ -5,7 +5,8 @@
 #   /srv/ignition   served over HTTP only, LAN-restricted: the Ignition config,
 #                   which carries the k3s join token
 # Every download is verified (FCOS by coreos-installer's GPG check, shim/GRUB by
-# rpmkeys, k3s by sha256) before anything is published.
+# rpmkeys, k3s by sha256) before anything is published. Runs as a non-root user
+# with no capabilities on a read-only root: only the emptyDirs and /tmp are writable.
 set -eu
 
 : "${HOST_IP:?}" "${HTTP_PORT:?}" "${LAN_CIDR:?}" "${FCOS_STREAM:?}"
@@ -16,7 +17,9 @@ BOOT=/srv/boot
 IGN=/srv/ignition
 TPL=/pxe
 work=$(mktemp -d)
-mkdir -p "$BOOT/fcos" "$BOOT/k3s" "$IGN" "$work/fcos" "$work/rpm"
+# Downloaded inside $BOOT so the ~1GB of FCOS is moved, not copied across volumes.
+dl="$BOOT/.download"
+mkdir -p "$BOOT/fcos" "$BOOT/k3s" "$IGN" "$dl" "$work/rpm" "$work/rpmdb"
 
 token=$(cat /run/pxe-join/token)
 case "$token" in
@@ -27,15 +30,16 @@ esac
 echo "== Fedora CoreOS ($FCOS_STREAM) live PXE images"
 # --architecture is required: it defaults to the host's, and this runs on an arm64 Pi.
 coreos-installer download --stream "$FCOS_STREAM" --architecture x86_64 \
-  --platform metal --format pxe --directory "$work/fcos" --fetch-retries 3
+  --platform metal --format pxe --directory "$dl" --fetch-retries 3
 for part in kernel initramfs rootfs; do
-  src=$(find "$work/fcos" -name "*-live-$part*" ! -name '*.sig' | head -n1)
+  src=$(find "$dl" -name "*-live-$part*" ! -name '*.sig' | head -n1)
   [ -n "$src" ] || { echo "no live $part in the download" >&2; exit 1; }
   case "$part" in
     kernel) mv "$src" "$BOOT/fcos/kernel"; basename "$src" > "$BOOT/fcos/RELEASE" ;;
     *) mv "$src" "$BOOT/fcos/$part.img" ;;
   esac
 done
+rm -rf "$dl"
 cat "$BOOT/fcos/RELEASE"
 
 echo "== shim + GRUB, signed for UEFI Secure Boot"
@@ -43,9 +47,10 @@ echo "== shim + GRUB, signed for UEFI Secure Boot"
 # GRUB, which only boots a Fedora-signed kernel. FCOS kernels are Fedora-signed.
 cd "$work/rpm"
 dnf5 -q download --forcearch=x86_64 --arch=x86_64 shim-x64 grub2-efi-x64
-rpmkeys --import "/etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-$(rpm -E %fedora)-primary"
+# A private RPM database, so trusting Fedora's key needs no root.
+rpmkeys --dbpath "$work/rpmdb" --import "/etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-$(rpm -E %fedora)-primary"
 for p in ./*.rpm; do
-  rpmkeys --checksig "$p" | grep -q ': digests signatures OK$' || {
+  rpmkeys --dbpath "$work/rpmdb" --checksig "$p" | grep -q ': digests signatures OK$' || {
     echo "signature check failed: $p" >&2; exit 1; }
   rpm2archive - < "$p" | tar -xz
 done
