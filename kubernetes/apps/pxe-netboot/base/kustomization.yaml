@@ -41,7 +41,7 @@ configMapGenerator:
       # Space-separated MACs that boot straight into the worker after 3s. Every
       # other PXE client gets the menu and falls through to its next boot device
       # after 10s, so a VM with network boot in its boot order can't join by accident.
-      - AUTOBOOT_MACS=
+      - AUTOBOOT_MACS=e8:80:88:3f:33:44
 labels:
   - pairs:
       placement.sargeant.co/priority: low
