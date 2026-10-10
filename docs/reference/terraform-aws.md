@@ -1,6 +1,6 @@
 # Terraform (AWS)
 
-<!-- sources: terraform/aws/modules, terraform/aws/prod, terraform/aws/chargate, terraform/aws/brimyr, terraform/root.hcl -->
+<!-- sources: terraform/aws/modules, terraform/aws/prod, terraform/aws/chargate, terraform/aws/brimyr, terraform/aws/diatreme, terraform/aws/dunmir, terraform/root.hcl -->
 
 The AWS estate is the newest of the four clouds in this repo and holds the serverless
 front doors: the parts of the fleet that have to answer a webhook in milliseconds and stay
@@ -33,6 +33,8 @@ Two of the modules follow that shape. The rest are smaller.
 | `nievah-frontdoor` | `producer` and `consumer` Lambdas, `events`/`jobs` FIFO queues with dead-letter queues, a DynamoDB dedup table, API Gateway, EventBridge Scheduler ticks, budget and alarms. | `prod/eu-west-1/nievah-frontdoor` |
 | `caldrith-frontdoor` | Same shape plus a third `reconcile` Lambda. No EventBridge ticks. | `prod/eu-west-1/caldrith-frontdoor` |
 | `chargate-broker` | A single `broker` Lambda behind API Gateway, with OIDC-audience auth. No queues, no table. | `chargate/`, `brimyr/` |
+| `diatreme-broker` | A broker Lambda behind API Gateway for the Diatreme release service. | `diatreme/prod/eu-west-1/diatreme-broker` |
+| `dunmir-platform` | Lambda behind API Gateway, a Cognito user pool, DynamoDB control-plane store, and S3 backup bucket for the Dün Mir backend. See [Dün Mir on AWS](../operations/dunmir-aws.md). | `dunmir/prod/eu-west-1/platform` |
 | `cost-report` | A scheduled Lambda that reads a BCM data export and posts to Slack via AWS Chatbot. | `prod/eu-west-1/cost-report` |
 
 `brimyr-broker` reuses the `chargate-broker` module rather than duplicating it, so a fix to
@@ -55,6 +57,10 @@ front doors take the bucket name as a dependency output rather than hardcoding i
 | `terraform/aws/chargate/prod/eu-west-1/chargate-broker` | `chargate-broker` |
 | `terraform/aws/brimyr/prod/eu-west-1/artifacts` | `artifacts` |
 | `terraform/aws/brimyr/prod/eu-west-1/brimyr-broker` | `chargate-broker` |
+| `terraform/aws/diatreme/prod/eu-west-1/artifacts` | `artifacts` |
+| `terraform/aws/diatreme/prod/eu-west-1/diatreme-broker` | `diatreme-broker` |
+| `terraform/aws/dunmir/prod/eu-west-1/artifacts` | `artifacts` |
+| `terraform/aws/dunmir/prod/eu-west-1/platform` | `dunmir-platform` |
 
 All of these leaves are planned by the Terragrunt workflow, which discovers leaves from
 the filesystem. See [Terraform delivery](../operations/terraform-delivery.md).

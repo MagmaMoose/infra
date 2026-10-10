@@ -117,6 +117,7 @@ build failure, which is what you want before you push.
 | Placement | A `placement.sargeant.co` label can't reach a pod template |
 | External Secrets | An `ExternalSecret` `remoteRef` doesn't resolve in OCI Vault |
 | Security | The PR diff introduces a new finding |
+| Quality | Patch coverage on the PR's diff falls below the threshold |
 | Terragrunt | A plan fails on any affected leaf |
 
 See [GitHub Actions workflows](../reference/github-workflows.md).

@@ -4,9 +4,9 @@ This script sets up automatic shutdown after 30 minutes of system inactivity on 
 
 ## Quick Setup
 
-1. Download the setup script:
+1. Download the setup script from the repository:
    ```bash
-   curl -O https://raw.githubusercontent.com/your-repo/setup-auto-shutdown.sh
+   curl -O https://raw.githubusercontent.com/CalebSargeant/infra/main/scripts/setup-auto-shutdown.sh
    chmod +x setup-auto-shutdown.sh
    ```
 

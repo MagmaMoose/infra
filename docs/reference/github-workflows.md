@@ -2,7 +2,7 @@
 
 <!-- sources: .github/workflows -->
 
-Ten workflows live in `.github/workflows`. Four of them are guards that fail a pull request
+Eleven workflows live in `.github/workflows`. Four of them are guards that fail a pull request
 when a specific bug class reappears, and each guard exists because that bug class already
 caused an outage.
 
@@ -11,7 +11,8 @@ caused an outage.
 | Terragrunt | `terragrunt.yml` | PR and push on `terraform/**`, `0 5 * * 1-5`, manual | Plans and applies Terraform. See [Terraform delivery](../operations/terraform-delivery.md). |
 | Placement | `placement.yml` | PR and push on `kubernetes/**`, manual | Fails a PR when a `placement.sargeant.co` label can't reach a pod template. |
 | External Secrets | `external-secrets.yml` | PR and push on `kubernetes/**`, `17 6 * * *`, manual | Checks every `ExternalSecret` remoteRef against the OCI Vault the `oci-vault` ClusterSecretStore reads. |
-| Security | `security.yml` | pull request | The org Chargate gate, MegaLinter-backed, gating on net-new findings in the PR diff. |
+| Security | `security.yml` | PR and push to `main` | The org Chargate gate: MegaLinter-backed net-new findings on PRs; SBOM upload to Dependency-Track on merge. |
+| Quality | `quality.yml` | pull request | The org Brimyr gate: patch coverage on the PR's own diff, with a consolidated PR comment. |
 | Release | `release.yml` | PR, push to `main`, manual | The org Diatreme release template: versioning, GitHub Release, and image builds. |
 | Build and Push Multi-Arch Images to GHCR | `docker-publish.yml` | push to `main`, `*-v*` tags, PRs touching `dockerfiles/**` | Builds four container images from `dockerfiles/`. |
 | Build & Deploy Docs | `docs.yml` | **manual only** | `mkdocs build --strict`, then deploys to GitHub Pages. |
