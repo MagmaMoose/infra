@@ -152,11 +152,10 @@ data:
     LLM_BASE="http://litellm.automation.svc.cluster.local:8080"  # DevSkim: ignore DS137138 - in-cluster ClusterIP, not externally reachable
     PRIMARY_PROFILE="gpt-5.6-luna"
 
+    # put_profile <name> <model> <base_url> <api_key> <reasoning_effort> [api_version]
     put_profile() {
-      _name="$1"; _model="$2"; _effort="$3"
-      jq -n --arg m "litellm_proxy/${_model}" --arg b "$LLM_BASE" \
-            --arg k "${BOOTSTRAP_LLM_API_KEY:-}" --arg e "$_effort" '{
-        llm: {
+      jq -n --arg m "$2" --arg b "$3" --arg k "$4" --arg e "$5" --arg v "${6:-}" '{
+        llm: ({
           model: $m,
           base_url: $b,
           api_key: $k,
@@ -165,20 +164,36 @@ data:
           drop_params: true,
           num_retries: 5,
           timeout: 300
-        }
-      }' | curl -fsS -o /dev/null -X POST "${BASE}/api/profiles/${_name}" \
+        } + (if $v != "" then {api_version: $v} else {} end))
+      }' | curl -fsS -o /dev/null -X POST "${BASE}/api/profiles/$1" \
             -H 'Content-Type: application/json' \
             -H "X-Session-API-Key: ${SESSION_KEY}" --data @- \
-        && log "profile ${_name} saved" \
-        || log "WARNING: profile ${_name} failed"
+        && log "profile $1 saved" \
+        || log "WARNING: profile $1 failed"
     }
 
     # litellm_proxy/ is the provider prefix the gateway expects. Do NOT use openai/ here:
     # it reaches the same endpoint but bypasses LiteLLM's model-group routing, so per-model
     # budgets and the key's model allow-list stop being enforced.
-    put_profile gpt-5.6-luna    gpt-5.6-luna    high
-    put_profile gpt-5.6-sol     gpt-5.6-sol     high
-    put_profile gpt-5.6-terra   gpt-5.6-terra   medium
+    put_profile gpt-5.6-luna  litellm_proxy/gpt-5.6-luna  "$LLM_BASE" "${BOOTSTRAP_LLM_API_KEY:-}" high
+    put_profile gpt-5.6-sol   litellm_proxy/gpt-5.6-sol   "$LLM_BASE" "${BOOTSTRAP_LLM_API_KEY:-}" high
+    put_profile gpt-5.6-terra litellm_proxy/gpt-5.6-terra "$LLM_BASE" "${BOOTSTRAP_LLM_API_KEY:-}" medium
+
+    # PinkAI, PinkRoccade's Azure OpenAI resource, for Caleb's PinkRoccade work in the UI.
+    # It goes straight to Azure, NOT through the LiteLLM gateway: the key is for manual use
+    # here only, and on the gateway any client with a broad enough key (Nievah, Hermes,
+    # the fallback aliases) could reach it. The key is the resource's key2, which no
+    # PinkRoccade workload uses, so it can be regenerated to cut this pod off without
+    # touching their gateway on key1. 2025-04-01-preview is the oldest api_version at
+    # which Azure serves the Responses API, which the SDK uses for the gpt-5 family; the
+    # SDK's own Azure default is older. When the key is present, PinkAI is the default.
+    PINKAI_API_VERSION="2025-04-01-preview"
+    if [ -n "${BOOTSTRAP_PINKAI_API_KEY:-}" ] && [ -n "${BOOTSTRAP_PINKAI_BASE_URL:-}" ]; then
+      put_profile pinkai-gpt-5.6-sol   azure/gpt-5.6-sol   "$BOOTSTRAP_PINKAI_BASE_URL" "$BOOTSTRAP_PINKAI_API_KEY" high   "$PINKAI_API_VERSION"
+      put_profile pinkai-gpt-5.6-terra azure/gpt-5.6-terra "$BOOTSTRAP_PINKAI_BASE_URL" "$BOOTSTRAP_PINKAI_API_KEY" medium "$PINKAI_API_VERSION"
+      put_profile pinkai-gpt-5.6-luna  azure/gpt-5.6-luna  "$BOOTSTRAP_PINKAI_BASE_URL" "$BOOTSTRAP_PINKAI_API_KEY" high   "$PINKAI_API_VERSION"
+      PRIMARY_PROFILE="pinkai-gpt-5.6-sol"
+    fi
 
     # ---- MCP servers ----------------------------------------------------------
     # The Slack server needs a team id alongside the bot token and there is no vault entry
@@ -200,16 +215,17 @@ data:
     # Pass the browser cache through the server environment; PUPPETEER_* variables would be
     # ignored by this renderer and could make a future configuration look effective when it is not.
     _BROWSER_CACHE="${PLAYWRIGHT_BROWSERS_PATH:-/home/openhands/.openhands/cache/playwright}"
-    # Normalize the session key for use as the nievah MCP bearer token — same
-    # trimming the deployment wrapper applies before handing it to the agent server.
-    _NIEVAH_KEY="$(printf '%s' "${OH_SESSION_API_KEYS_0:-}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
 
+    # No Nievah server. It used to send this pod's own session key as its bearer, which
+    # Nievah never accepted (its MCP token is a separate Vault entry), so every connect
+    # handed the credential that controls OpenHands to another service for a 401. Giving
+    # it Nievah's real token instead would hand operator rights over Nievah to an agent
+    # that reads untrusted repositories, so it is left out.
     MCP_CONFIG="$(jq -n \
       --arg gh      "${BOOTSTRAP_GITHUB_TOKEN:-}" \
       --arg slack   "${BOOTSTRAP_SLACK_BOT_TOKEN:-}" \
       --arg team    "$SLACK_TEAM_ID" \
       --arg cu      "${BOOTSTRAP_CLICKUP_TOKEN:-}" \
-      --arg nievah  "$_NIEVAH_KEY" \
       --arg browser_cache "$_BROWSER_CACHE" '
       {
         context7: {
@@ -247,12 +263,6 @@ data:
           description: "Caleb Sargeant knowledge base: CV and website (roles since 2012, skills, certs) plus personal tech docs at docs.calebsargeant.com (networking, Kubernetes, cloud, automation). Call get_profile for who he is, search_docs before answering anything about his experience."
         }
       }
-      + (if $nievah != "" then { nievah: {
-           transport: "http",
-           url: "https://nievah.magmamoose.com/mcp",
-           auth: { strategy: "bearer", value: $nievah },
-           description: "Nievah agent tools and capabilities (authenticated via session API key)"
-         } } else {} end)
       + (if $gh != "" then { github: {
            transport: "http",
            url: "https://api.githubcopilot.com/mcp/",
@@ -274,7 +284,35 @@ data:
            description: "ClickUp tasks and lists"
          } } else {} end)
     ')"
-    unset _BROWSER_CACHE _NIEVAH_KEY
+    unset _BROWSER_CACHE
+
+    # The settings PATCH deep-merges mcp_config, so a server dropped from the map above
+    # would otherwise live on in the stored settings. A null deletes a nested key: null
+    # out every stored server Git no longer declares, so the map converges to this file.
+    _STORED_MCP="$(curl -fsS -H "X-Session-API-Key: ${SESSION_KEY}" "${BASE}/api/settings" \
+      | jq -c '.agent_settings.mcp_config // {} | keys' 2>/dev/null)"
+    _GONE="$(jq -cn --argjson want "$MCP_CONFIG" --argjson have "${_STORED_MCP:-[]}" \
+      '[$have[] | select(. as $k | $want | has($k) | not)]')"
+    MCP_DIFF="$(jq -cn --argjson want "$MCP_CONFIG" --argjson gone "$_GONE" \
+      '$want + ($gone | map({(.): null}) | add // {})')"
+    [ "$_GONE" = "[]" ] || log "MCP servers no longer in Git, removing: $(jq -r 'join(", ")' <<<"$_GONE")"
+    unset _STORED_MCP _GONE
+
+    # ---- Attribution policy -----------------------------------------------------
+    # The SDK's built-in prompt tells the model to add "Co-authored-by: openhands" to
+    # commits and an "AI agent (OpenHands)" disclosure line to every PR, issue, comment and
+    # message it posts. Neither section can be switched off by a setting, so this suffix
+    # overrides both by name. The commit-msg hook and the gh wrapper in /git-hooks stay as
+    # the backstop for anything that slips through.
+    ATTRIBUTION_POLICY="$(cat <<'POLICY'
+    <ATTRIBUTION_POLICY>
+    The user has opted out of AI attribution. This overrides the AI disclosure rule in EXTERNAL_SERVICES and the Co-authored-by and git identity rule in VERSION_CONTROL:
+    * Never add Co-authored-by trailers, "Generated with" or "Generated by" lines, or any other AI or OpenHands credit to commit messages.
+    * Never add an AI disclosure note, such as "This PR was created by an AI agent (OpenHands) on behalf of the user", to pull requests, issues, comments, reviews, chat messages, emails or anything else posted to an external service.
+    * Do not set git user.name or user.email. The commit identity already comes from the environment.
+    </ATTRIBUTION_POLICY>
+    POLICY
+    )"
 
     # ---- Skills ---------------------------------------------------------------
     # Read every file from the openhands-skills ConfigMap and inject them inline. jq -s
@@ -289,18 +327,17 @@ data:
     # ---- Settings -------------------------------------------------------------
     # One PATCH carries the active LLM, the sub-agent switch, the MCP map and the git
     # identity. enable_sub_agents defaults to false, so the mounted definitions in
-    # ~/.agents/agents are inert until this flips it.
+    # ~/.agents/agents are inert until this flips it. There is no `llm` in the diff on
+    # purpose: active_profile then loads that profile's LLM whole, so switching between
+    # the gateway and PinkAI leaves no stale field (an api_version, say) behind.
     jq -n \
-      --arg m "litellm_proxy/${PRIMARY_PROFILE}" \
-      --arg b "$LLM_BASE" \
-      --arg k "${BOOTSTRAP_LLM_API_KEY:-}" \
       --arg p "$PRIMARY_PROFILE" \
       --arg gn "${GIT_AUTHOR_NAME:-}" \
       --arg ge "${GIT_AUTHOR_EMAIL:-}" \
-      --argjson mcp "$MCP_CONFIG" \
+      --arg suffix "$ATTRIBUTION_POLICY" \
+      --argjson mcp "$MCP_DIFF" \
       --argjson sk "$SKILLS" '{
         agent_settings_diff: {
-          llm: { model: $m, base_url: $b, api_key: $k },
           enable_sub_agents: true,
           mcp_config: $mcp,
           # Serial tool calls by default. 4 is a straight win on read-heavy work like
@@ -311,7 +348,8 @@ data:
             load_user_skills: true,
             # Carried explicitly: agent_context is replaced wholesale by this diff, so
             # omitting it would drop the default marketplace path.
-            marketplace_path: "marketplaces/default.json"
+            marketplace_path: "marketplaces/default.json",
+            system_message_suffix: $suffix
           }
         },
         misc_settings_diff: {
@@ -325,22 +363,45 @@ data:
       && log "settings applied (profile=${PRIMARY_PROFILE}, sub-agents on, $(echo "$MCP_CONFIG" | jq 'keys|length') MCP servers)" \
       || log "WARNING: PATCH /api/settings failed"
 
+    # ---- Agent profile ----------------------------------------------------------
+    # The UI launches conversations from the active agent profile, not from agent
+    # settings: the profile's llm_profile_ref picks the LLM and its own
+    # system_message_suffix is the one that reaches the prompt. Point it at the primary
+    # profile and give it the attribution policy. GET on the list seeds a default
+    # profile on a fresh instance, so there is always one to update.
+    AGENT_PROFILE="$(curl -fsS -H "X-Session-API-Key: ${SESSION_KEY}" "${BASE}/api/agent-profiles" \
+      | jq -r '.active_agent_profile_id as $a | .profiles[] | select(.id == $a) | .name' 2>/dev/null)"
+    if [ -n "$AGENT_PROFILE" ]; then
+      curl -fsS -H "X-Session-API-Key: ${SESSION_KEY}" "${BASE}/api/agent-profiles/${AGENT_PROFILE}" \
+        | jq --arg p "$PRIMARY_PROFILE" --arg s "$ATTRIBUTION_POLICY" \
+            '.profile | .llm_profile_ref = $p | .system_message_suffix = $s' \
+        | curl -fsS -o /dev/null -X POST "${BASE}/api/agent-profiles/${AGENT_PROFILE}" \
+            -H 'Content-Type: application/json' \
+            -H "X-Session-API-Key: ${SESSION_KEY}" --data @- \
+        && log "agent profile ${AGENT_PROFILE} uses ${PRIMARY_PROFILE}, attribution policy set" \
+        || log "WARNING: updating agent profile ${AGENT_PROFILE} failed"
+    else
+      log "WARNING: no active agent profile found; conversations keep their previous LLM"
+    fi
+
     # ---- Stored secrets -------------------------------------------------------
-    # custom_secrets are exposed to the agent's shell, which is how it authenticates git
-    # pushes. Kept separate from mcp_config: that map configures servers, this is what the
-    # agent itself can read.
+    # Stored secrets are exposed to the agent's shell as environment variables, which
+    # is how gh authenticates. Kept separate from mcp_config: that map configures
+    # servers, this is what the agent itself can read. gh picks GH_ENTERPRISE_TOKEN for
+    # repositories whose remote is pinkroccade.ghe.com and GITHUB_TOKEN for the rest.
     put_secret() {
       [ -n "$2" ] || return 0
-      jq -n --arg n "$1" --arg v "$2" '{custom_secrets: {($n): {value: $v}}}' \
+      jq -n --arg n "$1" --arg v "$2" --arg d "$3" '{name: $n, value: $v, description: $d}' \
         | curl -fsS -o /dev/null -X PUT "${BASE}/api/settings/secrets" \
             -H 'Content-Type: application/json' \
             -H "X-Session-API-Key: ${SESSION_KEY}" --data @- \
         && log "secret $1 stored" \
         || log "WARNING: storing $1 failed"
     }
-    put_secret GITHUB_TOKEN   "${BOOTSTRAP_GITHUB_TOKEN:-}"
-    put_secret SLACK_BOT_TOKEN "${BOOTSTRAP_SLACK_BOT_TOKEN:-}"
-    put_secret CLICKUP_API_KEY "${BOOTSTRAP_CLICKUP_TOKEN:-}"
+    put_secret GITHUB_TOKEN        "${BOOTSTRAP_GITHUB_TOKEN:-}"    "github.com token for git and gh"
+    put_secret GH_ENTERPRISE_TOKEN "${BOOTSTRAP_GHE_TOKEN:-}"       "pinkroccade.ghe.com token for gh"
+    put_secret SLACK_BOT_TOKEN     "${BOOTSTRAP_SLACK_BOT_TOKEN:-}" "Slack bot token"
+    put_secret CLICKUP_API_KEY     "${BOOTSTRAP_CLICKUP_TOKEN:-}"   "ClickUp API token"
 
     # ---- Sub-agents -----------------------------------------------------------
     # Rescans ~/.agents/agents (mounted from the openhands-subagents ConfigMap) and the

@@ -50,9 +50,9 @@ spec:
 # Service and bypasses Traefik. Same shape as n8n/sonarqube/dependency-track.
 #
 # This host carries real risk — OpenHands edits code and acts as Caleb on GitHub —
-# so it is gated by the Caleb-only Cloudflare Access app with macOS device posture
-# (access_apps.tf → openhands). Do not add path bypasses to that app, and do not
-# widen it to the Friends group.
+# so it is gated by the Caleb-only Cloudflare Access app (access_apps.tf →
+# openhands; no device posture since 2026-09-16, see the policy there). Do not add
+# path bypasses to that app, and do not widen it to the Friends group.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

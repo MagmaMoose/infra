@@ -478,8 +478,8 @@ resource "cloudflare_zero_trust_tunnel_cloudflared_config" "firefly" {
     # openhands.sargeant.co; now also reachable off-LAN at this hostname so the
     # agent can be driven remotely. It is a high-privilege workload (it edits
     # code and acts as Caleb on GitHub), so the Access app in access_apps.tf is
-    # Caleb-only AND carries the macOS device-posture requirements — no Friends
-    # group, no service-token bypass, no public path exceptions. The
+    # Caleb-only (one exact email; no device posture, see the policy there) — no
+    # Friends group, no service-token bypass, no public path exceptions. The
     # openhands.sargeant.co / .local aliases stay off the tunnel as the LAN
     # fallback. WebSockets (the agent event stream) ride this rule unchanged;
     # cloudflared proxies Upgrade requests natively.

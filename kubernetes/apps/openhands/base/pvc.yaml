@@ -44,9 +44,12 @@ spec:
       storage: 75Gi
   storageClassName: longhorn-on-prem
 ---
-# The original local-path volume, kept only so migrate-state-v1 can read it. local-path
-# is node-local, so this PVC pins anything mounting it to ff-oci2. Delete this claim and
-# this block once the migration Job has completed and the history looks right.
+# The original local-path volume (node-local to ff-oci2), holding the conversation
+# history up to 2026-09-16. It was never copied: the one-shot migrate-state-v1 Job needed
+# openhands-state attached on ff-oci2 while the running pod held that RWO volume on-prem,
+# so it waited in ContainerCreating and kept prod-openhands unhealthy until the Job was
+# removed. Its `cp -a` would also overwrite the newer settings now on openhands-state.
+# Nothing mounts this claim; delete it and this block once that history is not wanted.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

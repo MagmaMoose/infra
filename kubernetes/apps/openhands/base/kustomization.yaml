@@ -11,7 +11,6 @@ resources:
   - configmap-subagents.yaml
   - configmap-skills.yaml
   - configmap-reposync.yaml
-  - migration-job.yaml
   - deployment.yaml
   - service.yaml
   - ingress.yaml
