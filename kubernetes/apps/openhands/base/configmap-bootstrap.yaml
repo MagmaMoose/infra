@@ -54,6 +54,26 @@ data:
 
     log "git config: hooksPath, URL rewrites, credential helpers ready"
 
+    # ---- gh authentication ------------------------------------------------------
+    # The terminal tool exports a stored secret only into commands that name it, so a
+    # plain `gh pr create` never sees GITHUB_TOKEN. Env vars cannot cover both forges
+    # anyway: gh reads GH_TOKEN/GITHUB_TOKEN for github.com and for *.ghe.com hosts alike.
+    # So write gh's own per-host config, from the host list repo-sync already uses. Like
+    # the git config above it lives on the ephemeral filesystem and is rewritten on start.
+    (
+      umask 077
+      GH_HOSTS="${HOME}/.config/gh/hosts.yml"
+      mkdir -p "$(dirname "$GH_HOSTS")"
+      : > "$GH_HOSTS"
+      while read -r forge _api var; do
+        case "$forge" in ''|\#*) continue ;; esac
+        tok="$(printenv "BOOTSTRAP_${var}" || true)"
+        [ -n "$tok" ] || continue
+        printf '%s:\n    oauth_token: %s\n    git_protocol: https\n' "$forge" "$tok" >> "$GH_HOSTS"
+      done < /reposync/hosts.txt
+    )
+    log "gh authenticated for $(grep -c '^[^[:space:]].*:$' "${HOME}/.config/gh/hosts.yml" 2>/dev/null || echo 0) host(s)"
+
     # ---- Claude Code session config (inside-pod claude invocations) -------
     # Writes ~/.claude/settings.json so any `claude` CLI session spawned inside this
     # pod inherits the same PreToolUse + SessionStart hooks enforced on the workstation:
@@ -385,8 +405,8 @@ data:
     # ---- Stored secrets -------------------------------------------------------
     # Stored secrets are exposed to the agent's shell as environment variables, which
     # is how gh authenticates. Kept separate from mcp_config: that map configures
-    # servers, this is what the agent itself can read. gh picks GH_ENTERPRISE_TOKEN for
-    # repositories cloned from the enterprise host and GITHUB_TOKEN for the rest.
+    # servers, this is what the agent itself can read. gh does not depend on these (see
+    # gh authentication above); they are for commands that name them, such as curl.
     put_secret() {
       [ -n "$2" ] || return 0
       jq -n --arg n "$1" --arg v "$2" --arg d "$3" '{name: $n, value: $v, description: $d}' \
@@ -396,8 +416,8 @@ data:
         && log "secret $1 stored" \
         || log "WARNING: storing $1 failed"
     }
-    put_secret GITHUB_TOKEN        "${BOOTSTRAP_GITHUB_TOKEN:-}"    "github.com token for git and gh"
-    put_secret GH_ENTERPRISE_TOKEN "${BOOTSTRAP_GHE_TOKEN:-}"       "GitHub Enterprise token for gh"
+    put_secret GITHUB_TOKEN        "${BOOTSTRAP_GITHUB_TOKEN:-}"    "github.com token"
+    put_secret GHE_TOKEN           "${BOOTSTRAP_GHE_TOKEN:-}"       "GitHub Enterprise token"
     put_secret SLACK_BOT_TOKEN     "${BOOTSTRAP_SLACK_BOT_TOKEN:-}" "Slack bot token"
     put_secret CLICKUP_API_KEY     "${BOOTSTRAP_CLICKUP_TOKEN:-}"   "ClickUp API token"
 

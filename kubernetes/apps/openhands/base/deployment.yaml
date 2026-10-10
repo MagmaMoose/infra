@@ -87,6 +87,12 @@ spec:
                 OH_SESSION_API_KEYS_0="$(printf '%s' "$OH_SESSION_API_KEYS_0" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
                 export OH_SESSION_API_KEYS_0
               fi
+              # Tokens only the seed needs leave the environment here, so the agent's shell
+              # cannot list them with `env`. The postStart seed still gets them from the pod
+              # spec. BOOTSTRAP_GITHUB_TOKEN and BOOTSTRAP_GHE_TOKEN stay: git's credential
+              # helper reads them at push time.
+              unset BOOTSTRAP_LLM_API_KEY BOOTSTRAP_SLACK_BOT_TOKEN BOOTSTRAP_CLICKUP_TOKEN \
+                BOOTSTRAP_AZURE_OPENAI_API_KEY BOOTSTRAP_AZURE_OPENAI_BASE_URL
               exec tini -- /opt/agent-canvas/entrypoint.sh
           ports:
             - name: http
