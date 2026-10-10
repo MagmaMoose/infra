@@ -541,6 +541,10 @@ If you accidentally stage a secret, remove it with `git reset HEAD <file>` befor
    output file and injects only the first 8,000 characters of the newest one, so a job that
    reads itself nests its prompts and loses the previous answer from the second run on. Pass
    state forward with the job's pre-run `script` instead (see `files/daily_brief_context.py`).
+11. **Scoping a Trivy ignore by writing a path after the ID** — the plain format drops it and the
+   rule goes off repo-wide. Trivy ignores live in `.trivyignore.yaml` (read via
+   `REPOSITORY_TRIVY_ARGUMENTS` in `.mega-linter.yml`); give every new entry `paths`. Prove it by
+   diffing a whole-repo scan before and after (COMMON_MISTAKES #42).
 
 ## Tool Use and Output Discipline
 

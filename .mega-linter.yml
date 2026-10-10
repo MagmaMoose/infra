@@ -15,7 +15,7 @@
 # Repo-wide rather than per-file on purpose: the identical line exists in
 # github-contributions, github-timesheet and github-usage-dashboard, so a
 # single-file exclude would only ever clear the PR in front of you — the same
-# argument .trivyignore makes for KSV-0040.
+# argument .trivyignore.yaml makes for KSV-0040.
 REPOSITORY_KINGFISHER_FILTER_REGEX_EXCLUDE: '(kubernetes/apps/.*/externalsecret\.yaml)'
 
 # kingfisher's "Postgres URL with hardcoded password" also fires on the LocalStack test
@@ -28,3 +28,8 @@ REPOSITORY_KINGFISHER_FILTER_REGEX_EXCLUDE: '(kubernetes/apps/.*/externalsecret\
 # only the global EXCLUDED_DIRECTORIES is. ARGUMENTS appends directly to the kingfisher
 # command line, bypassing that gap. betterleaks and secretlint still scan these directories.
 REPOSITORY_KINGFISHER_ARGUMENTS: '--exclude terraform/aws/localstack --exclude terraform/aws/localstack-dunmir'
+
+# Trivy's plain .trivyignore reads only the rule ID on each line, so it cannot scope an
+# ignore to a file: `KSV-0009 some/path.yaml` ignored hostNetwork for every manifest in
+# the repo. The YAML format honours `paths`, but Trivy only reads it when named here.
+REPOSITORY_TRIVY_ARGUMENTS: '--ignorefile .trivyignore.yaml'
