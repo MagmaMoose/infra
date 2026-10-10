@@ -19,6 +19,14 @@ inputs:
     description: Space-separated scan roots (repo-relative).
     required: false
     default: kubernetes
+  exclude-paths:
+    description: >-
+      Space-separated roots (repo-relative) under the scan roots whose refs resolve
+      against a different vault than this one, e.g. another cluster's store of the
+      same name. Listed as EXCLUDED and never compared, since comparing them here
+      reports a correct key MISSING and a wrong one PASS.
+    required: false
+    default: ""
   vault-stores:
     description: >-
       Space-separated KIND/NAME allowlist of stores whose remoteRef.key is a
@@ -115,6 +123,7 @@ runs:
       run: |
         args=()
         for p in ${{ inputs.paths }}; do args+=(--path "$p"); done
+        for p in ${{ inputs.exclude-paths }}; do args+=(--exclude "$p"); done
         for s in ${{ inputs.vault-stores }}; do args+=(--vault-store "$s"); done
         args+=(--min-vault-secrets "${{ inputs.min-vault-secrets }}")
         if [ "${{ inputs.report-orphans }}" = "true" ]; then args+=(--report-orphans); fi
