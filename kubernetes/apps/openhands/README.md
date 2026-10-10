@@ -6,13 +6,13 @@ calls it: Nievah's fallback after its Claude accounts is the Codex CLI on its ow
 OpenHands stays deployed for interactive use. The deployment uses the multi-arch
 `ghcr.io/openhands/agent-canvas` image, kept current by Flux image automation. Its public
 UI/proxy listens on port 8000 (and forwards `/api` to the internal V1 agent-server). The
-default LLM is an Azure OpenAI resource, called directly; the in-cluster LiteLLM gateway
-profiles stay selectable.
+default LLM is `tier-standard` on a second LiteLLM gateway, through a budget-capped virtual key;
+the in-cluster gateway's profiles stay selectable.
 
 The pod is deliberately a single stateful instance. The pod itself is the sandbox boundary:
 it has GitHub write credentials and cluster DNS, but it has no Docker socket or Kubernetes API
 access. The agent's shell sees the GitHub and enterprise tokens (git and gh need them); the
-seed-only tokens (LiteLLM, Slack, ClickUp, Azure) are unset before the agent server starts,
+seed-only tokens (both LiteLLM keys, Slack, ClickUp) are unset before the agent server starts,
 and the SDK strips the session key. A prompt injection running as the same user can still
 reach all of them through the stored settings, so the pod remains the boundary.
 
@@ -28,7 +28,7 @@ the UI asks for it, and agent-canvas does not embed it in the page.
 ## Authentication and secrets
 
 The OpenHands `ExternalSecret` reads the LiteLLM key, the bootstrap GitHub token and the stable
-`openhands-session-api-key` from OCI Vault; the Azure OpenAI endpoint and key have their
+`openhands-session-api-key` from OCI Vault; the second gateway's URL and key have their
 own ExternalSecret so a missing entry cannot block the main Secret. The session key
 is what the UI asks for at sign-in. Nievah used to send it as `X-Session-API-Key` for
 headless conversations; it no longer holds it, so nothing headless can start a
@@ -43,12 +43,11 @@ part of the key. After rotating this Vault secret, bump the non-secret
 `openhands.magmamoose.com/session-api-key-revision` pod-template annotation through GitOps so
 the new environment value reaches the process.
 
-`openhands-azure-openai` is JSON (`base_url`, `api_key`) holding the Azure OpenAI endpoint
-and the resource's secondary key. It is for Caleb's manual use in the UI only, so it is
-deliberately not on the LiteLLM gateway, where Nievah, Hermes or a fallback alias could
-reach it. The secondary key can be regenerated to revoke this copy without touching
-anything on the primary key; after a regeneration, update the OCI entry and restart the
-pod.
+`openhands-llm-gateway` is JSON (`base_url`, `api_key`): a second LiteLLM gateway and a virtual
+key on it that allows only its tier aliases and has its own budget. It is for Caleb's manual use
+in the UI. Those models are deliberately not on this cluster's gateway, where Nievah, Hermes or a
+fallback alias could reach them. The pod never holds a provider key: revoke or rotate the virtual
+key on that gateway, update the OCI entry and restart the pod.
 
 Product analytics are off: `DO_NOT_TRACK=1` for the agent-server and
 `AGENT_CANVAS_DISABLE_TELEMETRY=1` for the frontend, which otherwise sends PostHog an
@@ -82,10 +81,10 @@ the instance and hand-edits made in the UI are overwritten on the next restart. 
 deliberate: OpenHands keeps its settings encrypted on the state PVC, where Git cannot
 reach them, so the API is the only declarative surface available.
 
-- **LLM profiles** — `azure-gpt-5.6-sol` (active), `azure-gpt-5.6-terra` and
-  `azure-gpt-5.6-luna` go straight to Azure as `azure/<deployment>` on api_version
-  `2025-04-01-preview`, the oldest that serves the Responses API the SDK uses for gpt-5.
-  They exist only when the `openhands-azure-openai` entry does. `gpt-5.6-luna`, `gpt-5.6-sol`
+- **LLM profiles** — `tier-standard` (active), `tier-heavy` and `tier-light` go through the
+  second gateway as `litellm_proxy/<tier>`; which model a tier is, and what it costs, is that
+  gateway's business, so a model upgrade there needs nothing here. They exist only when the
+  `openhands-llm-gateway` entry does. `gpt-5.6-luna`, `gpt-5.6-sol`
   and `gpt-5.6-terra` go through the gateway with the `litellm_proxy/` prefix; they are
   the only provider models the OpenHands virtual key allows, and they fail while the
   gateway's OpenAI account has no credit. Using `openai/` instead of `litellm_proxy/`
