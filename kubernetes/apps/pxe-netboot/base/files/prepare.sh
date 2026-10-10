@@ -65,7 +65,7 @@ echo "$K3S_SHA256  $BOOT/k3s/k3s" | sha256sum -c -
 
 echo "== SSH keys for core (github.com/$SSH_KEYS_GITHUB_USER)"
 curl -fsSL --retry 3 -o "$work/authorized_keys" "https://github.com/$SSH_KEYS_GITHUB_USER.keys"
-grep -q '^ssh-' "$work/authorized_keys" || { echo "no SSH keys published" >&2; exit 1; }
+grep -qE '^(ssh-|ecdsa-sha2-|sk-)' "$work/authorized_keys" || { echo "no SSH keys published" >&2; exit 1; }
 
 echo "== grub.cfg"
 : > "$work/autoboot"
@@ -86,6 +86,7 @@ echo "== Ignition config"
 sed -e "s|@@K3S_SERVER@@|$K3S_SERVER|g" -e "s|@@TOKEN@@|$token|g" \
   "$TPL/k3s-config.yaml.tmpl" > "$work/k3s-config.yaml"
 data() { printf 'data:;base64,%s' "$(base64 -w0 "$1")"; }
+k3s_source="http://$HOST_IP:$HTTP_PORT/k3s/k3s"  # DevSkim: ignore DS137138 - LAN-only PXE server; integrity guaranteed by sha256 in the Ignition verification field
 # Modes are decimal: 493 = 0755, 420 = 0644, 384 = 0600, 448 = 0700.
 cat > "$IGN/worker.ign" <<EOF
 {
@@ -97,7 +98,7 @@ cat > "$IGN/worker.ign" <<EOF
     ],
     "files": [
       { "path": "/usr/local/bin/k3s", "mode": 493,
-        "contents": { "source": "http://$HOST_IP:$HTTP_PORT/k3s/k3s", "verification": { "hash": "sha256-$K3S_SHA256" } } },
+        "contents": { "source": "$k3s_source", "verification": { "hash": "sha256-$K3S_SHA256" } } },
       { "path": "/etc/rancher/k3s/config.yaml", "mode": 384, "contents": { "source": "$(data "$work/k3s-config.yaml")" } },
       { "path": "/usr/local/bin/ff-pxe-identity", "mode": 493, "contents": { "source": "$(data "$TPL/ff-pxe-identity.sh")" } },
       { "path": "/etc/systemd/system/ff-pxe-identity.service", "mode": 420, "contents": { "source": "$(data "$TPL/ff-pxe-identity.service")" } },

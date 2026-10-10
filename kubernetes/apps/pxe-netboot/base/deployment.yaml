@@ -16,10 +16,21 @@ spec:
     metadata:
       labels:
         app: pxe-netboot
+      annotations:
+        checkov.io/skip1: "CKV_K8S_11=CPU limits unset estate-wide by design; see .trivyignore KSV-0011 and the Kyverno default-limitrange. Memory is limited."
+        checkov.io/skip2: "CKV_K8S_19=hostNetwork required: TFTP is a two-channel protocol and the data transfer uses client-selected ephemeral ports; any NAT or Service layer breaks the data channel."
+        checkov.io/skip3: "CKV_K8S_8=tftp runs dnsmasq in TFTP-only mode (--enable-tftp --port=0); it is a UDP-only server with no HTTP endpoint to probe."
+        checkov.io/skip4: "CKV_K8S_9=same as skip3: no HTTP endpoint."
+        checkov.io/skip5: "CKV_K8S_22=prepare initContainer writes temp files to /tmp for dnf5 metadata and rpm extraction; its outputs go to emptyDir mounts, not the root fs."
+        checkov.io/skip6: "CKV_K8S_23=prepare runs as UID 0 to import the Fedora RPM signing key and verify package signatures with rpmkeys; rpmkeys --import writes to the RPM database which requires root."
+        checkov.io/skip7: "CKV_K8S_25=tftp needs NET_BIND_SERVICE to bind 69/udp and SETUID/SETGID to drop to the dnsmasq system account; these are the minimum capabilities for a privilege-dropping daemon."
+        checkov.io/skip8: "CKV_K8S_28=NET_RAW is not added; this rule fires on any non-empty capabilities set. The three capabilities on tftp (NET_BIND_SERVICE, SETUID, SETGID) are necessary — see skip7."
+        checkov.io/skip9: "CKV_K8S_37=same as skip7: tftp's capabilities are the minimum required."
+        checkov.io/skip10: "CKV_K8S_40=dnsmasq drops to its own system account after binding; that UID is below 10000 by the upstream package. Changing it would require rebuilding the image."
     spec:
       # TFTP through a Service/NAT breaks (the data transfer runs on a fresh
       # ephemeral port), so the pod lives in the node's network namespace.
-      hostNetwork: true
+      hostNetwork: true  # nosemgrep: yaml.kubernetes.security.hostnetwork-pod.hostnetwork-pod
       dnsPolicy: ClusterFirstWithHostNet
       # Pinned by hostname, not by placement tier: ff-crs1 hands out this node's IP
       # (192.168.19.11) as DHCP next-server. Moving the pod means changing that too.
@@ -27,6 +38,9 @@ spec:
         kubernetes.io/hostname: ff-pi2
       automountServiceAccountToken: false
       enableServiceLinks: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       initContainers:
         # Downloads and verifies everything a booting machine fetches. Fedora 44
         # userland with coreos-installer, dnf5 and rpmkeys, multi-arch.
@@ -41,6 +55,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: pxe-netboot-settings
+          securityContext:
+            allowPrivilegeEscalation: false
           resources:
             requests:
               cpu: 100m
@@ -78,6 +94,7 @@ spec:
             - --tftp-root=/srv/boot
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
               # Bind 69/udp, then drop to the dnsmasq user.
@@ -111,6 +128,7 @@ spec:
           securityContext:
             runAsNonRoot: true
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
           resources:
