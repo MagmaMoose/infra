@@ -127,6 +127,10 @@ class Skip:
 class Findings:
     refs: list[Ref] = field(default_factory=list)
     skips: list[Skip] = field(default_factory=list)
+    # Refs under an --exclude root: parsed and listed, never compared. Kept apart
+    # from skips because the caller chose them, so --fail-on-unverifiable must
+    # not promote them.
+    excluded: list[Skip] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     files_scanned: int = 0
     es_total: int = 0
@@ -340,10 +344,20 @@ def _append_ref(
     )
 
 
-def scan(paths: list[str], allow: set[str]) -> tuple[Findings, str | None]:
+def _excluded_by(path: Path, excludes: list[str]) -> str | None:
+    for root in excludes:
+        if Path(root) in (path, *path.parents):
+            return root
+    return None
+
+
+def scan(
+    paths: list[str], allow: set[str], excludes: list[str] | None = None,
+) -> tuple[Findings, str | None]:
     f = Findings()
     files, warn = discover_files(paths)
     for path in files:
+        first_ref = len(f.refs)
         raw = path.read_text(encoding="utf-8", errors="replace")
         try:
             docs = list(yaml.load_all(raw, Loader=_LineLoader))
@@ -363,6 +377,13 @@ def scan(paths: list[str], allow: set[str]) -> tuple[Findings, str | None]:
                 extract_external_secret(doc, str(path), f, allow)
             elif kind == "HelmRelease" and api.startswith("helm.toolkit.fluxcd.io/"):
                 extract_helmrelease(doc, str(path), f, allow)
+        root = _excluded_by(path, excludes or [])
+        if root:
+            f.excluded.extend(
+                Skip(r.file, r.line, f"{r.key}  (under --exclude {root})")
+                for r in f.refs[first_ref:]
+            )
+            del f.refs[first_ref:]
     return f, warn
 
 
@@ -410,6 +431,9 @@ def summary(text: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--path", action="append", default=None, help="scan root (repeatable)")
+    ap.add_argument("--exclude", action="append", default=None,
+                    help="root whose refs resolve against another vault: listed as "
+                         "EXCLUDED, not checked (repeatable)")
     ap.add_argument("--vault-store", action="append", default=None,
                     help="KIND/NAME allowlist (repeatable)")
     ap.add_argument("--vault-id", default=os.environ.get("OCI_VAULT_OCID", ""))
@@ -437,7 +461,7 @@ def main() -> int:
     paths = args.path or ["."]
     allow = set(args.vault_store or DEFAULT_VAULT_STORES)
 
-    findings, walk_warning = scan(paths, allow)
+    findings, walk_warning = scan(paths, allow, args.exclude)
     if walk_warning:
         gh(f"warning: {walk_warning}")
 
@@ -449,11 +473,15 @@ def main() -> int:
     gh(f"  HelmRelease blocks {findings.hr_enabled} enabled, {findings.hr_disabled} disabled")
     gh(f"  refs found         {len(findings.refs)} across {len(distinct)} distinct keys")
     gh(f"  refs skipped       {len(findings.skips)}")
+    if args.exclude:
+        gh(f"  refs excluded      {len(findings.excluded)}")
     gh("")
 
     for s in findings.skips:
         gh(f"  SKIPPED {s.file}:{s.line}  {s.reason}")
-    if findings.skips:
+    for s in findings.excluded:
+        gh(f"  EXCLUDED {s.file}:{s.line}  {s.reason}")
+    if findings.skips or findings.excluded:
         gh("")
 
     if findings.errors:

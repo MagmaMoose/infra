@@ -49,6 +49,10 @@ Stated plainly, because a guard that overpromises is worse than none:
 - **Keys a Helm chart hardcodes in its own templates.** Only keys named in
   values are visible; the chart itself is an external artifact and this guard
   will not do an unpinned network fetch to read it.
+- **Another vault's refs.** One run lists one vault. Roots passed as
+  `exclude-paths` (here: the franklinhouse-only trees, whose same-named store
+  reads a vault in a separate tenancy) are listed as `EXCLUDED` and not checked.
+  `--fail-on-unverifiable` does not promote them.
 - **Post-merge deletion.** This is a merge-time gate. The daily scheduled run is
   what catches a secret deleted from the vault after merge.
 
