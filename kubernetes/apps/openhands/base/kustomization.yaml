@@ -5,6 +5,7 @@ resources:
   - namespace.yaml
   - externalsecret.yaml
   - externalsecret-signing.yaml
+  - externalsecret-azure-openai.yaml
   - pvc.yaml
   - configmap-bootstrap.yaml
   - configmap-git-hooks.yaml

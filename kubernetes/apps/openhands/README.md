@@ -25,8 +25,9 @@ the UI asks for it, and agent-canvas does not embed it in the page.
 
 ## Authentication and secrets
 
-The OpenHands `ExternalSecret` reads the LiteLLM key, the bootstrap GitHub token, the Azure
-OpenAI endpoint and key, and the stable `openhands-session-api-key` from OCI Vault. The session key
+The OpenHands `ExternalSecret` reads the LiteLLM key, the bootstrap GitHub token and the stable
+`openhands-session-api-key` from OCI Vault; the Azure OpenAI endpoint and key have their
+own ExternalSecret so a missing entry cannot block the main Secret. The session key
 is what the UI asks for at sign-in. Nievah used to send it as `X-Session-API-Key` for
 headless conversations; it no longer holds it, so nothing headless can start a
 conversation. Inject it into agent-canvas as **`OH_SESSION_API_KEYS_0`**, its canonical V1 key variable.

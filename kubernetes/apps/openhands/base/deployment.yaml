@@ -184,20 +184,20 @@ spec:
                 secretKeyRef:
                   name: openhands
                   key: ghe-token
-            # Azure OpenAI endpoint and key, seeded into the azure-* LLM profiles (see seed.sh
-            # and the ExternalSecret). Optional: without them the pod keeps the gateway
-            # profiles only.
+            # Azure OpenAI endpoint and key, seeded into the azure-* LLM profiles (see
+            # seed.sh and externalsecret-azure-openai.yaml). Optional: without them the pod
+            # keeps the gateway profiles only.
             - name: BOOTSTRAP_AZURE_OPENAI_BASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: openhands
-                  key: azure-openai-base-url
+                  name: openhands-azure-openai
+                  key: base-url
                   optional: true
             - name: BOOTSTRAP_AZURE_OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: openhands
-                  key: azure-openai-api-key
+                  name: openhands-azure-openai
+                  key: api-key
                   optional: true
             # SSH signing key: OpenSSH private key content (op://Tech/raxfcw4kufj3yz6xh3rmp7a7zm).
             # Optional: the pod starts fine without it; agent-bootstrap.sh skips silently
