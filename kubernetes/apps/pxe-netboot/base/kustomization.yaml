@@ -1,0 +1,49 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# PXE netboot for RAM-only k3s workers. A machine that network-boots on the LAN
+# gets shim + GRUB over TFTP from ff-pi2, picks "Join firefly" (or auto-boots if
+# its MAC is in AUTOBOOT_MACS), runs Fedora CoreOS entirely from RAM and joins
+# firefly as a tainted agent. Its disks are never touched. The DHCP side lives on
+# ff-crs1 and is not managed from this repo; see docs/operations/pxe-netboot.md.
+resources:
+  - externalsecret.yaml
+  - deployment.yaml
+configMapGenerator:
+  - name: pxe-netboot-files
+    namespace: networking
+    files:
+      - files/prepare.sh
+      - files/grub.cfg.tmpl
+      - files/nginx.conf.tmpl
+      - files/k3s-config.yaml.tmpl
+      - files/ff-pxe-identity.sh
+      - files/ff-pxe-identity.service
+      - files/k3s-agent.service
+      - files/logind.conf
+      - files/sysctl.conf
+  - name: pxe-netboot-settings
+    namespace: networking
+    literals:
+      # HTTP port nginx listens on in ff-pi2's host network namespace (must match the
+      # http containerPort and probes in deployment.yaml). 80/443 are
+      # taken there by ServiceLB (traefik); TFTP stays on 69/udp.
+      - HTTP_PORT=8069
+      # Only these source addresses may fetch the Ignition config (it carries the join token).
+      - LAN_CIDR=192.168.19.0/24
+      - FCOS_STREAM=stable
+      # Keep in step with the servers: an agent must not be newer than the control plane.
+      # SHA256 is the `k3s` line of the release's sha256sum-amd64.txt.
+      - K3S_VERSION=v1.36.4+k3s1
+      - K3S_SHA256=835873f37245fc615f547a2fe2af9402a347875f13fa64a1f136de644955ea3f
+      - K3S_SERVER=https://192.168.19.10:6443
+      # Public keys for the `core` user, fetched from github.com/<user>.keys when the pod starts.
+      - SSH_KEYS_GITHUB_USER=CalebSargeant
+      # Space-separated MACs that boot straight into the worker after 3s. Every
+      # other PXE client gets the menu and falls through to its next boot device
+      # after 10s, so a VM with network boot in its boot order can't join by accident.
+      - AUTOBOOT_MACS=
+labels:
+  - pairs:
+      placement.sargeant.co/priority: low
+    includeSelectors: false
+    includeTemplates: false

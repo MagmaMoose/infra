@@ -96,6 +96,7 @@ resources:
   - ./seaweedfs-migration
   # platform (node-level tuning)
   - ./node-tuning
+  - ./pxe-netboot
   - ./system-upgrade-controller
   # progressive delivery
   - ./flagger

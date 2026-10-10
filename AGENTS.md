@@ -436,6 +436,25 @@ workloads (GitHub-App backends) and the `postgres-oci` DB. Full detail:
   images are amd64-only.
 - **Label-only, no taint** (no toleration churn across DaemonSets).
 
+## PXE netboot worker tier
+
+`kubernetes/apps/pxe-netboot` serves shim/GRUB (TFTP) and Fedora CoreOS + Ignition
+(HTTP) from ff-pi2's host network, so any x86_64 UEFI machine on the LAN can boot a
+RAM-only k3s agent. Runbook: `docs/operations/pxe-netboot.md`.
+
+- **These nodes vanish** whenever the machine boots its own OS. They register as
+  `ff-pxe-<mac suffix>` with `topology.sargeant.co/tier=pxe` and the taint
+  `topology.sargeant.co/ephemeral=true:NoSchedule`, and **opposite to the OCI tier
+  they are tainted on purpose**. Never give them `tier=on-prem` or
+  `node-role.kubernetes.io/worker`: those pull in hostPath-backed apps (COMMON_MISTAKES #38).
+- **Join uses a bootstrap token, not the node-token.** `bootstrap-token-ub1wdh` in
+  `kube-system` is ESO-rendered from OCI Vault `k3s-firefly-pxe-bootstrap-token`;
+  k3s refuses bootstrap tokens for servers. The node password is derived from token +
+  MAC, so rotating the token means deleting the `ff-pxe-*` Nodes.
+- **Bump `K3S_VERSION`/`K3S_SHA256`** in the app's settings with every cluster upgrade.
+- The DHCP half (matcher, option set, `next-server`) is on ff-crs1 and not in this
+  repo. Moving the pod off ff-pi2 means changing `next-server` there too.
+
 ## When Making Changes
 
 ### Before Editing Terraform

@@ -1,0 +1,28 @@
+# Rendered by the pxe-netboot init container (kubernetes/apps/pxe-netboot).
+# Unknown machines fall through to their next boot device after 10s, so a VM
+# that happens to try the network first cannot join firefly by accident.
+set timeout=10
+set default=exit
+@@AUTOBOOT@@
+
+set pxe_http="(http,@@HOST_IP@@:@@HTTP_PORT@@)"
+set pxe_tftp="(tftp,@@HOST_IP@@)"
+# enforcing=0: k3s runs without the k3s-selinux policy package, which cannot be
+# layered onto a live image. Nothing persists, so SELinux would only get in the way.
+set fcos_args="coreos.live.rootfs_url=http://@@HOST_IP@@:@@HTTP_PORT@@/fcos/rootfs.img ignition.firstboot ignition.platform.id=metal ignition.config.url=http://@@HOST_IP@@:@@HTTP_PORT@@/ignition/worker.ign enforcing=0"
+
+menuentry 'Join firefly as a k3s worker (Fedora CoreOS, runs from RAM)' --id fcos {
+  echo 'Loading the Fedora CoreOS kernel...'
+  if linux ${pxe_http}/fcos/kernel ${fcos_args}; then
+    echo 'Loading the initramfs...'
+  else
+    echo 'HTTP failed, retrying over TFTP (slower)...'
+    set pxe_http="${pxe_tftp}"
+    linux ${pxe_http}/fcos/kernel ${fcos_args}
+  fi
+  initrd ${pxe_http}/fcos/initramfs.img
+}
+
+menuentry 'Boot the next device instead' --id exit {
+  exit
+}
