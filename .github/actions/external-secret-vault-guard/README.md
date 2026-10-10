@@ -64,18 +64,23 @@ the fastest way to see whether your manifest is being parsed as you expect.
 
 For a full check set `OCI_TENANCY_OCID`, `OCI_USER_OCID`, `OCI_FINGERPRINT`,
 `OCI_KEY_CONTENT`, `OCI_REGION` and `OCI_VAULT_OCID` (plus `OCI_COMPARTMENT_OCID`
-when the secrets are not in the tenancy root). Without them the guard exits `2`;
-add `--allow-skip` to get `VAULT COMPARISON SKIPPED` and exit 0 instead.
+when the secrets are not in the tenancy root).
 
 ## Behaviour without credentials
 
-Missing credentials fail the run with exit `2` unless the caller passes
-`allow-skip: true`. The workflow passes it only for fork PRs and Dependabot,
-which GitHub never gives secrets. Anywhere else a missing credential is a
-misconfiguration, and the workflow names the unset repository secrets before the
-guard runs (the guard itself can only name the env vars it reads).
+The guard decides whether credentials are present by checking the five secret-bearing
+vars (`OCI_TENANCY_OCID`, `OCI_USER_OCID`, `OCI_FINGERPRINT`, `OCI_KEY_CONTENT`,
+`OCI_VAULT_OCID`). `OCI_REGION` is excluded from this check because the workflow
+always provides a default value for it.
 
-With `allow-skip`, the guard never fails closed and never passes silently:
+- **All five absent** — exits `0` with a `SKIPPED` warning. This covers fork PRs and
+  Dependabot, which GitHub never gives secrets.
+- **Some but not all present** — exits `2` (misconfiguration). The workflow names the
+  unset repository secrets before the guard runs (the guard itself can only name the
+  env vars it reads).
+- **All present** — runs the full vault comparison.
+
+The guard never fails closed and never passes silently:
 
 - exit code `0`
 - the word `PASS` is **never** printed on this path; `SKIPPED` is never printed
