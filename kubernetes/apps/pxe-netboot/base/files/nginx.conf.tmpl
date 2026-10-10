@@ -1,0 +1,20 @@
+# Rendered by the pxe-netboot init container.
+server {
+    listen @@HTTP_PORT@@;
+    root /srv/boot;
+    autoindex off;
+    sendfile on;
+    tcp_nopush on;
+
+    location = /healthz {
+        access_log off;
+        return 200 "ok\n";
+    }
+
+    # The Ignition config carries the k3s join token.
+    location /ignition/ {
+        alias /srv/ignition/;
+        allow @@LAN_CIDR@@;
+        deny all;
+    }
+}

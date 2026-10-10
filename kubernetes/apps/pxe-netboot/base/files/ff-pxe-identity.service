@@ -1,0 +1,13 @@
+[Unit]
+Description=Stable node name and k3s node password for a RAM-only PXE node
+Wants=network-online.target
+After=network-online.target
+Before=k3s-agent.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/ff-pxe-identity
+
+[Install]
+WantedBy=multi-user.target

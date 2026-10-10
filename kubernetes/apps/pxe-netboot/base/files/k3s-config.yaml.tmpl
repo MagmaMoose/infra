@@ -1,0 +1,13 @@
+server: @@K3S_SERVER@@
+token: @@TOKEN@@
+# A RAM-only node disappears whenever its machine reboots into its own OS, and
+# anything scheduled there goes with it. The taint keeps ordinary workloads,
+# Longhorn and ServiceLB off it; a workload opts in with a matching toleration
+# plus a nodeSelector on the tier label. Deliberately no tier=on-prem or
+# node-role.kubernetes.io/worker: those would pull in apps whose state is a
+# hostPath on ff-vm1.
+node-label:
+  - topology.sargeant.co/tier=pxe
+  - topology.sargeant.co/ephemeral=true
+node-taint:
+  - topology.sargeant.co/ephemeral=true:NoSchedule
