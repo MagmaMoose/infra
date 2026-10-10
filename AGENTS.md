@@ -80,7 +80,7 @@ kubernetes/
     configs/                     # Cluster-wide namespaces (Flux Kustomization: infrastructure-configs)
     controllers/                 # cert-manager, external-secrets, 1password-connect, cloudnative-pg
                                  # (Flux Kustomization: infrastructure-controllers, dependsOn configs)
-    services/                    # cloudflared, minio, external-dns×2, postgres, mariadb
+    services/                    # cloudflared, minio, external-dns×2, postgres, mariadb, pod-gateway, valkey
                                  # (Flux Kustomization: infrastructure-services, dependsOn controllers)
 ```
 
